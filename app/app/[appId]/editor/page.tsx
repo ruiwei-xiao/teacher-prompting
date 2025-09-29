@@ -2,7 +2,6 @@
 import { useState } from "react";
 import EditorChrome from "@/components/editor/EditorChrome";
 import LeftChat from "@/components/editor/LeftChat";
-import EditorToolbar from "@/components/editor/EditorToolbar";
 import InstructionDoc from "@/components/editor/InstructionDoc";
 import RightRail from "@/components/editor/RightRail";
 import AssistantPanel from "@/components/editor/AssistantPanel";
@@ -23,7 +22,6 @@ export default function EditorPage({ params }: { params: { appId: string } }) {
         </div>
 
         <section className="h-full bg-white flex flex-col">
-          <EditorToolbar />
           <div className="min-h-0 flex-1">
             <InstructionDoc />
           </div>

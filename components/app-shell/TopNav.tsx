@@ -5,7 +5,7 @@ export default function TopNav() {
     <header className="sticky top-0 z-10 border-b bg-white/70 backdrop-blur">
       <div className="mx-auto max-w-7xl h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <span className="text-xl font-black tracking-tight text-sky-600">Playlab</span>
+          <span className="text-xl font-black tracking-tight text-sky-600">LLM Hint Factory</span>
           <nav className="hidden md:flex items-center gap-6 text-[15px] text-slate-700">
             <a className="hover:text-slate-900" href="#">Apps</a>
             <a className="hover:text-slate-900" href="#">My Activity</a>

@@ -9,7 +9,7 @@ export default function AssistantPanel() {
       <div className="px-4 py-3 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon d="M3 12a9 9 0 1018 0A9 9 0 003 12zm10-4H8v2h5V8zm3 4H8v2h8v-2zm-3 4H8v2h5v-2z" className="w-5 h-5 text-slate-600"/>
-          <h3 className="font-semibold">Playlab Assistant</h3>
+          <h3 className="font-semibold">LLM Hint Factory Assistant</h3>
         </div>
         <div className="flex items-center gap-3">
           <button className="p-1.5 rounded hover:bg-slate-100" title="Refresh">
@@ -32,10 +32,10 @@ export default function AssistantPanel() {
         <div className="text-[12px] text-slate-500">Session 9/22/2025, 11:31 AM · GPT-4o</div>
         <div className="flex items-center gap-3">
           <div className="h-5 w-5 rounded-full bg-sky-500" />
-          <div className="text-xs inline-flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg">fff</div>
+          <div className="text-xs inline-flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg">Hi</div>
         </div>
         <div className="text-slate-800 leading-relaxed">
-          Welcome to the Playlab Assistant. I'm here to help you develop ideas or iterate on your prompts.
+          Welcome to the LLM Hint Factory Assistant. I'm here to help you develop ideas or iterate on your prompts.
           You can click the <strong>New session</strong> button in the top right corner at any time to start a new session.
           <br/><br/>
           Would you consider yourself a <strong>(b)</strong>eginner, <strong>(i)</strong>ntermediate, or <strong>(a)</strong>dvanced user?
