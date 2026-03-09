@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   detectVisualizationMode,
+  type VisualizationState,
   VisualizationSurface,
 } from "@/components/editor/AssistantPanel";
 
@@ -29,6 +30,8 @@ export default function PublishedChatbot({
   ]);
   const [busy, setBusy] = useState(false);
   const [visualFullscreen, setVisualFullscreen] = useState(false);
+  const [visualizationState, setVisualizationState] =
+    useState<VisualizationState | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
@@ -65,6 +68,7 @@ export default function PublishedChatbot({
         body: JSON.stringify({
           appId,
           messages: nextMessages,
+          visualizationState,
         }),
       });
 
@@ -153,6 +157,7 @@ export default function PublishedChatbot({
                 <VisualizationSurface
                   mode={visualizationMode}
                   latestUserMessage={latestUserMessage}
+                  onStateChange={setVisualizationState}
                 />
               </div>
             </div>

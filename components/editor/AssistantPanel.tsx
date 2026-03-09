@@ -7,6 +7,32 @@ type ChatMessage = {
   content: string;
 };
 
+export type VisualizationState =
+  | {
+      mode: "code-tracing";
+      data: {
+        code: string;
+        activeStep: number;
+        totalSteps: number;
+        currentStatement: string;
+        currentState: Record<string, string>;
+        output: string[];
+      };
+    }
+  | {
+      mode: "virtual-lab";
+      data: {
+        equation: string;
+        title: string;
+        effectType: "gas" | "neutralization" | "precipitate" | "general";
+        reactants: { label: string; amount: number }[];
+        additions: { reagent: string; amount: number }[];
+        reactionProgress: number;
+        visibleOutcome: string;
+        expectedProducts: string[];
+      };
+    };
+
 function Icon({
   d,
   className = "w-4 h-4",
@@ -444,8 +470,10 @@ function buildTraceFromCode(code: string) {
 
 function TraceVisualization({
   latestUserMessage,
+  onStateChange,
 }: {
   latestUserMessage?: string;
+  onStateChange?: (state: VisualizationState) => void;
 }) {
   const latestMessageCode = extractStudentCode(latestUserMessage);
   const initialCode = latestMessageCode || TRACE_EXAMPLES["Sum a list"];
@@ -457,6 +485,20 @@ function TraceVisualization({
   const [activeStep, setActiveStep] = useState(0);
 
   const currentStep = traceSteps[activeStep];
+
+  useEffect(() => {
+    onStateChange?.({
+      mode: "code-tracing",
+      data: {
+        code: traceCode,
+        activeStep,
+        totalSteps: traceSteps.length,
+        currentStatement: currentStep?.statement || "",
+        currentState: currentStep?.state || {},
+        output: currentStep?.output || [],
+      },
+    });
+  }, [activeStep, currentStep, onStateChange, traceCode, traceSteps]);
 
   function rebuildTrace(nextCode: string) {
     const result = buildTraceFromCode(nextCode);
@@ -694,199 +736,494 @@ function TraceVisualization({
   );
 }
 
-function VirtualLabVisualization() {
-  const reagents = [
+type LabEffectType = "gas" | "neutralization" | "precipitate" | "general";
+
+type LabReagent = {
+  id: string;
+  label: string;
+  shortLabel: string;
+  color: string;
+  note: string;
+};
+
+type LabProfile = {
+  equation: string;
+  title: string;
+  summary: string;
+  reagents: LabReagent[];
+  apparatus: string[];
+  effectType: LabEffectType;
+  expectedProducts: string[];
+  teacherPrompt: string;
+};
+
+function normalizeEquation(equation: string) {
+  return equation.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function splitEquationSides(equation: string) {
+  const [leftRaw = "", rightRaw = ""] = equation
+    .replace(/=>/g, "->")
+    .replace(/=/g, "->")
+    .split("->");
+
+  const left = leftRaw
+    .split("+")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const right = rightRaw
+    .split("+")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return { left, right };
+}
+
+function formatChemicalLabel(species: string) {
+  const KNOWN_LABELS: Record<string, string> = {
+    CH3COOH: "Vinegar (CH3COOH)",
+    NaHCO3: "Baking Soda (NaHCO3)",
+    HCl: "Hydrochloric Acid (HCl)",
+    NaOH: "Sodium Hydroxide (NaOH)",
+    AgNO3: "Silver Nitrate (AgNO3)",
+    NaCl: "Sodium Chloride (NaCl)",
+    AgCl: "Silver Chloride (AgCl)",
+    H2O: "Water (H2O)",
+    CO2: "Carbon Dioxide (CO2)",
+    CH3COONa: "Sodium Acetate (CH3COONa)",
+  };
+
+  return KNOWN_LABELS[species] || species;
+}
+
+function getReagentNote(effectType: LabEffectType, species: string) {
+  if (effectType === "gas") {
+    return species.includes("HCO3") || species.includes("CO3")
+      ? "Produces gas when combined with an acid."
+      : "Supports a visible gas-forming reaction.";
+  }
+
+  if (effectType === "neutralization") {
+    return species.startsWith("H")
+      ? "Acts as the acid reactant in the neutralization."
+      : "Acts as the base reactant in the neutralization.";
+  }
+
+  if (effectType === "precipitate") {
+    return "Combines with another dissolved substance to form a visible solid.";
+  }
+
+  return "Auto-generated from the reaction equation.";
+}
+
+function inferReactionProfile(equation: string): LabProfile {
+  const { left, right } = splitEquationSides(equation);
+  const normalized = normalizeEquation(equation);
+  const containsAcid = /(hcl|hno3|h2so4|ch3cooh)/.test(normalized);
+  const containsBase = /(naoh|koh|nh4oh|nahco3|co3)/.test(normalized);
+  const containsCo2 = /(^|[^a-z])co2([^a-z]|$)/.test(normalized);
+  const containsPrecipitateProduct = /(agcl|baso4|caco3|pbi2)/.test(normalized);
+
+  let effectType: LabEffectType = "general";
+  if (containsCo2 || /(hco3|co3)/.test(normalized)) {
+    effectType = "gas";
+  } else if (containsPrecipitateProduct) {
+    effectType = "precipitate";
+  } else if (containsAcid && containsBase) {
+    effectType = "neutralization";
+  }
+
+  const colorPalette = ["#bfdbfe", "#fde68a", "#d1fae5", "#fecaca", "#c4b5fd"];
+  const reagents = left.map((species, index) => ({
+    id: `equation-${index}`,
+    label: formatChemicalLabel(species),
+    shortLabel: species.replace(/\s+/g, ""),
+    color: colorPalette[index % colorPalette.length],
+    note: getReagentNote(effectType, species),
+  }));
+
+  const expectedProducts = right.length
+    ? right.map((species) => formatChemicalLabel(species))
+    : ["Observe the generated reaction products"];
+
+  if (effectType === "gas") {
+    return {
+      equation,
+      title: "Gas-forming reaction lab",
+      summary: "This equation suggests a reaction that releases a visible gas.",
+      reagents,
+      apparatus: ["Beaker", "Dropper", "Gas bubbles view"],
+      effectType,
+      expectedProducts,
+      teacherPrompt:
+        "Ask the student which reactants must collide to make the bubbles appear and what evidence shows gas production.",
+    };
+  }
+
+  if (effectType === "neutralization") {
+    return {
+      equation,
+      title: "Neutralization lab",
+      summary: "This equation suggests an acid-base reaction that trends toward neutral products.",
+      reagents,
+      apparatus: ["Beaker", "Thermometer", "Indicator color panel"],
+      effectType,
+      expectedProducts,
+      teacherPrompt:
+        "Ask the student how they would tell when the acid and base amounts are closest to balanced.",
+    };
+  }
+
+  if (effectType === "precipitate") {
+    return {
+      equation,
+      title: "Precipitation lab",
+      summary: "This equation suggests a visible solid forms from dissolved reactants.",
+      reagents,
+      apparatus: ["Beaker", "Dropper", "Precipitate view panel"],
+      effectType,
+      expectedProducts,
+      teacherPrompt:
+        "Ask the student why a solid can appear even if both starting solutions look clear.",
+    };
+  }
+
+  return {
+    equation,
+    title: "Equation-driven virtual lab",
+    summary: "This lab was generated from the reaction equation with a general reaction scaffold.",
+    reagents,
+    apparatus: ["Beaker", "Dropper", "Observation panel"],
+    effectType,
+    expectedProducts,
+    teacherPrompt:
+      "Ask the student what visible evidence they would expect if this reaction is really happening.",
+  };
+}
+
+function VirtualLabVisualization({
+  onStateChange,
+}: {
+  onStateChange?: (state: VisualizationState) => void;
+}) {
+  const REACTION_PRESETS = [
     {
-      id: "water",
-      label: "Water",
-      shortLabel: "H2O",
-      color: "#bfdbfe",
-      note: "Use this as the base liquid for most middle school lab setups.",
+      equation: "CH3COOH + NaHCO3 -> CO2 + H2O + CH3COONa",
+      title: "Acid-base gas formation",
+      summary: "Vinegar reacts with baking soda and releases carbon dioxide bubbles.",
+      reagents: [
+        {
+          id: "ch3cooh",
+          label: "Vinegar (CH3COOH)",
+          shortLabel: "Acid",
+          color: "#fde68a",
+          note: "Weak acid used in a classic fizzing reaction.",
+        },
+        {
+          id: "nahco3",
+          label: "Baking Soda (NaHCO3)",
+          shortLabel: "Base",
+          color: "#e5e7eb",
+          note: "Mild base that produces gas when mixed with vinegar.",
+        },
+        {
+          id: "indicator",
+          label: "Indicator",
+          shortLabel: "pH",
+          color: "#c4b5fd",
+          note: "Optional color cue for noticing acidity changes.",
+        },
+      ],
+      apparatus: ["Beaker", "Measuring dropper", "Gas bubbles view"],
+      effectType: "gas" as const,
+      expectedProducts: ["CO2 gas", "Water", "Sodium acetate solution"],
+      teacherPrompt:
+        "Ask the student which reactant is limiting and whether adding more acid or more base would make the fizz last longer.",
     },
     {
-      id: "vinegar",
-      label: "Vinegar",
-      shortLabel: "Acid",
-      color: "#fde68a",
-      note: "Weak acid that reacts with baking soda.",
+      equation: "HCl + NaOH -> NaCl + H2O",
+      title: "Neutralization",
+      summary: "An acid and a base react to make salt and water, with a small temperature rise.",
+      reagents: [
+        {
+          id: "hcl",
+          label: "Hydrochloric Acid (HCl)",
+          shortLabel: "Acid",
+          color: "#fecaca",
+          note: "Virtual dilute acid used for a safe neutralization simulation.",
+        },
+        {
+          id: "naoh",
+          label: "Sodium Hydroxide (NaOH)",
+          shortLabel: "Base",
+          color: "#bfdbfe",
+          note: "Virtual dilute base used for a safe neutralization simulation.",
+        },
+        {
+          id: "indicator",
+          label: "Indicator",
+          shortLabel: "pH",
+          color: "#c4b5fd",
+          note: "Shows whether the mixture is acidic, basic, or neutral.",
+        },
+      ],
+      apparatus: ["Beaker", "Thermometer", "Indicator color panel"],
+      effectType: "neutralization" as const,
+      expectedProducts: ["Salt solution", "Water"],
+      teacherPrompt:
+        "Ask the student when the indicator should look most neutral and why matching amounts matters.",
     },
     {
-      id: "baking-soda",
-      label: "Baking Soda",
-      shortLabel: "Base",
-      color: "#e5e7eb",
-      note: "Common classroom base used for fizzing reactions.",
-    },
-    {
-      id: "indicator",
-      label: "Cabbage Indicator",
-      shortLabel: "pH",
-      color: "#c4b5fd",
-      note: "Shows acid or base by changing color.",
-    },
-    {
-      id: "salt",
-      label: "Salt",
-      shortLabel: "NaCl",
-      color: "#d1fae5",
-      note: "Helps explore dissolving and conductivity.",
-    },
-    {
-      id: "soap",
-      label: "Dish Soap",
-      shortLabel: "Soap",
-      color: "#fbcfe8",
-      note: "Can trap gas bubbles into foam.",
+      equation: "AgNO3 + NaCl -> AgCl + NaNO3",
+      title: "Precipitation reaction",
+      summary: "Two clear solutions react to form a cloudy white precipitate.",
+      reagents: [
+        {
+          id: "agno3",
+          label: "Silver Nitrate (AgNO3)",
+          shortLabel: "AgNO3",
+          color: "#e0f2fe",
+          note: "Virtual solution used to form a visible precipitate.",
+        },
+        {
+          id: "nacl",
+          label: "Sodium Chloride (NaCl)",
+          shortLabel: "NaCl",
+          color: "#d1fae5",
+          note: "Virtual salt solution that forms solid silver chloride.",
+        },
+        {
+          id: "water",
+          label: "Water",
+          shortLabel: "H2O",
+          color: "#bfdbfe",
+          note: "Can dilute the mixture and reduce cloudiness.",
+        },
+      ],
+      apparatus: ["Beaker", "Dropper", "Precipitate view panel"],
+      effectType: "precipitate" as const,
+      expectedProducts: ["Silver chloride solid", "Sodium nitrate solution"],
+      teacherPrompt:
+        "Ask the student why a solid appears even though both starting solutions were clear.",
     },
   ] as const;
 
+  function getReactionPreset(equation: string) {
+    const normalized = normalizeEquation(equation);
+    return (
+      REACTION_PRESETS.find(
+        (preset) => normalizeEquation(preset.equation) === normalized
+      ) || null
+    );
+  }
+
+  const defaultEquation = REACTION_PRESETS[0].equation;
   const amountOptions = [5, 10, 20];
-  const [experiment, setExperiment] = useState("Vinegar + baking soda");
+  const [reactionInput, setReactionInput] = useState<string>(defaultEquation);
+  const [activeEquation, setActiveEquation] = useState<string>(defaultEquation);
   const [heatLevel, setHeatLevel] = useState(10);
-  const [selectedReagent, setSelectedReagent] =
-    useState<(typeof reagents)[number]["id"]>("water");
+
+  const activePreset = getReactionPreset(activeEquation);
+  const activeProfile = activePreset || inferReactionProfile(activeEquation);
+  const generatedReagents = activeProfile.reagents;
+  const selectedDefaultReagent = generatedReagents[0]?.id || "generic-0";
+  const [selectedReagent, setSelectedReagent] = useState(selectedDefaultReagent);
   const [selectedAmount, setSelectedAmount] = useState(10);
-  const [additions, setAdditions] = useState<
-    Array<{
-      reagentId: (typeof reagents)[number]["id"];
-      amount: number;
-    }>
-  >([
-    { reagentId: "water", amount: 10 },
-    { reagentId: "indicator", amount: 5 },
-  ]);
+  const [additions, setAdditions] = useState<Array<{ reagentId: string; amount: number }>>([]);
+
+  useEffect(() => {
+    setSelectedReagent(generatedReagents[0]?.id || "generic-0");
+    setAdditions([]);
+  }, [activeEquation]);
 
   const reagentMap = Object.fromEntries(
-    reagents.map((reagent) => [reagent.id, reagent])
-  ) as Record<(typeof reagents)[number]["id"], (typeof reagents)[number]>;
+    generatedReagents.map((reagent) => [reagent.id, reagent])
+  ) as Record<string, LabReagent>;
 
   const totals = additions.reduce<Record<string, number>>((acc, addition) => {
     acc[addition.reagentId] = (acc[addition.reagentId] || 0) + addition.amount;
     return acc;
   }, {});
 
-  const waterAmount = totals["water"] || 0;
-  const vinegarAmount = totals["vinegar"] || 0;
-  const bakingSodaAmount = totals["baking-soda"] || 0;
-  const indicatorAmount = totals["indicator"] || 0;
-  const saltAmount = totals["salt"] || 0;
-  const soapAmount = totals["soap"] || 0;
   const totalVolume = additions.reduce((sum, addition) => sum + addition.amount, 0);
+  const reactantAmounts = generatedReagents.map((reagent) => totals[reagent.id] || 0);
+  const matchedVolume =
+    reactantAmounts.length > 1 ? Math.min(...reactantAmounts.filter((amount) => amount > 0)) : 0;
+  const reactionProgress = Math.min(100, matchedVolume * 5 + heatLevel * 0.15);
 
-  const acidBaseStrength = Math.min(100, Math.min(vinegarAmount, bakingSodaAmount) * 4);
-  const conductivityStrength = Math.min(
-    100,
-    waterAmount > 0 ? saltAmount * 4 + waterAmount : saltAmount * 2
-  );
-  const foamBoost = soapAmount > 0 ? Math.min(25, soapAmount * 1.5) : 0;
-  const gasStrength =
-    experiment === "Vinegar + baking soda"
-      ? Math.min(100, acidBaseStrength + foamBoost)
-      : experiment === "Indicator mystery cup"
-        ? Math.min(100, acidBaseStrength * 0.45)
-        : Math.min(100, conductivityStrength * 0.2);
-  const conductivityLevel =
-    conductivityStrength < 20
-      ? "Low"
-      : conductivityStrength < 55
-        ? "Medium"
-        : "High";
-  const bulbGlow = Math.max(
-    0.12,
-    experiment === "Salt water conductivity" ? conductivityStrength / 100 : 0.12
-  );
-  const temperature = Math.round(21 + heatLevel * 0.12 + acidBaseStrength * 0.05);
+  const isGasReaction = activeProfile.effectType === "gas";
+  const isNeutralization = activeProfile.effectType === "neutralization";
+  const isPrecipitate = activeProfile.effectType === "precipitate";
 
-  let liquidColor = "#bfdbfe";
-  let pHLabel = "Neutral";
-  if (indicatorAmount > 0) {
-    if (vinegarAmount > bakingSodaAmount) {
-      liquidColor = "#f9a8d4";
-      pHLabel = "Acidic";
-    } else if (bakingSodaAmount > vinegarAmount) {
-      liquidColor = "#86efac";
-      pHLabel = "Basic";
-    } else {
-      liquidColor = "#c4b5fd";
-      pHLabel = "Near neutral";
-    }
-  } else if (vinegarAmount > 0) {
+  const gasStrength = isGasReaction ? Math.min(100, reactionProgress + 10) : 0;
+  const precipitateStrength = isPrecipitate ? Math.min(100, reactionProgress + 8) : 0;
+  const colorShift = isNeutralization ? Math.min(100, reactionProgress) : 0;
+  const temperature = Math.round(
+    21 +
+      heatLevel * 0.12 +
+      (isNeutralization ? reactionProgress * 0.08 : 0) +
+      (isGasReaction ? reactionProgress * 0.03 : 0)
+  );
+
+  let liquidColor = "#dbeafe";
+  let visibleOutcome = "No strong visible change yet.";
+
+  if (isGasReaction && gasStrength > 0) {
     liquidColor = "#fde68a";
-    pHLabel = "Acidic";
-  } else if (saltAmount > 0) {
-    liquidColor = "#d1fae5";
-    pHLabel = "Neutral salt solution";
+    visibleOutcome = "Fizzing bubbles appear as carbon dioxide gas forms.";
+  } else if (isNeutralization && colorShift > 0) {
+    liquidColor =
+      reactantAmounts[0] > reactantAmounts[1]
+        ? "#f9a8d4"
+        : reactantAmounts[1] > reactantAmounts[0]
+          ? "#86efac"
+          : "#c4b5fd";
+    visibleOutcome =
+      reactantAmounts[0] === reactantAmounts[1]
+        ? "The indicator moves toward a neutral color."
+        : "The indicator shows whether acid or base is still left over.";
+  } else if (isPrecipitate && precipitateStrength > 0) {
+    liquidColor = "#e2e8f0";
+    visibleOutcome = "The solution becomes cloudy as a white precipitate forms.";
+  } else if (generatedReagents.length > 0) {
+    liquidColor = generatedReagents[0].color;
+    visibleOutcome = "The generated lab is ready. Add the listed reactants to test the equation.";
   }
 
-  const precipitateLabel =
-    experiment === "Salt water conductivity" && saltAmount > 20 && waterAmount < 10
-      ? "Some crystals remain undissolved"
-      : "None visible";
-  const bubbleLevel =
-    gasStrength < 15 ? "Low" : gasStrength < 45 ? "Moderate" : "High";
-  const chartHeights = [0.22, 0.4, 0.62, 0.8, 0.54].map((factor) =>
-    Math.max(10, Math.min(94, Math.round(factor * gasStrength + 12)))
-  );
-  const beakerFillHeight = Math.max(22, Math.min(84, 24 + totalVolume * 1.6));
+  const beakerFillHeight = Math.max(22, Math.min(84, 24 + totalVolume * 1.4));
+  const bubbleCount = Math.max(0, Math.round(gasStrength / 11));
+  const cloudOpacity = Math.max(0.08, precipitateStrength / 100);
+  const neutralizationLevel =
+    reactantAmounts.length >= 2 && reactantAmounts[0] === reactantAmounts[1] && reactantAmounts[0] > 0
+      ? "Balanced"
+      : reactantAmounts.length >= 2 && reactantAmounts[0] > reactantAmounts[1]
+        ? "Acid excess"
+        : reactantAmounts.length >= 2 && reactantAmounts[1] > reactantAmounts[0]
+          ? "Base excess"
+          : "Not enough data";
 
-  let observation = "Add reagents to begin the virtual lab.";
-  let studentTask = "Choose a reagent, choose an amount, and click Add to beaker.";
-
-  if (experiment === "Vinegar + baking soda") {
-    observation =
-      acidBaseStrength > 0
-        ? "The acid and base are reacting and releasing carbon dioxide gas, so the mixture fizzes."
-        : "This setup is ready for a fizzing reaction once both vinegar and baking soda are present.";
-    studentTask = "Ask the student to predict whether adding more vinegar or more baking soda will increase the fizz.";
-  } else if (experiment === "Indicator mystery cup") {
-    observation =
-      indicatorAmount > 0
-        ? "The indicator reveals whether the mixture is acidic, basic, or close to neutral by changing color."
-        : "Add cabbage indicator to reveal the pH color change.";
-    studentTask = "Have the student predict the color before they add indicator or change the mixture.";
-  } else {
-    observation =
-      conductivityStrength > 0
-        ? "Dissolved salt releases ions into the water, which makes the solution conduct electricity better."
-        : "This lab compares plain water with salt water to test conductivity.";
-    studentTask = "Ask the student when they expect the bulb to glow more strongly.";
-  }
+  const stateLabel = isGasReaction
+    ? gasStrength < 20
+      ? "Low bubbling"
+      : gasStrength < 55
+        ? "Moderate bubbling"
+        : "High bubbling"
+    : isPrecipitate
+      ? precipitateStrength < 20
+        ? "Slight cloudiness"
+        : precipitateStrength < 55
+          ? "Visible precipitate"
+          : "Heavy precipitate"
+      : neutralizationLevel;
 
   const latestActions = additions.slice(-5).reverse();
+  const chartHeights = [0.25, 0.46, 0.68, 0.84, 0.58].map((factor) =>
+    Math.max(8, Math.min(94, Math.round(factor * Math.max(reactionProgress, 15))))
+  );
+  const generatedTitle = activeProfile.title;
+  const generatedSummary = activeProfile.summary;
+  const teacherPrompt = activeProfile.teacherPrompt;
+
+  useEffect(() => {
+    onStateChange?.({
+      mode: "virtual-lab",
+      data: {
+        equation: activeEquation,
+        title: generatedTitle,
+        effectType: activeProfile.effectType,
+        reactants: generatedReagents.map((reagent) => ({
+          label: reagent.label,
+          amount: totals[reagent.id] || 0,
+        })),
+        additions: additions.map((addition) => ({
+          reagent: reagentMap[addition.reagentId]?.label || addition.reagentId,
+          amount: addition.amount,
+        })),
+        reactionProgress,
+        visibleOutcome,
+        expectedProducts: [...activeProfile.expectedProducts],
+      },
+    });
+  }, [
+    activeEquation,
+    activeProfile.effectType,
+    activeProfile.expectedProducts,
+    additions,
+    generatedReagents,
+    generatedTitle,
+    onStateChange,
+    reactionProgress,
+    reagentMap,
+    totals,
+    visibleOutcome,
+  ]);
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
         <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-          Interactive middle school chemistry lab
+          Reaction-based virtual lab
         </div>
         <div className="mt-1 text-sm text-slate-700">
-          Students can click reagents, choose an amount, and inspect the experimental
-          effect inside the virtual lab.
+          Given a chemical reaction equation, this panel generates the reagents,
+          apparatus, and visible lab effects for the experiment.
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_1.2fr]">
-          <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Experiment
-            </span>
-            <select
-              value={experiment}
-              onChange={(event) => setExperiment(event.target.value)}
-              className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-700"
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {REACTION_PRESETS.map((preset) => (
+            <button
+              key={preset.equation}
+              type="button"
+              onClick={() => {
+                setReactionInput(preset.equation);
+                setActiveEquation(preset.equation);
+              }}
+              className={[
+                "rounded-full border px-3 py-1.5 text-xs font-medium",
+                activeEquation === preset.equation
+                  ? "border-emerald-600 bg-emerald-600 text-white"
+                  : "border-emerald-200 bg-white text-slate-700 hover:bg-emerald-100",
+              ].join(" ")}
             >
-              {[
-                "Vinegar + baking soda",
-                "Indicator mystery cup",
-                "Salt water conductivity",
-              ].map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
+              {preset.equation}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-2xl border border-emerald-200 bg-white p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Reaction equation
+            </div>
+            <textarea
+              value={reactionInput}
+              onChange={(event) => setReactionInput(event.target.value)}
+              className="mt-3 min-h-24 w-full rounded-2xl border border-emerald-200 bg-white p-3 font-mono text-xs text-slate-800 outline-none focus:border-emerald-400"
+              placeholder="Enter a chemical reaction equation"
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveEquation(reactionInput.trim() || defaultEquation)}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Generate virtual lab
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReactionInput(defaultEquation);
+                  setActiveEquation(defaultEquation);
+                }}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Reset equation
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <label className="space-y-2 rounded-2xl border border-emerald-200 bg-white p-4">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 Heat level
               </span>
@@ -900,11 +1237,14 @@ function VirtualLabVisualization() {
               />
               <div className="text-xs text-slate-600">{heatLevel}% applied</div>
             </label>
-            <div className="rounded-2xl border border-emerald-200 bg-white p-3">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Student task
+                Generated lab
               </div>
-              <div className="mt-2 text-sm text-slate-700">{studentTask}</div>
+              <div className="mt-2 text-sm font-medium text-slate-800">
+                {generatedTitle}
+              </div>
+              <div className="mt-1 text-sm text-slate-600">{generatedSummary}</div>
             </div>
           </div>
         </div>
@@ -913,10 +1253,10 @@ function VirtualLabVisualization() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Reagent shelf
+                Generated reagents
               </div>
               <div className="mt-1 text-sm text-slate-700">
-                Click a reagent, choose an amount, then add it to the beaker.
+                Select one required reactant, choose an amount, then add it to the lab.
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -939,7 +1279,7 @@ function VirtualLabVisualization() {
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {reagents.map((reagent) => (
+            {generatedReagents.map((reagent) => (
               <button
                 key={reagent.id}
                 type="button"
@@ -979,9 +1319,10 @@ function VirtualLabVisualization() {
                   { reagentId: selectedReagent, amount: selectedAmount },
                 ])
               }
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              disabled={!generatedReagents.length}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Add {selectedAmount} mL of {reagentMap[selectedReagent].label}
+              Add {selectedAmount} mL of {reagentMap[selectedReagent]?.label || "reactant"}
             </button>
             <button
               type="button"
@@ -993,17 +1334,10 @@ function VirtualLabVisualization() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setAdditions([
-                  { reagentId: "water", amount: 10 },
-                  { reagentId: "indicator", amount: 5 },
-                ]);
-                setSelectedReagent("water");
-                setSelectedAmount(10);
-              }}
+              onClick={() => setAdditions([])}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
             >
-              Reset lab
+              Clear beaker
             </button>
           </div>
         </div>
@@ -1012,7 +1346,7 @@ function VirtualLabVisualization() {
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Apparatus
+            Generated apparatus
           </div>
           <div className="mt-4 flex items-end justify-center gap-6">
             <div className="flex flex-col items-center gap-2">
@@ -1020,78 +1354,79 @@ function VirtualLabVisualization() {
                 <div
                   className="absolute inset-x-0 bottom-0 transition-all"
                   style={{
-                    height: `${beakerFillHeight}%`,
+                    height: `${Math.max(22, Math.min(84, beakerFillHeight))}%`,
                     backgroundColor: liquidColor,
                   }}
                 />
                 <div className="absolute inset-x-2 bottom-2 top-2">
-                  {Array.from({
-                    length: Math.max(0, Math.round((gasStrength + foamBoost) / 12)),
-                  }).map((_, index) => (
+                  {Array.from({ length: bubbleCount }).map((_, index) => (
                     <div
                       key={index}
-                      className="absolute rounded-full border border-white/60 bg-white/40"
+                      className="absolute rounded-full border border-white/70 bg-white/50"
                       style={{
-                        left: `${(index * 19) % 70}%`,
-                        bottom: `${(index * 11) % 68}%`,
-                        height: `${10 + (index % 3) * 5}px`,
-                        width: `${10 + (index % 3) * 5}px`,
+                        left: `${(index * 17) % 72}%`,
+                        bottom: `${(index * 13) % 70}%`,
+                        height: `${9 + (index % 3) * 4}px`,
+                        width: `${9 + (index % 3) * 4}px`,
                       }}
                     />
                   ))}
                 </div>
-                <div
-                  className="absolute inset-x-0 top-0 rounded-t-2xl bg-white/70 transition-all"
-                  style={{ height: `${Math.max(0, 30 - gasStrength / 5)}%` }}
-                />
-                {soapAmount > 0 && gasStrength > 10 && (
+                {isPrecipitate && (
                   <div
-                    className="absolute inset-x-1 -top-2 rounded-full bg-white/80"
-                    style={{ height: `${8 + Math.min(20, foamBoost)}px` }}
+                    className="absolute inset-x-1 bottom-1 rounded-b-2xl bg-white transition-opacity"
+                    style={{
+                      height: `${Math.max(6, Math.min(26, precipitateStrength / 4))}%`,
+                      opacity: cloudOpacity,
+                    }}
                   />
                 )}
               </div>
-              <span className="text-[11px] text-slate-600">Beaker A</span>
+              <span className="text-[11px] text-slate-600">Beaker</span>
             </div>
+
             <div className="flex flex-col items-center gap-2">
               <div className="relative h-20 w-4 rounded-full bg-slate-300">
                 <div
                   className="absolute inset-x-0 bottom-0 rounded-full bg-rose-400"
-                  style={{ height: `${Math.max(15, Math.min(90, temperature - 10))}%` }}
+                  style={{ height: `${Math.max(15, Math.min(90, temperature - 8))}%` }}
                 />
               </div>
               <span className="text-[11px] text-slate-600">Thermometer</span>
             </div>
-            <div className="flex flex-col items-center gap-2">
-              <div
-                className="h-10 w-10 rounded-full bg-amber-200 shadow-inner"
-                style={{ opacity: Math.max(0.35, heatLevel / 100) }}
-              />
-              <span className="text-[11px] text-slate-600">Heat source</span>
-            </div>
+
             <div className="flex flex-col items-center gap-2">
               <div className="relative flex h-14 w-14 items-center justify-center rounded-full border-2 border-slate-300 bg-slate-100">
                 <div
-                  className="h-8 w-8 rounded-full bg-yellow-300 shadow-[0_0_24px_rgba(250,204,21,0.65)] transition-opacity"
-                  style={{ opacity: bulbGlow }}
+                  className={[
+                    "h-8 w-8 rounded-full transition-opacity",
+                    isPrecipitate ? "bg-slate-200" : "bg-yellow-300 shadow-[0_0_24px_rgba(250,204,21,0.65)]",
+                  ].join(" ")}
+                  style={{ opacity: isPrecipitate ? cloudOpacity : Math.max(0.16, reactionProgress / 100) }}
                 />
               </div>
-              <span className="text-[11px] text-slate-600">Bulb</span>
+              <span className="text-[11px] text-slate-600">
+                {isPrecipitate ? "Cloudiness" : "Energy cue"}
+              </span>
             </div>
           </div>
 
           <div className="mt-5 grid gap-3 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div className="text-[11px] uppercase tracking-wide text-slate-500">
-                Current setup
+                Equation
               </div>
-              <div className="mt-2 text-sm text-slate-700">{experiment}</div>
+              <div className="mt-2 break-words font-mono text-xs text-slate-700">
+                {activeEquation}
+              </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div className="text-[11px] uppercase tracking-wide text-slate-500">
-                Teacher cue
+                Apparatus list
               </div>
-              <div className="mt-2 text-sm text-slate-700">{observation}</div>
+              <div className="mt-2 text-sm text-slate-700">
+                {activeProfile.apparatus.join(", ")}
+              </div>
             </div>
           </div>
 
@@ -1106,12 +1441,12 @@ function VirtualLabVisualization() {
                     key={`${addition.reagentId}-${addition.amount}-${index}`}
                     className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm text-slate-700"
                   >
-                    <span>{reagentMap[addition.reagentId].label}</span>
+                    <span>{reagentMap[addition.reagentId]?.label || addition.reagentId}</span>
                     <span className="font-medium">{addition.amount} mL</span>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-slate-500">No actions yet.</div>
+                <div className="text-sm text-slate-500">No reactants added yet.</div>
               )}
             </div>
           </div>
@@ -1127,20 +1462,22 @@ function VirtualLabVisualization() {
               <span className="font-medium">{temperature}°C</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Color</span>
-              <span className="font-medium">{pHLabel}</span>
+              <span>Reaction progress</span>
+              <span className="font-medium">{reactionProgress}%</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Bubbles</span>
-              <span className="font-medium">{bubbleLevel}</span>
+              <span>Visible state</span>
+              <span className="font-medium">{stateLabel}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Conductivity</span>
-              <span className="font-medium">{conductivityLevel}</span>
+              <span>Products</span>
+              <span className="font-medium">
+                {activeProfile.expectedProducts.join(", ")}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Solid left</span>
-              <span className="font-medium">{precipitateLabel}</span>
+              <span>Total added</span>
+              <span className="font-medium">{totalVolume} mL</span>
             </div>
           </div>
 
@@ -1148,25 +1485,27 @@ function VirtualLabVisualization() {
             <div className="text-[11px] uppercase tracking-wide text-slate-500">
               What the student sees
             </div>
-            <div className="mt-2 text-sm text-slate-700">{observation}</div>
+            <div className="mt-2 text-sm text-slate-700">{visibleOutcome}</div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3">
             <div className="text-[11px] uppercase tracking-wide text-slate-500">
-              Mixture totals
+              Teacher cue
+            </div>
+            <div className="mt-2 text-sm text-slate-700">{teacherPrompt}</div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">
+              Reactant totals
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-700">
-              {reagents.map((reagent) => (
-                <div
-                  key={reagent.id}
-                  className="rounded-xl bg-emerald-50 px-3 py-2"
-                >
+              {generatedReagents.map((reagent) => (
+                <div key={reagent.id} className="rounded-xl bg-emerald-50 px-3 py-2">
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">
                     {reagent.shortLabel}
                   </div>
-                  <div className="mt-1 font-medium">
-                    {totals[reagent.id] || 0} mL
-                  </div>
+                  <div className="mt-1 font-medium">{totals[reagent.id] || 0} mL</div>
                 </div>
               ))}
             </div>
@@ -1176,7 +1515,7 @@ function VirtualLabVisualization() {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Observation chart
+          Reaction timeline
         </div>
         <div className="mt-4 flex h-32 items-end gap-3">
           {chartHeights.map((height, index) => (
@@ -1190,8 +1529,8 @@ function VirtualLabVisualization() {
           ))}
         </div>
         <div className="mt-3 text-sm text-slate-600">
-          The chart summarizes how visible activity changes after the student adds or
-          mixes reagents.
+          The timeline summarizes how strongly the generated reaction is showing visible
+          evidence as the student adds reactants.
         </div>
       </div>
     </div>
@@ -1201,15 +1540,22 @@ function VirtualLabVisualization() {
 export function VisualizationSurface({
   mode,
   latestUserMessage,
+  onStateChange,
 }: {
   mode: "code-tracing" | "virtual-lab";
   latestUserMessage?: string;
+  onStateChange?: (state: VisualizationState) => void;
 }) {
   if (mode === "code-tracing") {
-    return <TraceVisualization latestUserMessage={latestUserMessage} />;
+    return (
+      <TraceVisualization
+        latestUserMessage={latestUserMessage}
+        onStateChange={onStateChange}
+      />
+    );
   }
 
-  return <VirtualLabVisualization />;
+  return <VirtualLabVisualization onStateChange={onStateChange} />;
 }
 
 function getInitialMessages(appName: string): ChatMessage[] {
@@ -1239,6 +1585,8 @@ export default function AssistantPanel({
   const [modelLabel, setModelLabel] = useState("Loading model...");
   const [promptMarkdown, setPromptMarkdown] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
+  const [visualizationState, setVisualizationState] =
+    useState<VisualizationState | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const visualizationMode = useMemo(
@@ -1330,6 +1678,7 @@ export default function AssistantPanel({
           appId,
           system: getAssistantSystemPrompt(),
           messages: nextMessages,
+          visualizationState,
         }),
       });
 
@@ -1463,6 +1812,7 @@ export default function AssistantPanel({
               <VisualizationSurface
                 mode={visualizationMode}
                 latestUserMessage={latestUserMessage}
+                onStateChange={setVisualizationState}
               />
             </div>
           </div>

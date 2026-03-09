@@ -8,16 +8,92 @@ export const runtime = "nodejs";
 
 type ChatMsg = { role: "user" | "assistant" | "system"; content: string };
 
+type VisualizationState =
+  | {
+      mode?: "code-tracing";
+      data?: {
+        code?: string;
+        activeStep?: number;
+        totalSteps?: number;
+        currentStatement?: string;
+        currentState?: Record<string, string>;
+        output?: string[];
+      };
+    }
+  | {
+      mode?: "virtual-lab";
+      data?: {
+        equation?: string;
+        title?: string;
+        effectType?: "gas" | "neutralization" | "precipitate" | "general";
+        reactants?: { label: string; amount: number }[];
+        additions?: { reagent: string; amount: number }[];
+        reactionProgress?: number;
+        visibleOutcome?: string;
+        expectedProducts?: string[];
+      };
+    };
+
+function buildVisualizationContext(visualizationState?: VisualizationState) {
+  if (!visualizationState?.mode || !visualizationState.data) return "";
+
+  if (visualizationState.mode === "code-tracing") {
+    const data = visualizationState.data as {
+      code?: string;
+      activeStep?: number;
+      totalSteps?: number;
+      currentStatement?: string;
+      currentState?: Record<string, string>;
+      output?: string[];
+    };
+    return [
+      "## Current interactive code tracing state",
+      `- Code snippet: ${data.code || "Unknown"}`,
+      `- Active step: ${(data.activeStep ?? 0) + 1} of ${data.totalSteps ?? 0}`,
+      `- Current statement: ${data.currentStatement || "Unknown"}`,
+      `- Current runtime state: ${JSON.stringify(data.currentState || {})}`,
+      `- Current output: ${JSON.stringify(data.output || [])}`,
+      "",
+      "Use this tracing state to ground your tutoring response. Refer to the learner's current execution step instead of responding as if no trace exists.",
+    ].join("\n");
+  }
+
+  const data = visualizationState.data as {
+    equation?: string;
+    title?: string;
+    effectType?: "gas" | "neutralization" | "precipitate" | "general";
+    reactants?: { label: string; amount: number }[];
+    additions?: { reagent: string; amount: number }[];
+    reactionProgress?: number;
+    visibleOutcome?: string;
+    expectedProducts?: string[];
+  };
+  return [
+    "## Current interactive virtual lab state",
+    `- Equation: ${data.equation || "Unknown"}`,
+    `- Lab title: ${data.title || "Virtual lab"}`,
+    `- Reaction type: ${data.effectType || "general"}`,
+    `- Reactant totals: ${JSON.stringify(data.reactants || [])}`,
+    `- Recent additions: ${JSON.stringify(data.additions || [])}`,
+    `- Reaction progress: ${data.reactionProgress ?? 0}%`,
+    `- Visible outcome: ${data.visibleOutcome || "None"}`,
+    `- Expected products: ${JSON.stringify(data.expectedProducts || [])}`,
+    "",
+    "Use this lab state to ground your tutoring response. Refer to what the learner has already mixed, observed, or generated in the virtual lab.",
+  ].join("\n");
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/chat" });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { appId, system, messages } = (await req.json()) as {
+    const { appId, system, messages, visualizationState } = (await req.json()) as {
       appId?: string;
       system?: string;
       messages?: { role: "user" | "assistant"; content: string }[];
+      visualizationState?: VisualizationState;
     };
 
     if (!appId) {
@@ -55,11 +131,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const visualizationContext = buildVisualizationContext(visualizationState);
+    const effectiveSystem = [system?.trim() ? system : app.systemPrompt, visualizationContext]
+      .filter(Boolean)
+      .join("\n\n");
+
     const reply = await sendChat({
       provider: app.provider,
       model: app.model,
       apiKey: app.apiKey,
-      system: system?.trim() ? system : app.systemPrompt,
+      system: effectiveSystem,
       variability: normalizeVariability(app.variability),
       messages: (messages ?? []) as ChatMsg[],
     });
