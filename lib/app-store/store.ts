@@ -333,6 +333,59 @@ async function updateAppInFile(
   return apps[idx];
 }
 
+async function deleteAppInPostgres(id: string, ownerId?: string) {
+  await ensurePostgresStore();
+  const existing = await getAppByIdFromPostgres(id, ownerId);
+  if (!existing) return null;
+
+  await sql`
+    DELETE FROM apps
+    WHERE id = ${id}
+  `;
+
+  return existing;
+}
+
+async function deleteAppInFile(id: string, ownerId?: string) {
+  const apps = await readAppsFromFile();
+  const idx = apps.findIndex(
+    (app) => app.id === id && (!ownerId || app.ownerId === ownerId)
+  );
+  if (idx === -1) return null;
+
+  const [removed] = apps.splice(idx, 1);
+  await writeAppsToFile(apps);
+  return removed;
+}
+
+async function claimUnownedAppsInPostgres(ownerId: string) {
+  await ensurePostgresStore();
+  await sql`
+    UPDATE apps
+    SET owner_id = ${ownerId}
+    WHERE owner_id IS NULL
+  `;
+}
+
+async function claimUnownedAppsInFile(ownerId: string) {
+  const apps = await readAppsFromFile();
+  let changed = false;
+
+  const nextApps = apps.map((app) => {
+    if (app.ownerId) return app;
+    changed = true;
+    return {
+      ...app,
+      ownerId,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (changed) {
+    await writeAppsToFile(nextApps);
+  }
+}
+
 export async function createApp(app: AppConfig) {
   if (shouldUsePostgres()) {
     return createAppInPostgres(app);
@@ -367,4 +420,20 @@ export async function updateApp(
   }
 
   return updateAppInFile(id, patch, ownerId);
+}
+
+export async function claimUnownedApps(ownerId: string) {
+  if (shouldUsePostgres()) {
+    return claimUnownedAppsInPostgres(ownerId);
+  }
+
+  return claimUnownedAppsInFile(ownerId);
+}
+
+export async function deleteApp(id: string, ownerId?: string) {
+  if (shouldUsePostgres()) {
+    return deleteAppInPostgres(id, ownerId);
+  }
+
+  return deleteAppInFile(id, ownerId);
 }

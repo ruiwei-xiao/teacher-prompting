@@ -4,67 +4,139 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppCard from "./AppCard";
+import DeleteBotDialog from "./DeleteBotDialog";
 
 type AppSummary = {
   id: string;
   name: string;
   description?: string;
+  updatedAt?: string;
+  publishedAt?: string | null;
 };
 
 export default function AppGrid() {
   const router = useRouter();
-  const [app, setApp] = useState<AppSummary | null>(null);
+  const [apps, setApps] = useState<AppSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<AppSummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     async function loadApps() {
       try {
         const res = await fetch("/api/apps");
         const body = await res.json();
-        const firstApp = body?.apps?.[0];
-
-        if (res.ok && firstApp) {
-          setApp(firstApp);
+        if (res.ok && Array.isArray(body?.apps)) {
+          setApps(body.apps);
           return;
         }
       } catch {}
 
-      setApp(null);
+      setApps([]);
     }
 
     void loadApps().finally(() => setLoading(false));
   }, []);
 
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <AppCard
-        title="Example Bot"
-        desc={
-          loading
-            ? "Loading your example bot..."
-            : "A minimal example you can open, edit, preview, and publish as a web chatbot."
-        }
-        ctaLabel={app ? "Open example" : "Create example"}
-        onOpen={() =>
-          router.push(app ? `/app/${app.id}/editor` : "/create")
-        }
-        meta={app?.name ? `Using: ${app.name}` : "Start from a single clean example"}
-      />
+  async function handleDelete() {
+    if (!deleteTarget) return;
 
-      <div className="mt-6 border-t border-slate-200 pt-5">
-        <div className="text-sm font-medium text-slate-800">Or start fresh</div>
-        <p className="mt-1 text-sm text-slate-600">
-          Create a new bot from scratch with your own model, API key, and system
-          prompt.
-        </p>
+    setDeleteBusy(true);
+    setDeleteError("");
+
+    try {
+      const res = await fetch(`/api/apps/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+      const body = await res.json();
+
+      if (!res.ok) {
+        throw new Error(body?.error || "Failed to delete bot.");
+      }
+
+      setApps((current) => current.filter((app) => app.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e: any) {
+      setDeleteError(e?.message || "Failed to delete bot.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">My bots</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            {loading
+              ? "Loading your bots..."
+              : apps.length
+                ? `You have ${apps.length} bot${apps.length === 1 ? "" : "s"}.`
+                : "You have not created any bots yet."}
+          </p>
+        </div>
+
         <button
           type="button"
           onClick={() => router.push("/create")}
-          className="mt-4 h-10 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           Create new bot
         </button>
       </div>
+
+      {apps.length > 0 ? (
+        <div className="grid gap-5 md:grid-cols-2">
+          {apps.map((app) => (
+            <AppCard
+              key={app.id}
+              badge={app.publishedAt ? "Published" : "Bot"}
+              title={app.name}
+              desc={
+                app.description ||
+                "No description yet. Open this bot to edit the prompt and settings."
+              }
+              meta={app.updatedAt ? `Updated ${new Date(app.updatedAt).toLocaleDateString()}` : undefined}
+              ctaLabel="Open bot"
+              onOpen={() => router.push(`/app/${app.id}/editor`)}
+              onDelete={() => {
+                setDeleteError("");
+                setDeleteTarget(app);
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-900">No bots yet</h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Create your first bot to start designing prompts, previewing
+            behavior, and publishing a chatbot.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/create")}
+            className="mt-5 h-10 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white hover:bg-sky-700"
+          >
+            Create your first bot
+          </button>
+        </div>
+      )}
+
+      <DeleteBotDialog
+        open={Boolean(deleteTarget)}
+        botName={deleteTarget?.name || ""}
+        busy={deleteBusy}
+        error={deleteError}
+        onClose={() => {
+          if (deleteBusy) return;
+          setDeleteError("");
+          setDeleteTarget(null);
+        }}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }

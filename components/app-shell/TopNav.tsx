@@ -31,7 +31,7 @@ export default function TopNav() {
         <div className="flex items-center gap-3">
           <span className="text-xl font-black tracking-tight text-sky-600">Pedagogical Prompting Tutor</span>
           <span className="hidden sm:inline text-sm text-slate-500">
-            One example bot
+            My bots
           </span>
         </div>
 

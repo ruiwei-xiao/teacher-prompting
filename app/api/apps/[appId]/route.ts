@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getAppById, updateApp } from "@/lib/app-store/store";
+import { deleteApp, getAppById, updateApp } from "@/lib/app-store/store";
 import {
   normalizeVariability,
   parseModelSelection,
@@ -145,6 +145,32 @@ export async function PATCH(
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Failed to update app settings" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ appId: string }> }
+) {
+  try {
+    const { appId } = await params;
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const removed = await deleteApp(appId, userId);
+    if (!removed) {
+      return NextResponse.json({ error: "App not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true, app: { id: removed.id, name: removed.name } });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Failed to delete app" },
       { status: 500 }
     );
   }
