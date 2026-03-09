@@ -204,12 +204,6 @@ export default function InstructionDoc() {
     saveInstructionDoc(next);
   };
 
-  const previewTemplate = () => {
-    if (!selectedTemplate) return;
-    editorRef.current?.setMarkdown(selectedTemplate);
-    // Undo via toolbar if needed
-  };
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -267,15 +261,6 @@ export default function InstructionDoc() {
               title="Append the selected template at the end"
             >
               Append
-            </button>
-            <button
-              type="button"
-              onClick={previewTemplate}
-              disabled={!selectedTemplate}
-              className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
-              title="Preview the template (you can Undo with the toolbar)"
-            >
-              Preview
             </button>
           </div>
         </div>

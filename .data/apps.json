@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "id": "pedagogical-prompting",
+    "ownerId": "f85a3f28-73fb-47e6-854b-a903e8f1fe3e",
+    "name": "PEDAGOGICAL-PROMPTING",
+    "description": "Support for course learning objectives",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "apiKey": "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",
+    "variability": 70,
+    "createdAt": "2026-03-09T17:40:57.897Z",
+    "updatedAt": "2026-03-09T17:40:57.897Z"
+  }
+]
