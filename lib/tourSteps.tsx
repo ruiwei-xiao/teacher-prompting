@@ -4,7 +4,7 @@ type Step = { title: string; body: ReactNode };
 
 const steps: Step[] = [
   {
-    title: "Building apps in LLM Hint Factory",
+    title: "Building apps in Pedagogical Prompting Tutor",
     body: (
       <>
         Welcome to the editor, where you build, test, and iterate on your app! Write your
@@ -30,7 +30,7 @@ const steps: Step[] = [
     title: "Ask our assistant",
     body: (
       <>
-        The LLM Hint Factory assistant can help brainstorm ideas, refine instructions, or troubleshoot. Think of it as a collaborator.
+        The Pedagogical Prompting Tutor can help brainstorm ideas, refine instructions, or troubleshoot. Think of it as a collaborator.
       </>
     ),
   },
