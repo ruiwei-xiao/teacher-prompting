@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import '@mdxeditor/editor/style.css';
 import type { MDXEditorMethods } from '@mdxeditor/editor';
 import {
@@ -177,6 +177,11 @@ You are talking to ________.
 - If off-topic, prompt users to return to the main subject.
 `;
 
+function saveInstructionDoc(md: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('instruction-doc-md', md);
+}
+
 export default function InstructionDoc() {
   const editorRef = useRef<MDXEditorMethods>(null);
   const [value, setValue] = useState<string>(DEFAULT_MD);
@@ -188,7 +193,7 @@ export default function InstructionDoc() {
     if (!selectedTemplate) return;
     editorRef.current?.setMarkdown(selectedTemplate);
     setValue(selectedTemplate);
-    localStorage.setItem('instruction-doc-md', selectedTemplate);
+    saveInstructionDoc(selectedTemplate);
   };
 
   const appendTemplate = () => {
@@ -196,7 +201,7 @@ export default function InstructionDoc() {
     const next = value.trim().length ? `${value}\n\n${selectedTemplate}` : selectedTemplate;
     editorRef.current?.setMarkdown(next);
     setValue(next);
-    localStorage.setItem('instruction-doc-md', next);
+    saveInstructionDoc(next);
   };
 
   const previewTemplate = () => {
@@ -205,51 +210,74 @@ export default function InstructionDoc() {
     // Undo via toolbar if needed
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const stored = localStorage.getItem('instruction-doc-md') || '';
+    const initial = stored.trim() || DEFAULT_MD;
+
+    setValue(initial);
+    saveInstructionDoc(initial);
+    editorRef.current?.setMarkdown(initial);
+  }, []);
+
   return (
     <div className="h-full flex flex-col">
       {/* Top strip with dropdown + actions */}
-      <div className="w-full border-b bg-white px-3 md:px-4 py-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-600">Templates:</label>
-          <select
-            className="h-9 min-w-[260px] rounded-md border px-2 text-sm"
-            value={selectedKey}
-            onChange={(e) => setSelectedKey(e.target.value as keyof typeof TEMPLATES)}
-          >
-            {Object.keys(TEMPLATES).map((k) => (
-              <option key={k} value={k}>{k}</option>
-            ))}
-          </select>
-        </div>
+      <div className="w-full border-b bg-white px-3 md:px-4 py-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+                System Prompt Editor
+              </span>
+              <span className="text-sm text-slate-600">
+                Editing system prompt for Preview panel
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-600">Templates:</label>
+              <select
+                className="h-9 min-w-[260px] rounded-md border px-2 text-sm"
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value as keyof typeof TEMPLATES)}
+              >
+                {Object.keys(TEMPLATES).map((k) => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={insertTemplate}
-            disabled={!selectedTemplate}
-            className="h-9 px-3 rounded-md bg-sky-600 text-white text-sm disabled:opacity-50"
-            title="Replace the editor content with the selected template"
-          >
-            Insert
-          </button>
-          <button
-            type="button"
-            onClick={appendTemplate}
-            disabled={!selectedTemplate}
-            className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
-            title="Append the selected template at the end"
-          >
-            Append
-          </button>
-          <button
-            type="button"
-            onClick={previewTemplate}
-            disabled={!selectedTemplate}
-            className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
-            title="Preview the template (you can Undo with the toolbar)"
-          >
-            Preview
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={insertTemplate}
+              disabled={!selectedTemplate}
+              className="h-9 px-3 rounded-md bg-sky-600 text-white text-sm disabled:opacity-50"
+              title="Replace the editor content with the selected template"
+            >
+              Insert
+            </button>
+            <button
+              type="button"
+              onClick={appendTemplate}
+              disabled={!selectedTemplate}
+              className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
+              title="Append the selected template at the end"
+            >
+              Append
+            </button>
+            <button
+              type="button"
+              onClick={previewTemplate}
+              disabled={!selectedTemplate}
+              className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
+              title="Preview the template (you can Undo with the toolbar)"
+            >
+              Preview
+            </button>
+          </div>
         </div>
       </div>
 
@@ -260,7 +288,7 @@ export default function InstructionDoc() {
         markdown={value}
         onChange={(md) => {
           setValue(md);
-          localStorage.setItem('instruction-doc-md', md || '');
+          saveInstructionDoc(md || '');
         }}
         plugins={[
           headingsPlugin(),

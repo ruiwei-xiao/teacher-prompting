@@ -1,78 +1,155 @@
-// components/editors/LeftChat.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
-function getDefaultSystemPrompt() {
-  if (typeof window !== "undefined") {
-    const fromEditor = localStorage.getItem("instruction-doc-md") || "";
-    if (fromEditor.trim()) return fromEditor;
-  }
-  return `I’m a python beginner having trouble with debugging.
-The coding problem, my code, and output are as follows:[problem description]
-[current code]
-[current output]Can you act as am intro-level programming tutor and
-generate a minimal-code example of a different problem that
-uses a for loop to iterate over indices? Don’t give me the
-solution to the problem.`;
+function getHintFactorySystemPrompt() {
+  const draft =
+    typeof window !== "undefined"
+      ? localStorage.getItem("instruction-doc-md") || ""
+      : "";
+
+  return [
+    "You are the LLM Hint Factory Assistant.",
+    "Help the user improve prompts, iterate on app behavior, and think through better instructional scaffolds.",
+    "Be concise, practical, and collaborative.",
+    "When useful, propose concrete wording edits or next-step experiments.",
+    draft.trim()
+      ? `The user's current draft prompt/instruction document is below. Use it as context when giving advice:\n\n${draft}`
+      : "If the user has not shared enough context, ask a short clarifying question before suggesting major changes.",
+  ].join("\n\n");
 }
 
-export default function LeftChat() {
+export default function LeftChat({
+  appId,
+  appVersion,
+}: {
+  appId: string;
+  appVersion?: number;
+}) {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Welcome to PEDAGOGICAL-PROMPTING! How can I help?" },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [modelLabel, setModelLabel] = useState("Loading model...");
   const listRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Initialize welcome message
+   */
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "Welcome to the LLM Hint Factory Assistant. I'm here to help you develop ideas or iterate on your prompts.\n\nWould you consider yourself a beginner, intermediate, or advanced user?",
+      },
+    ]);
+  }, [appId]);
+
+  /**
+   * Scroll chat
+   */
+  useEffect(() => {
+    listRef.current?.scrollTo({
+      top: listRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, busy]);
 
+  /**
+   * Load model/provider info
+   */
+  useEffect(() => {
+    async function loadApp() {
+      try {
+        const res = await fetch(`/api/apps/${appId}`);
+        const body = await res.json();
+
+        if (res.ok && body?.app) {
+          setModelLabel(`${body.app.provider} · ${body.app.model}`);
+        }
+      } catch {
+        setModelLabel("Unknown model");
+      }
+    }
+
+    void loadApp();
+  }, [appId, appVersion]);
+
+  /**
+   * Send message
+   */
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
 
+    const nextMessages = [
+      ...messages,
+      { role: "user", content: text } as ChatMessage,
+    ];
+
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: text }]);
+    setMessages(nextMessages);
     setBusy(true);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          system: getDefaultSystemPrompt(),
-          messages: [...messages, { role: "user", content: text }],
+          appId,
+          system: getHintFactorySystemPrompt(),
+          messages: nextMessages,
         }),
       });
 
-      // 🔒 Read the body ONCE based on content-type
       const contentType = res.headers.get("content-type") || "";
       const isJSON = contentType.includes("application/json");
       const body = isJSON ? await res.json() : await res.text();
 
       if (!res.ok) {
         const msg = isJSON
-          ? (body?.error || body?.message || "Server error")
+          ? body?.error || body?.message || "Server error"
           : String(body).slice(0, 400);
+
         throw new Error(msg);
       }
 
-      const reply = isJSON ? (body?.reply ?? "") : String(body);
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      const reply = isJSON ? body?.reply ?? "" : String(body);
+
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: reply },
+      ]);
+
+      /**
+       * Update model label if returned
+       */
+      if (isJSON && body?.provider && body?.model) {
+        setModelLabel(`${body.provider} · ${body.model}`);
+      }
     } catch (e: any) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: `Sorry—something went wrong: ${e?.message || e}` },
+        {
+          role: "assistant",
+          content: `Sorry—something went wrong: ${e?.message || e}`,
+        },
       ]);
     } finally {
       setBusy(false);
     }
   }
 
+  /**
+   * Enter key send
+   */
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -83,23 +160,47 @@ export default function LeftChat() {
   return (
     <section className="h-full bg-white flex flex-col">
       {/* Header */}
-      <div className="px-6 pt-6 text-sm text-slate-500">
-        Session {new Date().toLocaleDateString()} · Claude 4 Sonnet
+      <div className="border-b bg-sky-50/70 px-6 py-4">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-sky-700">
+            Assistant Bot
+          </span>
+          <span className="text-xs text-slate-500">{modelLabel}</span>
+        </div>
+        <h2 className="mt-2 text-base font-semibold text-slate-900">
+          LLM Hint Factory Assistant
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Ask for prompt feedback, iteration ideas, and follow-up questions about
+          your app design.
+        </p>
+        <div className="mt-2 text-xs text-slate-500">
+          Session {new Date().toLocaleDateString()}
+        </div>
       </div>
 
       {/* Messages */}
-      <div ref={listRef} className="mt-4 px-6 flex-1 overflow-auto space-y-4">
+      <div
+        ref={listRef}
+        className="mt-4 px-6 flex-1 overflow-auto space-y-4"
+      >
         {messages.map((m, i) => (
           <div key={i}>
             <div className="text-xs mb-1 text-slate-400">
-              {m.role === "user" ? "You" : "Assistant"}
+              {m.role === "user" ? "You" : "LLM Hint Factory Assistant"}
             </div>
+
             <div className="rounded-xl border bg-white px-3 py-2 whitespace-pre-wrap">
               {m.content}
             </div>
           </div>
         ))}
-        {busy && <div className="text-slate-500 text-sm">Thinking…</div>}
+
+        {busy && (
+          <div className="text-slate-500 text-sm">
+            Thinking…
+          </div>
+        )}
       </div>
 
       {/* Composer */}
@@ -107,12 +208,13 @@ export default function LeftChat() {
         <div className="flex gap-2">
           <input
             className="flex-1 h-11 rounded-lg border px-3"
-            placeholder="Enter Message"
+            placeholder="Ask the assistant to critique or improve your prompt"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={busy}
           />
+
           <button
             onClick={send}
             disabled={busy}
@@ -121,8 +223,10 @@ export default function LeftChat() {
             Send
           </button>
         </div>
+
         <p className="mt-2 text-xs text-slate-500">
-          AI can make mistakes, including bias. Check important information.
+          This bot helps you iterate on the prompt and can ask you clarifying
+          questions.
         </p>
       </div>
     </section>

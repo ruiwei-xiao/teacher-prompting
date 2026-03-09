@@ -2,17 +2,58 @@
 
 import { useState } from "react";
 
-export default function CreateAppForm({ onCreate }: { onCreate: (id: string) => void }) {
+export default function CreateAppForm({
+  onCreate,
+  genaiModel,
+  genaiApiKey,
+}: {
+  onCreate: (id: string) => void;
+  genaiModel: string;
+  genaiApiKey: string;
+}) {
   const [name, setName] = useState("PEDAGOGICAL-PROMPTING");
   const [desc, setDesc] = useState("Support for course learning objectives");
-  const slugify = (s: string) =>
-    s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "") || "my-app";
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (!genaiApiKey.trim()) {
+      setError("Please enter an API key.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/apps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description: desc,
+          genaiModel,
+          genaiApiKey,
+        }),
+      });
+
+      const body = await res.json();
+
+      if (!res.ok) {
+        throw new Error(body?.error || "Failed to create app");
+      }
+
+      onCreate(body.app.id);
+    } catch (e: any) {
+      setError(e?.message || "Failed to create app");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); onCreate(slugify(name)); }}
-      className="space-y-6"
-    >
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div>
         <label className="block text-sm font-medium mb-1">App Name</label>
         <input
@@ -23,6 +64,7 @@ export default function CreateAppForm({ onCreate }: { onCreate: (id: string) => 
         />
         <p className="mt-1 text-xs text-slate-500">You can change this later if needed.</p>
       </div>
+
       <div>
         <label className="block text-sm font-medium mb-1">App Description</label>
         <textarea
@@ -33,8 +75,19 @@ export default function CreateAppForm({ onCreate }: { onCreate: (id: string) => 
           placeholder="What does your app do?"
         />
       </div>
-      <button type="submit" className="inline-flex items-center rounded-lg bg-sky-600 hover:bg-sky-700 text-white h-11 px-5">
-        Create App
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={busy}
+        className="inline-flex items-center rounded-lg bg-sky-600 hover:bg-sky-700 text-white h-11 px-5 disabled:opacity-50"
+      >
+        {busy ? "Creating..." : "Create App"}
       </button>
     </form>
   );

@@ -1,38 +1,70 @@
 // components/dashboard/AppGrid.tsx
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AppCard from "./AppCard";   // <-- default import
+import AppCard from "./AppCard";
+
+type AppSummary = {
+  id: string;
+  name: string;
+  description?: string;
+};
 
 export default function AppGrid() {
   const router = useRouter();
+  const [app, setApp] = useState<AppSummary | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const cards = [
-    { id: "pedagogical-prompting", title: "Chem 201 student support", desc: "Support for course learning objectives" },
-    { id: "fgdfg", title: "fgdfg", desc: "dfg" },
-    { id: "syllabot", title: "Syllabot", desc: "A quick-access guide to everything you need to know…" },
-  ];
+  useEffect(() => {
+    async function loadApps() {
+      try {
+        const res = await fetch("/api/apps");
+        const body = await res.json();
+        const firstApp = body?.apps?.[0];
+
+        if (res.ok && firstApp) {
+          setApp(firstApp);
+          return;
+        }
+      } catch {}
+
+      setApp(null);
+    }
+
+    void loadApps().finally(() => setLoading(false));
+  }, []);
 
   return (
-    <>
-      <div className="mt-6 flex items-center gap-3">
-        <input className="w-full h-10 px-3 rounded-lg border" placeholder="Search apps" />
-        <select className="h-10 rounded-lg border px-3">
-          <option>All apps</option><option>Playing</option><option>Draft</option>
-        </select>
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <AppCard
+        title="Example Bot"
+        desc={
+          loading
+            ? "Loading your example bot..."
+            : "A minimal example you can open, edit, preview, and publish as a web chatbot."
+        }
+        ctaLabel={app ? "Open example" : "Create example"}
+        onOpen={() =>
+          router.push(app ? `/app/${app.id}/editor` : "/create")
+        }
+        meta={app?.name ? `Using: ${app.name}` : "Start from a single clean example"}
+      />
+
+      <div className="mt-6 border-t border-slate-200 pt-5">
+        <div className="text-sm font-medium text-slate-800">Or start fresh</div>
+        <p className="mt-1 text-sm text-slate-600">
+          Create a new bot from scratch with your own model, API key, and system
+          prompt.
+        </p>
         <button
+          type="button"
           onClick={() => router.push("/create")}
-          className="h-10 rounded-lg bg-sky-600 hover:bg-sky-700 text-white px-4"
+          className="mt-4 h-10 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          New app
+          Create new bot
         </button>
       </div>
-
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((c) => (
-          <AppCard key={c.id} app={c} onEdit={() => router.push(`/app/${c.id}/editor`)} />
-        ))}
-      </div>
-    </>
+    </div>
   );
 }

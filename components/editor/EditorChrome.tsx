@@ -1,11 +1,18 @@
-import Pill from "@/components/common/Pill";
 import Icon from "@/components/common/Icon";
 
 export default function EditorChrome({
   appName,
+  modelLabel,
+  variabilityLabel,
+  onPublish,
+  publishBusy,
   children,
 }: {
   appName: React.ReactNode;
+  modelLabel?: React.ReactNode;
+  variabilityLabel?: React.ReactNode;
+  onPublish?: () => void;
+  publishBusy?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -21,14 +28,22 @@ export default function EditorChrome({
           </div>
           <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-2">
-              <span className="px-2 py-1 rounded bg-slate-100 text-sm">Claude 4 Sonnet</span>
+              <span className="px-2 py-1 rounded bg-slate-100 text-sm">
+                {modelLabel || "Loading model..."}
+              </span>
               <span className="text-slate-400">with</span>
-              <span className="px-2 py-1 rounded bg-slate-100 text-sm">70% variability</span>
+              <span className="px-2 py-1 rounded bg-slate-100 text-sm">
+                {variabilityLabel || "70% variability"}
+              </span>
             </div>
-            <Pill active>Build</Pill>
-            <Pill>Design</Pill>
-            <Pill>Activity</Pill>
-            <button className="rounded-lg bg-sky-600 text-white px-3 h-9">Publish</button>
+            <button
+              className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
+              onClick={onPublish}
+              disabled={publishBusy}
+              type="button"
+            >
+              {publishBusy ? "Publishing..." : "Publish"}
+            </button>
           </div>
         </div>
       </header>
