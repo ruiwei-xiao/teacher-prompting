@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  detectVisualizationMode,
+  VisualizationSurface,
+} from "@/components/editor/AssistantPanel";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -10,9 +14,11 @@ type ChatMessage = {
 export default function PublishedChatbot({
   appId,
   appName,
+  systemPrompt,
 }: {
   appId: string;
   appName: string;
+  systemPrompt: string;
 }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -22,7 +28,15 @@ export default function PublishedChatbot({
     },
   ]);
   const [busy, setBusy] = useState(false);
+  const [visualFullscreen, setVisualFullscreen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const visualizationMode = useMemo(
+    () => detectVisualizationMode(systemPrompt || ""),
+    [systemPrompt]
+  );
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user")?.content;
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -103,6 +117,47 @@ export default function PublishedChatbot({
           ref={listRef}
           className="flex h-[65vh] flex-col gap-4 overflow-auto px-6 py-5"
         >
+          {visualizationMode && (
+            <div
+              className={[
+                "border border-slate-200 bg-white shadow-sm",
+                visualFullscreen
+                  ? "fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl"
+                  : "rounded-2xl",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    {visualFullscreen ? "Fullscreen visualization" : "Visualized element"}
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-slate-800">
+                    {visualizationMode === "code-tracing"
+                      ? visualFullscreen
+                        ? "Code tracing visualizer"
+                        : "Embedded code trace view"
+                      : visualFullscreen
+                        ? "Virtual lab visualizer"
+                        : "Embedded virtual lab view"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVisualFullscreen((current) => !current)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  {visualFullscreen ? "Close" : "Fullscreen"}
+                </button>
+              </div>
+              <div className={visualFullscreen ? "flex-1 overflow-auto bg-slate-50 p-6" : "p-4"}>
+                <VisualizationSurface
+                  mode={visualizationMode}
+                  latestUserMessage={latestUserMessage}
+                />
+              </div>
+            </div>
+          )}
+
           {messages.map((message, index) => (
             <div key={index}>
               <div className="mb-1 text-xs text-slate-400">
@@ -141,6 +196,13 @@ export default function PublishedChatbot({
           </p>
         </div>
       </div>
+
+      {visualizationMode && visualFullscreen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/45"
+          onClick={() => setVisualFullscreen(false)}
+        />
+      )}
     </div>
   );
 }

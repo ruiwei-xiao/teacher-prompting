@@ -15,6 +15,10 @@ export default async function PublicChatbotPage({
   }
 
   return (
-    <PublishedChatbot appId={app.id} appName={app.name || app.id} />
+    <PublishedChatbot
+      appId={app.id}
+      appName={app.name || app.id}
+      systemPrompt={app.systemPrompt || ""}
+    />
   );
 }

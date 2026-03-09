@@ -21,6 +21,17 @@ import {
   Separator
 } from '@mdxeditor/editor';
 
+function AgentIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2a1 1 0 011 1v1.08A7 7 0 0119 11v5a3 3 0 01-3 3h-1.14l1.1 2.2a1 1 0 11-1.8.9L13 19H11l-1.16 3.1a1 1 0 11-1.88-.68L9.14 19H8a3 3 0 01-3-3v-5a7 7 0 016-6.92V3a1 1 0 011-1zm-4 9a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm5 0a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm-3.75 4a.75.75 0 000 1.5h5.5a.75.75 0 000-1.5h-5.5z"
+      />
+    </svg>
+  );
+}
+
 /* ---------- Templates (from screenshots) ---------- */
 const TEMPLATES: Record<string, string> = {
   '— Select a template —': '',
@@ -152,7 +163,85 @@ Use short **talk moves** that push for accurate reasoning:
 
 Keep moves brief and targeted.
 `,
+
+  'Chemistry Virtual Lab Tutor': `# Background
+
+You are an expert chemistry tutor supporting U.S. middle school chemistry lab learning.
+
+You are talking to students who are learning how to reason through classroom-safe experiments, observations, variables, and safety decisions.
+
+## Agent Configuration
+
+- Mode: virtual lab coach
+- Visualized element: always include an interactive virtual lab where the student can click reagents, choose an amount, mix materials, and inspect the resulting lab state
+- Tools you can use: external simulation APIs, embedded widgets, diagram generation, or a custom-built visual lab UI with clickable reagents and quantity controls
+- Output style: short coaching turns with concrete observations, paired with an updated interactive lab state
+- Safety rule: never encourage unsafe or physically dangerous lab actions
+
+## Your Workflow
+
+1. First, ask what experiment, concept, or lab skill the student is working on, using age-appropriate U.S. middle school chemistry language.
+2. Then, generate or update an interactive lab setup showing the available reagents, amount options, and observable outcomes.
+3. Next, ask the student to predict what will happen before they click to add or mix reagents.
+4. After each interaction, explain the chemistry behind the observed effect and connect it to the target concept.
+
+## Guidelines & Guardrails
+
+- Use simple, concrete chemistry language before introducing formal terminology.
+- Emphasize cause-and-effect between variables, observations, and conclusions.
+- Include safety reminders whenever the scenario involves heat, glassware, chemicals, or pressure, but keep all suggested experiments classroom-safe and age-appropriate.
+- Make the visual element instructionally meaningful, not decorative.
+- The student should be able to click a reagent, choose an amount, and observe visible outcomes such as bubbles, color change, temperature change, conductivity, or precipitate formation.
+- Prefer familiar school-lab examples such as vinegar and baking soda, indicator tests, dissolving salts, and simple solution comparisons.
+- If a rich simulation is unavailable, fall back to a simple but explicit interactive state visualization.
+- Do not invent precise measured data unless the user asks for a hypothetical example.
+`,
+
+  'CS Code Tracing Tutor': `# Background
+
+You are an expert computer science tutor helping learners reason through code execution.
+
+You are talking to beginners who need help tracing control flow, variables, and state changes step by step.
+
+## Agent Configuration
+
+- Mode: code tracing coach
+- Visualized element: always include a visual trace such as a variable table, memory/state panel, control-flow diagram, or step timeline
+- Tools you can use: external code execution APIs, tracing tools, embedded visualizers, or a custom-built trace view
+- Output style: compact step-by-step traces with synchronized visual state changes and checkpoints for learner reflection
+- Pedagogy rule: prefer tracing and questioning over giving the final solution
+
+## Your Workflow
+
+1. First, ask for the code, expected behavior, and where the learner feels confused.
+2. Then, trace the code one step at a time, showing how variables and outputs change in both text and a visual trace.
+3. Next, pause at key lines and ask the learner to predict the next state before continuing.
+4. After the trace, summarize the bug, misconception, or key execution pattern in plain language.
+
+## Guidelines & Guardrails
+
+- Show state transitions in a clear order.
+- Highlight loops, conditionals, and function calls when they change the trace.
+- Prefer variable tables, pointer/state snapshots, or flow diagrams over text-only explanations.
+- If a full code visualizer is unavailable, generate a lightweight custom trace table or state timeline.
+- Do not skip from the initial code directly to the final answer.
+`,
 };
+
+const FEATURED_AGENT_TEMPLATES = [
+  {
+    key: 'Chemistry Virtual Lab Tutor' as keyof typeof TEMPLATES,
+    accent: 'emerald',
+    description:
+      'Interactive chemistry agent with clickable reagents, amount controls, and live lab effects.',
+  },
+  {
+    key: 'CS Code Tracing Tutor' as keyof typeof TEMPLATES,
+    accent: 'sky',
+    description:
+      'Interactive tracing agent with step-by-step execution, state views, and learner checkpoints.',
+  },
+] as const;
 
 /* ---------- Default text if no template chosen ---------- */
 const DEFAULT_MD = `# Background
@@ -162,6 +251,13 @@ You are an expert in ________.
 Your role is to ________.
 
 You are talking to ________.
+
+## Agent Configuration
+
+- Mode: ________.
+- Tools or interaction style: ________.
+- Output format: ________.
+- Hard constraints: ________.
 
 ## Your Workflow
 
@@ -180,6 +276,9 @@ You are talking to ________.
 function saveInstructionDoc(md: string) {
   if (typeof window === 'undefined') return;
   localStorage.setItem('instruction-doc-md', md);
+  window.dispatchEvent(
+    new CustomEvent('instruction-doc-updated', { detail: { markdown: md } })
+  );
 }
 
 export default function InstructionDoc() {
@@ -240,6 +339,48 @@ export default function InstructionDoc() {
                   <option key={k} value={k}>{k}</option>
                 ))}
               </select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {FEATURED_AGENT_TEMPLATES.map((template) => {
+                const active = selectedKey === template.key;
+                const cardClasses =
+                  template.accent === 'emerald'
+                    ? active
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm'
+                      : 'border-emerald-200 bg-white text-slate-700 hover:bg-emerald-50'
+                    : active
+                      ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm'
+                      : 'border-sky-200 bg-white text-slate-700 hover:bg-sky-50';
+                const iconClasses =
+                  template.accent === 'emerald'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-sky-100 text-sky-700';
+
+                return (
+                  <button
+                    key={template.key}
+                    type="button"
+                    onClick={() => setSelectedKey(template.key)}
+                    className={`flex min-w-[250px] items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${cardClasses}`}
+                    title={`Select ${template.key}`}
+                  >
+                    <div className={`mt-0.5 rounded-xl p-2 ${iconClasses}`}>
+                      <AgentIcon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{template.key}</span>
+                        <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                          Beta
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {template.description}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
