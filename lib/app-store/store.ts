@@ -8,6 +8,7 @@ const APPS_FILE = path.join(DATA_DIR, "apps.json");
 
 type AppRow = {
   id: string;
+  public_slug: string | null;
   owner_id: string | null;
   name: string;
   description: string | null;
@@ -34,6 +35,7 @@ function shouldUsePostgres() {
 function rowToApp(row: AppRow): AppConfig {
   return {
     id: row.id,
+    publicSlug: row.public_slug || undefined,
     ownerId: row.owner_id || undefined,
     name: row.name,
     description: row.description || undefined,
@@ -85,6 +87,7 @@ async function ensurePostgresStore() {
       await sql`
         CREATE TABLE IF NOT EXISTS apps (
           id TEXT PRIMARY KEY,
+          public_slug TEXT,
           owner_id TEXT,
           name TEXT NOT NULL,
           description TEXT,
@@ -97,6 +100,11 @@ async function ensurePostgresStore() {
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
         )
+      `;
+
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS public_slug TEXT
       `;
 
       await sql`
@@ -126,6 +134,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
   await sql`
     INSERT INTO apps (
       id,
+      public_slug,
       owner_id,
       name,
       description,
@@ -139,6 +148,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
       updated_at
     ) VALUES (
       ${app.id},
+      ${app.publicSlug ?? null},
       ${app.ownerId ?? null},
       ${app.name},
       ${app.description ?? null},
@@ -171,6 +181,7 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
     ? await sql<AppRow>`
         SELECT
           id,
+          public_slug,
           owner_id,
           name,
           description,
@@ -189,6 +200,7 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
     : await sql<AppRow>`
         SELECT
           id,
+          public_slug,
           owner_id,
           name,
           description,
@@ -215,6 +227,7 @@ async function listAppsFromPostgres(ownerId?: string) {
     ? await sql<AppRow>`
         SELECT
           id,
+          public_slug,
           owner_id,
           name,
           description,
@@ -233,6 +246,7 @@ async function listAppsFromPostgres(ownerId?: string) {
     : await sql<AppRow>`
         SELECT
           id,
+          public_slug,
           owner_id,
           name,
           description,
@@ -270,6 +284,7 @@ async function updateAppInPostgres(
     UPDATE apps
     SET
       name = ${next.name},
+      public_slug = ${next.publicSlug ?? null},
       owner_id = ${next.ownerId ?? null},
       description = ${next.description ?? null},
       provider = ${next.provider},
@@ -304,6 +319,37 @@ async function getAppByIdFromFile(id: string, ownerId?: string) {
       (app) => app.id === id && (!ownerId || app.ownerId === ownerId)
     ) ?? null
   );
+}
+
+async function getAppByPublicSlugFromPostgres(publicSlug: string) {
+  await ensurePostgresStore();
+  const result = await sql<AppRow>`
+    SELECT
+      id,
+      public_slug,
+      owner_id,
+      name,
+      description,
+      provider,
+      model,
+      api_key,
+      variability,
+      system_prompt,
+      published_at,
+      created_at,
+      updated_at
+    FROM apps
+    WHERE public_slug = ${publicSlug}
+    LIMIT 1
+  `;
+
+  const row = result.rows[0];
+  return row ? rowToApp(row) : null;
+}
+
+async function getAppByPublicSlugFromFile(publicSlug: string) {
+  const apps = await readAppsFromFile();
+  return apps.find((app) => app.publicSlug === publicSlug) ?? null;
 }
 
 async function listAppsFromFile(ownerId?: string) {
@@ -400,6 +446,14 @@ export async function getAppById(id: string, ownerId?: string) {
   }
 
   return getAppByIdFromFile(id, ownerId);
+}
+
+export async function getAppByPublicSlug(publicSlug: string) {
+  if (shouldUsePostgres()) {
+    return getAppByPublicSlugFromPostgres(publicSlug);
+  }
+
+  return getAppByPublicSlugFromFile(publicSlug);
 }
 
 export async function listApps(ownerId?: string) {

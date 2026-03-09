@@ -1,10 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { deleteApp, getAppById, updateApp } from "@/lib/app-store/store";
+import { deleteApp, getAppById, listApps, updateApp } from "@/lib/app-store/store";
 import {
   normalizeVariability,
   parseModelSelection,
 } from "@/lib/app-store/model-selection";
+
+function slugify(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "") || "chatbot"
+  );
+}
+
+async function buildUniquePublicSlug(name: string, appId: string) {
+  const base = slugify(name);
+  const apps = await listApps();
+  const used = new Set(
+    apps
+      .filter((app) => app.id !== appId)
+      .map((app) => app.publicSlug)
+      .filter(Boolean)
+  );
+
+  if (!used.has(base)) return base;
+
+  let attempt = 2;
+  while (used.has(`${base}-${attempt}`)) {
+    attempt += 1;
+  }
+
+  return `${base}-${attempt}`;
+}
 
 export async function GET(
   _req: Request,
@@ -33,6 +63,7 @@ export async function GET(
       variability: normalizeVariability(app.variability),
       systemPrompt: app.systemPrompt || "",
       publishedAt: app.publishedAt || null,
+      publicSlug: app.publicSlug || null,
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,
     },
@@ -73,6 +104,7 @@ export async function PATCH(
       variability?: number;
       systemPrompt?: string;
       publishedAt?: string;
+      publicSlug?: string;
     } = {};
 
     if (typeof body.name === "string") {
@@ -106,6 +138,10 @@ export async function PATCH(
 
     if (body.publish) {
       patch.publishedAt = new Date().toISOString();
+      patch.publicSlug = await buildUniquePublicSlug(
+        patch.name || existing.name,
+        existing.id
+      );
     }
 
     if (
@@ -115,7 +151,8 @@ export async function PATCH(
       !patch.apiKey &&
       typeof patch.variability !== "number" &&
       typeof patch.systemPrompt !== "string" &&
-      !patch.publishedAt
+      !patch.publishedAt &&
+      !patch.publicSlug
     ) {
       return NextResponse.json(
         { error: "No settings changes provided" },
@@ -138,6 +175,7 @@ export async function PATCH(
         variability: normalizeVariability(app.variability),
         systemPrompt: app.systemPrompt || "",
         publishedAt: app.publishedAt || null,
+        publicSlug: app.publicSlug || null,
         createdAt: app.createdAt,
         updatedAt: app.updatedAt,
       },

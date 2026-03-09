@@ -87,7 +87,8 @@ export default function EditorPage({
 
       const baseUrl =
         typeof window !== "undefined" ? window.location.origin : "";
-      setPublishUrl(`${baseUrl}/chat/${appId}`);
+      const publicIdentifier = body?.app?.publicSlug || appId;
+      setPublishUrl(`${baseUrl}/chat/${publicIdentifier}`);
       setPublishOpen(true);
       setAppVersion((value) => value + 1);
     } catch (e: any) {
