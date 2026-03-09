@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { getAppById, updateApp } from "@/lib/app-store/store";
 import {
   normalizeVariability,
@@ -10,7 +11,13 @@ export async function GET(
   { params }: { params: Promise<{ appId: string }> }
 ) {
   const { appId } = await params;
-  const app = await getAppById(appId);
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const app = await getAppById(appId, userId);
 
   if (!app) {
     return NextResponse.json({ error: "App not found" }, { status: 404 });
@@ -38,6 +45,12 @@ export async function PATCH(
 ) {
   try {
     const { appId } = await params;
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await req.json()) as {
       name?: string;
       genaiModel?: string;
@@ -47,7 +60,7 @@ export async function PATCH(
       publish?: boolean;
     };
 
-    const existing = await getAppById(appId);
+    const existing = await getAppById(appId, userId);
     if (!existing) {
       return NextResponse.json({ error: "App not found" }, { status: 404 });
     }
@@ -110,7 +123,7 @@ export async function PATCH(
       );
     }
 
-    const app = await updateApp(appId, patch);
+    const app = await updateApp(appId, patch, userId);
     if (!app) {
       return NextResponse.json({ error: "App not found" }, { status: 404 });
     }

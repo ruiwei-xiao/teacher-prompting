@@ -8,6 +8,7 @@ const APPS_FILE = path.join(DATA_DIR, "apps.json");
 
 type AppRow = {
   id: string;
+  owner_id: string | null;
   name: string;
   description: string | null;
   provider: SupportedProvider;
@@ -33,6 +34,7 @@ function shouldUsePostgres() {
 function rowToApp(row: AppRow): AppConfig {
   return {
     id: row.id,
+    ownerId: row.owner_id || undefined,
     name: row.name,
     description: row.description || undefined,
     provider: row.provider,
@@ -83,6 +85,7 @@ async function ensurePostgresStore() {
       await sql`
         CREATE TABLE IF NOT EXISTS apps (
           id TEXT PRIMARY KEY,
+          owner_id TEXT,
           name TEXT NOT NULL,
           description TEXT,
           provider TEXT NOT NULL,
@@ -94,6 +97,11 @@ async function ensurePostgresStore() {
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
         )
+      `;
+
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS owner_id TEXT
       `;
 
       const countResult = await sql<{ count: number }>`
@@ -118,6 +126,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
   await sql`
     INSERT INTO apps (
       id,
+      owner_id,
       name,
       description,
       provider,
@@ -130,6 +139,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
       updated_at
     ) VALUES (
       ${app.id},
+      ${app.ownerId ?? null},
       ${app.name},
       ${app.description ?? null},
       ${app.provider},
@@ -155,55 +165,99 @@ async function createAppInPostgres(app: AppConfig) {
   return app;
 }
 
-async function getAppByIdFromPostgres(id: string) {
+async function getAppByIdFromPostgres(id: string, ownerId?: string) {
   await ensurePostgresStore();
-  const result = await sql<AppRow>`
-    SELECT
-      id,
-      name,
-      description,
-      provider,
-      model,
-      api_key,
-      variability,
-      system_prompt,
-      published_at,
-      created_at,
-      updated_at
-    FROM apps
-    WHERE id = ${id}
-    LIMIT 1
-  `;
+  const result = ownerId
+    ? await sql<AppRow>`
+        SELECT
+          id,
+          owner_id,
+          name,
+          description,
+          provider,
+          model,
+          api_key,
+          variability,
+          system_prompt,
+          published_at,
+          created_at,
+          updated_at
+        FROM apps
+        WHERE id = ${id} AND owner_id = ${ownerId}
+        LIMIT 1
+      `
+    : await sql<AppRow>`
+        SELECT
+          id,
+          owner_id,
+          name,
+          description,
+          provider,
+          model,
+          api_key,
+          variability,
+          system_prompt,
+          published_at,
+          created_at,
+          updated_at
+        FROM apps
+        WHERE id = ${id}
+        LIMIT 1
+      `;
 
   const row = result.rows[0];
   return row ? rowToApp(row) : null;
 }
 
-async function listAppsFromPostgres() {
+async function listAppsFromPostgres(ownerId?: string) {
   await ensurePostgresStore();
-  const result = await sql<AppRow>`
-    SELECT
-      id,
-      name,
-      description,
-      provider,
-      model,
-      api_key,
-      variability,
-      system_prompt,
-      published_at,
-      created_at,
-      updated_at
-    FROM apps
-    ORDER BY updated_at DESC
-  `;
+  const result = ownerId
+    ? await sql<AppRow>`
+        SELECT
+          id,
+          owner_id,
+          name,
+          description,
+          provider,
+          model,
+          api_key,
+          variability,
+          system_prompt,
+          published_at,
+          created_at,
+          updated_at
+        FROM apps
+        WHERE owner_id = ${ownerId}
+        ORDER BY updated_at DESC
+      `
+    : await sql<AppRow>`
+        SELECT
+          id,
+          owner_id,
+          name,
+          description,
+          provider,
+          model,
+          api_key,
+          variability,
+          system_prompt,
+          published_at,
+          created_at,
+          updated_at
+        FROM apps
+        ORDER BY updated_at DESC
+      `;
 
   return result.rows.map(rowToApp);
 }
 
-async function updateAppInPostgres(id: string, patch: Partial<AppConfig>) {
+async function updateAppInPostgres(
+  id: string,
+  patch: Partial<AppConfig>,
+  ownerId?: string
+) {
   await ensurePostgresStore();
-  const existing = await getAppByIdFromPostgres(id);
+  const existing = await getAppByIdFromPostgres(id, ownerId);
   if (!existing) return null;
 
   const next: AppConfig = {
@@ -216,6 +270,7 @@ async function updateAppInPostgres(id: string, patch: Partial<AppConfig>) {
     UPDATE apps
     SET
       name = ${next.name},
+      owner_id = ${next.ownerId ?? null},
       description = ${next.description ?? null},
       provider = ${next.provider},
       model = ${next.model},
@@ -242,18 +297,30 @@ async function createAppInFile(app: AppConfig) {
   return app;
 }
 
-async function getAppByIdFromFile(id: string) {
+async function getAppByIdFromFile(id: string, ownerId?: string) {
   const apps = await readAppsFromFile();
-  return apps.find((app) => app.id === id) ?? null;
+  return (
+    apps.find(
+      (app) => app.id === id && (!ownerId || app.ownerId === ownerId)
+    ) ?? null
+  );
 }
 
-async function listAppsFromFile() {
-  return readAppsFromFile();
+async function listAppsFromFile(ownerId?: string) {
+  const apps = await readAppsFromFile();
+  if (!ownerId) return apps;
+  return apps.filter((app) => app.ownerId === ownerId);
 }
 
-async function updateAppInFile(id: string, patch: Partial<AppConfig>) {
+async function updateAppInFile(
+  id: string,
+  patch: Partial<AppConfig>,
+  ownerId?: string
+) {
   const apps = await readAppsFromFile();
-  const idx = apps.findIndex((app) => app.id === id);
+  const idx = apps.findIndex(
+    (app) => app.id === id && (!ownerId || app.ownerId === ownerId)
+  );
   if (idx === -1) return null;
 
   apps[idx] = {
@@ -274,26 +341,30 @@ export async function createApp(app: AppConfig) {
   return createAppInFile(app);
 }
 
-export async function getAppById(id: string) {
+export async function getAppById(id: string, ownerId?: string) {
   if (shouldUsePostgres()) {
-    return getAppByIdFromPostgres(id);
+    return getAppByIdFromPostgres(id, ownerId);
   }
 
-  return getAppByIdFromFile(id);
+  return getAppByIdFromFile(id, ownerId);
 }
 
-export async function listApps() {
+export async function listApps(ownerId?: string) {
   if (shouldUsePostgres()) {
-    return listAppsFromPostgres();
+    return listAppsFromPostgres(ownerId);
   }
 
-  return listAppsFromFile();
+  return listAppsFromFile(ownerId);
 }
 
-export async function updateApp(id: string, patch: Partial<AppConfig>) {
+export async function updateApp(
+  id: string,
+  patch: Partial<AppConfig>,
+  ownerId?: string
+) {
   if (shouldUsePostgres()) {
-    return updateAppInPostgres(id, patch);
+    return updateAppInPostgres(id, patch, ownerId);
   }
 
-  return updateAppInFile(id, patch);
+  return updateAppInFile(id, patch, ownerId);
 }

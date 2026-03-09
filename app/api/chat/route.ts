@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { getAppById } from "@/lib/app-store/store";
 import { sendChat } from "@/lib/ai/providers";
 import { normalizeVariability } from "@/lib/app-store/model-selection";
@@ -23,9 +24,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing appId" }, { status: 400 });
     }
 
-    const app = await getAppById(appId);
+    const session = await auth();
+    const isPublishedRequest = !system?.trim();
+    const userId = session?.user?.id;
+
+    if (!isPublishedRequest && !userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const app = isPublishedRequest
+      ? await getAppById(appId)
+      : await getAppById(appId, userId);
     if (!app) {
       return NextResponse.json({ error: "App not found" }, { status: 404 });
+    }
+
+    const isPublishedChat = isPublishedRequest && Boolean(app.publishedAt);
+    if (!isPublishedChat && !userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!isPublishedChat && isPublishedRequest) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     if (!app.apiKey) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { createApp, listApps } from "@/lib/app-store/store";
 import { AppConfig } from "@/lib/app-store/types";
 import {
@@ -18,12 +19,24 @@ function slugify(s: string) {
 }
 
 export async function GET() {
-  const apps = await listApps();
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const apps = await listApps(userId);
   return NextResponse.json({ apps });
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       name,
@@ -53,6 +66,7 @@ export async function POST(req: NextRequest) {
 
     const app: AppConfig = {
       id,
+      ownerId: userId,
       name,
       description,
       provider,

@@ -2,6 +2,7 @@ export type SupportedProvider = "openai" | "google" | "anthropic";
 
 export type AppConfig = {
   id: string;
+  ownerId?: string;
   name: string;
   description?: string;
   provider: SupportedProvider;

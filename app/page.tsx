@@ -1,7 +1,34 @@
+import { auth } from "@/auth";
 import TopNav from "@/components/app-shell/TopNav";
+import SignInPanel from "@/components/auth/SignInPanel";
 import AppGrid from "@/components/dashboard/AppGrid";
 
-export default function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}) {
+  const session = await auth();
+  const { callbackUrl } = await searchParams;
+
+  if (!session?.user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-white to-sky-50 px-4 py-10">
+        <SignInPanel
+          callbackUrl={callbackUrl || "/"}
+          googleEnabled={Boolean(
+            process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET
+          )}
+          microsoftEnabled={Boolean(
+            process.env.AUTH_MICROSOFT_ENTRA_ID_ID &&
+              process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET &&
+              process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER
+          )}
+        />
+      </main>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <TopNav />
