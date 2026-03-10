@@ -12,11 +12,26 @@ export type VisualizationState =
       mode: "code-tracing";
       data: {
         code: string;
+        selectedExample: string;
         activeStep: number;
         totalSteps: number;
         currentStatement: string;
         currentState: Record<string, string>;
         output: string[];
+        clickedLine: number | null;
+        lastInteraction: string;
+        recentInteractions: string[];
+      };
+    }
+  | {
+      mode: "music-staff";
+      data: {
+        clef: "treble";
+        selectedNote: string;
+        selectedDuration: "quarter" | "half";
+        lastInteraction: string;
+        notes: { pitch: string; slot: number; duration: "quarter" | "half" }[];
+        melody: string[];
       };
     }
   | {
@@ -71,6 +86,14 @@ export function detectVisualizationMode(prompt: string) {
     normalized.includes("trace table")
   ) {
     return "code-tracing" as const;
+  }
+
+  if (
+    normalized.includes("music staff coach") ||
+    normalized.includes("five-line staff") ||
+    normalized.includes("staff notation")
+  ) {
+    return "music-staff" as const;
   }
 
   if (
@@ -483,28 +506,53 @@ function TraceVisualization({
   const [traceSteps, setTraceSteps] = useState<TraceStep[]>(initialTrace.steps);
   const [traceError, setTraceError] = useState(initialTrace.error || "");
   const [activeStep, setActiveStep] = useState(0);
+  const [clickedLine, setClickedLine] = useState<number | null>(null);
+  const [lastInteraction, setLastInteraction] = useState("Opened code tracing");
+  const [recentInteractions, setRecentInteractions] = useState<string[]>([
+    "Opened code tracing",
+  ]);
 
   const currentStep = traceSteps[activeStep];
+
+  function recordInteraction(event: string) {
+    setLastInteraction(event);
+    setRecentInteractions((current) => [event, ...current].slice(0, 6));
+  }
 
   useEffect(() => {
     onStateChange?.({
       mode: "code-tracing",
       data: {
         code: traceCode,
+        selectedExample,
         activeStep,
         totalSteps: traceSteps.length,
         currentStatement: currentStep?.statement || "",
         currentState: currentStep?.state || {},
         output: currentStep?.output || [],
+        clickedLine,
+        lastInteraction,
+        recentInteractions,
       },
     });
-  }, [activeStep, currentStep, onStateChange, traceCode, traceSteps]);
+  }, [
+    activeStep,
+    clickedLine,
+    currentStep,
+    lastInteraction,
+    onStateChange,
+    recentInteractions,
+    selectedExample,
+    traceCode,
+    traceSteps,
+  ]);
 
   function rebuildTrace(nextCode: string) {
     const result = buildTraceFromCode(nextCode);
     setTraceSteps(result.steps);
     setTraceError(result.error || "");
     setActiveStep(0);
+    setClickedLine(null);
   }
 
   function loadExample(name: string) {
@@ -512,12 +560,15 @@ function TraceVisualization({
     setSelectedExample(name);
     setTraceCode(nextCode);
     rebuildTrace(nextCode);
+    recordInteraction(`Selected example: ${name}`);
   }
 
   function jumpToLine(lineNumber: number) {
     const firstStep = traceSteps.findIndex((step) => step.sourceLine === lineNumber);
     if (firstStep >= 0) {
       setActiveStep(firstStep);
+      setClickedLine(lineNumber);
+      recordInteraction(`Clicked line ${lineNumber}`);
     }
   }
 
@@ -548,7 +599,10 @@ function TraceVisualization({
             </select>
             <button
               type="button"
-              onClick={() => rebuildTrace(traceCode)}
+              onClick={() => {
+                rebuildTrace(traceCode);
+                recordInteraction("Pressed Build trace");
+              }}
               className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
             >
               Build trace
@@ -561,6 +615,7 @@ function TraceVisualization({
             onClick={() => {
               setTraceCode(latestMessageCode);
               rebuildTrace(latestMessageCode);
+              recordInteraction("Used latest student message as trace input");
             }}
             className="mt-3 rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
           >
@@ -641,7 +696,10 @@ function TraceVisualization({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setActiveStep((step) => Math.max(0, step - 1))}
+                      onClick={() => {
+                        setActiveStep((step) => Math.max(0, step - 1));
+                        recordInteraction("Pressed Previous");
+                      }}
                       disabled={activeStep === 0}
                       className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -649,11 +707,12 @@ function TraceVisualization({
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setActiveStep((step) =>
                           Math.min(traceSteps.length - 1, step + 1)
-                        )
-                      }
+                        );
+                        recordInteraction("Pressed Next");
+                      }}
                       disabled={activeStep === traceSteps.length - 1}
                       className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -717,7 +776,10 @@ function TraceVisualization({
                 <button
                   key={step.id}
                   type="button"
-                  onClick={() => setActiveStep(index)}
+                  onClick={() => {
+                    setActiveStep(index);
+                    recordInteraction(`Selected timeline step ${index + 1}`);
+                  }}
                   className={[
                     "rounded-full px-3 py-1.5 text-xs",
                     index === activeStep
@@ -732,6 +794,562 @@ function TraceVisualization({
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+const STAFF_NOTE_POSITIONS = [
+  { pitch: "A5", lineIndex: -1 },
+  { pitch: "G5", lineIndex: -0.5 },
+  { pitch: "F5", lineIndex: 0 },
+  { pitch: "E5", lineIndex: 0.5 },
+  { pitch: "D5", lineIndex: 1 },
+  { pitch: "C5", lineIndex: 1.5 },
+  { pitch: "B4", lineIndex: 2 },
+  { pitch: "A4", lineIndex: 2.5 },
+  { pitch: "G4", lineIndex: 3 },
+  { pitch: "F4", lineIndex: 3.5 },
+  { pitch: "E4", lineIndex: 4 },
+  { pitch: "D4", lineIndex: 4.5 },
+  { pitch: "C4", lineIndex: 5 },
+] as const;
+
+const NOTE_FREQUENCIES: Record<string, number> = {
+  C4: 261.63,
+  D4: 293.66,
+  E4: 329.63,
+  F4: 349.23,
+  G4: 392,
+  A4: 440,
+  B4: 493.88,
+  C5: 523.25,
+  D5: 587.33,
+  E5: 659.25,
+  F5: 698.46,
+  G5: 783.99,
+  A5: 880,
+};
+
+type StaffDuration = "quarter" | "half";
+
+type PlayableTone = string | { pitch: string; duration?: StaffDuration };
+
+type StaffPlacedNote = {
+  pitch: string;
+  slot: number;
+  duration: StaffDuration;
+};
+
+function getStaffPosition(pitch: string) {
+  return STAFF_NOTE_POSITIONS.find((note) => note.pitch === pitch) || null;
+}
+
+function getDurationSeconds(duration: StaffDuration) {
+  return duration === "half" ? 0.92 : 0.46;
+}
+
+async function playToneSequence(tones: PlayableTone[]) {
+  if (typeof window === "undefined" || !tones.length) return;
+
+  const AudioContextCtor =
+    window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+
+  if (!AudioContextCtor) return;
+
+  const context = new AudioContextCtor();
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+  let currentTime = context.currentTime;
+
+  tones.forEach((tone) => {
+    const pitch = typeof tone === "string" ? tone : tone.pitch;
+    const duration = typeof tone === "string" ? "quarter" : tone.duration || "quarter";
+    const frequency = NOTE_FREQUENCIES[pitch];
+    if (!frequency) return;
+    const noteSeconds = getDurationSeconds(duration);
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, currentTime);
+    gain.gain.setValueAtTime(0.0001, currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      currentTime + Math.max(0.2, noteSeconds - 0.03)
+    );
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(currentTime);
+    oscillator.stop(currentTime + noteSeconds);
+    currentTime += noteSeconds + 0.05;
+  });
+
+  window.setTimeout(() => {
+    void context.close().catch(() => {
+      return;
+    });
+  }, Math.ceil(currentTime * 1000) + 120);
+}
+
+function MusicStaffVisualization({
+  onStateChange,
+}: {
+  onStateChange?: (state: VisualizationState) => void;
+}) {
+  const totalSlots = 8;
+  const barSize = 4;
+  const [selectedPitch, setSelectedPitch] = useState<string>("C5");
+  const [selectedDuration, setSelectedDuration] =
+    useState<StaffDuration>("quarter");
+  const [draggedDuration, setDraggedDuration] = useState<StaffDuration | null>(
+    null
+  );
+  const [notes, setNotes] = useState<StaffPlacedNote[]>([
+    { pitch: "C5", slot: 0, duration: "quarter" },
+    { pitch: "D5", slot: 1, duration: "quarter" },
+    { pitch: "E5", slot: 2, duration: "half" },
+  ]);
+  const [lastInteraction, setLastInteraction] = useState(
+    "Opened the music staff"
+  );
+  const [draggingSlot, setDraggingSlot] = useState<number | null>(null);
+
+  function recordInteraction(event: string) {
+    setLastInteraction(event);
+  }
+
+  function setNoteAtSlot(
+    slot: number,
+    pitch: string,
+    duration: StaffDuration = "quarter"
+  ) {
+    const nextNote: StaffPlacedNote = { slot, pitch, duration };
+    setNotes((current) => {
+      const otherNotes = current.filter((note) => note.slot !== slot);
+      return [...otherNotes, nextNote].sort((a, b) => a.slot - b.slot);
+    });
+    setSelectedPitch(pitch);
+    setSelectedDuration(duration);
+    void playToneSequence([{ pitch, duration: nextNote.duration }]);
+    recordInteraction(`Placed ${duration} note ${pitch} in slot ${slot + 1}`);
+  }
+
+  function resizeNoteFromDrag(targetSlot: number) {
+    if (draggingSlot === null) return;
+    const nextDuration: StaffDuration =
+      targetSlot > draggingSlot ? "half" : "quarter";
+
+    setNotes((current) =>
+      current.map((note) => {
+        if (note.slot !== draggingSlot) return note;
+        return {
+          ...note,
+          duration: nextDuration,
+        };
+      })
+    );
+
+    recordInteraction(
+      `Dragged note in slot ${draggingSlot + 1} to ${
+        nextDuration
+      } duration`
+    );
+  }
+
+  function clearSlot(slot: number) {
+    setNotes((current) => current.filter((note) => note.slot !== slot));
+    recordInteraction(`Cleared slot ${slot + 1}`);
+  }
+
+  const melody = Array.from({ length: totalSlots }, (_, slot) => {
+    const note = notes.find((item) => item.slot === slot);
+    return note ? `${note.pitch} (${note.duration})` : "";
+  }).filter(Boolean) as string[];
+
+  useEffect(() => {
+    onStateChange?.({
+      mode: "music-staff",
+      data: {
+        clef: "treble",
+        selectedNote: selectedPitch,
+        selectedDuration,
+        lastInteraction,
+        notes: notes
+          .slice()
+          .sort((a, b) => a.slot - b.slot)
+          .map((note) => ({
+            pitch: note.pitch,
+            slot: note.slot,
+            duration: note.duration,
+          })),
+        melody,
+      },
+    });
+  }, [
+    draggingSlot,
+    lastInteraction,
+    melody,
+    notes,
+    onStateChange,
+    selectedDuration,
+    selectedPitch,
+  ]);
+
+  useEffect(() => {
+    if (draggingSlot === null) return;
+
+    const stopDragging = () => setDraggingSlot(null);
+    window.addEventListener("mouseup", stopDragging);
+
+    return () => {
+      window.removeEventListener("mouseup", stopDragging);
+    };
+  }, [draggingSlot]);
+
+  function renderPlacedNote(
+    pitch: string,
+    duration: StaffDuration,
+    className = ""
+  ) {
+    const position = getStaffPosition(pitch);
+    const isHalf = duration === "half";
+    const stemDown = position ? position.lineIndex <= 2 : false;
+    const needsLedger =
+      position && Number.isInteger(position.lineIndex)
+        ? position.lineIndex < 0 || position.lineIndex > 4
+        : false;
+
+    return (
+      <>
+        {needsLedger && (
+          <span className="absolute left-1/2 top-1/2 h-0.5 w-9 -translate-x-1/2 -translate-y-1/2 bg-slate-800" />
+        )}
+        <span
+          className={[
+            "absolute left-1/2 top-1/2 h-[15px] w-[22px] -translate-x-1/2 -translate-y-1/2 rotate-[-22deg] rounded-[999px] border-[1.7px] border-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.15)]",
+            isHalf ? "bg-white" : "bg-slate-900",
+            className,
+          ].join(" ")}
+        />
+        <span
+          className={[
+            "absolute w-[1.6px] bg-slate-950",
+            stemDown ? "right-[56%] top-1/2 h-10 -translate-y-[8%]" : "left-[58%] top-[6%] h-10",
+          ].join(" ")}
+        />
+        {isHalf && (
+          <span
+            className={[
+              "absolute h-[5px] w-[7px] rounded-full bg-white",
+              stemDown
+                ? "left-[40%] top-[43%] -translate-x-1/2 -translate-y-1/2"
+                : "left-[48%] top-1/2 -translate-x-1/2 -translate-y-1/2",
+            ].join(" ")}
+          />
+        )}
+      </>
+    );
+  }
+
+  function renderPaletteNoteGlyph(duration: StaffDuration) {
+    const isHalf = duration === "half";
+    return (
+      <div className="relative h-10 w-10">
+        <span
+          className={[
+            "absolute left-1/2 top-[58%] h-[14px] w-[20px] -translate-x-1/2 -translate-y-1/2 rotate-[-20deg] rounded-full border-[1.7px] border-slate-950",
+            isHalf ? "bg-white" : "bg-slate-950",
+          ].join(" ")}
+        />
+        <span className="absolute left-[58%] top-[8%] h-8 w-[1.6px] bg-slate-950" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-violet-700">
+              Interactive music staff
+            </div>
+            <div className="mt-1 text-sm text-slate-700">
+              Place notes on the five-line staff, then hear the note or full melody
+              played back.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void playToneSequence(
+                  notes
+                    .slice()
+                    .sort((a, b) => a.slot - b.slot)
+                    .map((note) => ({
+                      pitch: note.pitch,
+                      duration: note.duration,
+                    }))
+                );
+                recordInteraction("Pressed Play melody");
+              }}
+              disabled={!notes.length}
+              className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Play melody
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNotes([]);
+                recordInteraction("Cleared full melody");
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 text-xs text-violet-700">
+          Click the staff to place notes. Then press and drag a placed note to the
+          right to lengthen it.
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Five-line staff
+            </div>
+            <div className="mt-1 text-sm text-slate-700">
+              Click any slot on a row to place the currently selected note there.
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">Treble clef staff</div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <div className="min-w-[620px] rounded-2xl border border-amber-100 bg-[linear-gradient(to_bottom,#fffdf8,#fffaf0)] p-4">
+            <div className="grid grid-cols-[72px_1fr] gap-3">
+              <div className="flex flex-col items-center justify-center rounded-2xl bg-white/70">
+                <div className="text-5xl leading-none text-slate-700">𝄞</div>
+                <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                  Treble
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="grid grid-cols-[44px_repeat(8,minmax(0,1fr))] items-center gap-x-0">
+                  <div />
+                  {Array.from({ length: totalSlots }, (_, slot) => (
+                    <div
+                      key={`measure-${slot}`}
+                      className="flex justify-center text-[10px] uppercase tracking-wide text-slate-400"
+                    >
+                      {slot + 1}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-xl bg-white/40 px-1 py-2">
+                  <div className="space-y-0">
+                    {STAFF_NOTE_POSITIONS.map((staffNote) => {
+                      const isLine = Number.isInteger(staffNote.lineIndex);
+                      return (
+                        <div
+                          key={staffNote.pitch}
+                          className="grid grid-cols-[44px_repeat(8,minmax(0,1fr))] items-center gap-x-0"
+                        >
+                          <div className="pr-2 text-right text-[11px] font-medium text-slate-400">
+                            {staffNote.pitch}
+                          </div>
+                          {Array.from({ length: totalSlots }, (_, slot) => {
+                            const noteAtSlot = notes.find((note) => note.slot === slot);
+                            const continuationNote = notes.find(
+                              (note) =>
+                                note.duration === "half" &&
+                                note.slot + 1 === slot &&
+                                note.pitch === staffNote.pitch
+                            );
+                            const active = noteAtSlot?.pitch === staffNote.pitch;
+                            const barBoundary = (slot + 1) % barSize === 0;
+
+                            return (
+                              <button
+                                key={`${staffNote.pitch}-${slot}`}
+                                type="button"
+                                onClick={() => setNoteAtSlot(slot, staffNote.pitch)}
+                                onDragOver={(event) => {
+                                  event.preventDefault();
+                                  event.dataTransfer.dropEffect = "copy";
+                                }}
+                                onDrop={(event) => {
+                                  event.preventDefault();
+                                  const droppedDuration =
+                                    (event.dataTransfer.getData("text/plain") as StaffDuration) ||
+                                    draggedDuration ||
+                                    "quarter";
+                                  setNoteAtSlot(slot, staffNote.pitch, droppedDuration);
+                                  setDraggedDuration(null);
+                                }}
+                                onMouseDown={() => {
+                                  if (active && noteAtSlot) {
+                                    setDraggingSlot(noteAtSlot.slot);
+                                  }
+                                }}
+                                onMouseEnter={() => {
+                                  if (draggingSlot !== null) {
+                                    resizeNoteFromDrag(slot);
+                                  }
+                                }}
+                                onDoubleClick={() => clearSlot(slot)}
+                                className={[
+                                  "relative h-10 border-slate-200/70 transition",
+                                  isLine ? "border-t border-slate-700" : "",
+                                  barBoundary
+                                    ? "border-r-[3px] border-r-slate-700"
+                                    : "border-r border-r-slate-200/70",
+                                  slot === totalSlots - 1 ? "border-r-[3px] border-r-slate-700" : "",
+                                  active ? "bg-violet-100/20" : "hover:bg-slate-100/35",
+                                ].join(" ")}
+                                title={`Place ${staffNote.pitch} in slot ${slot + 1}`}
+                              >
+                                {continuationNote && (
+                                  <span className="absolute left-0 right-0 top-1/2 h-[1.5px] -translate-y-1/2 bg-slate-900/75" />
+                                )}
+                                {active &&
+                                  renderPlacedNote(
+                                    staffNote.pitch,
+                                    noteAtSlot?.duration || "quarter"
+                                  )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 text-xs text-slate-500">
+          Tip: double-click a filled slot to erase that note.
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Current melody
+          </div>
+          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200 bg-[linear-gradient(to_bottom,#ffffff,#faf8ff)] p-4">
+            <div className="relative min-w-[500px]">
+              <div className="pointer-events-none absolute inset-x-0 top-4 bottom-4">
+                {[0, 1, 2, 3, 4].map((line) => (
+                  <div
+                    key={line}
+                    className="absolute inset-x-0 h-px bg-slate-700"
+                    style={{ top: `${line * 18 + 24}px` }}
+                  />
+                ))}
+                {[barSize, totalSlots].map((boundary) => (
+                  <div
+                    key={boundary}
+                    className="absolute top-16 bottom-8 w-0.5 bg-slate-700"
+                    style={{ left: `${(boundary / totalSlots) * 100}%` }}
+                  />
+                ))}
+              </div>
+
+              <div className="relative grid grid-cols-[56px_repeat(8,minmax(0,1fr))] items-end gap-x-0 pt-4">
+                <div className="flex items-center justify-center text-5xl leading-none text-slate-700">
+                  𝄞
+                </div>
+                {Array.from({ length: totalSlots }, (_, slot) => {
+                  const note = notes.find((item) => item.slot === slot);
+                  const continuation = notes.find(
+                    (item) => item.duration === "half" && item.slot + 1 === slot
+                  );
+                  const staffPosition = note ? getStaffPosition(note.pitch) : null;
+                  const top = staffPosition ? staffPosition.lineIndex * 18 + 24 : 78;
+
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => {
+                        if (note) {
+                          void playToneSequence([
+                            { pitch: note.pitch, duration: note.duration },
+                          ]);
+                          recordInteraction(
+                            `Played ${note.duration} note ${note.pitch} from slot ${slot + 1}`
+                          );
+                        }
+                      }}
+                      className="relative h-[128px]"
+                    >
+                      {note ? (
+                        <>
+                          <div
+                            className="absolute left-1/2 -translate-x-1/2"
+                            style={{ top: `${top}px` }}
+                          >
+                            {renderPlacedNote(note.pitch, note.duration)}
+                          </div>
+                          {note.duration === "half" && (
+                            <span className="absolute left-[52%] right-0 top-[72px] h-[1.5px] bg-slate-900/75" />
+                          )}
+                          <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-wide text-slate-500">
+                            {note.duration === "half" ? "1/2" : "1/4"}
+                          </span>
+                        </>
+                      ) : continuation ? (
+                        <span className="absolute inset-x-0 top-[72px] h-[1.5px] bg-slate-900/75" />
+                      ) : (
+                        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-slate-300">
+                          rest
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-violet-700">
+            Reading cue
+          </div>
+          <div className="mt-2 text-sm text-slate-700">
+            Last placed pitch: <span className="font-medium">{selectedPitch}</span>
+          </div>
+          <div className="mt-2 text-sm text-slate-700">
+            Drag palette: <span className="font-medium capitalize">{selectedDuration} note</span>
+          </div>
+          <div className="mt-2 text-sm text-slate-700">
+            Last interaction: <span className="font-medium">{lastInteraction}</span>
+          </div>
+          <div className="mt-3 rounded-2xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
+            Encourage the student to say the note name before pressing play, then
+            compare what they predicted with what they heard.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1542,7 +2160,7 @@ export function VisualizationSurface({
   latestUserMessage,
   onStateChange,
 }: {
-  mode: "code-tracing" | "virtual-lab";
+  mode: "code-tracing" | "music-staff" | "virtual-lab";
   latestUserMessage?: string;
   onStateChange?: (state: VisualizationState) => void;
 }) {
@@ -1553,6 +2171,10 @@ export function VisualizationSurface({
         onStateChange={onStateChange}
       />
     );
+  }
+
+  if (mode === "music-staff") {
+    return <MusicStaffVisualization onStateChange={onStateChange} />;
   }
 
   return <VirtualLabVisualization onStateChange={onStateChange} />;

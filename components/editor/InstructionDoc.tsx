@@ -227,6 +227,38 @@ You are talking to beginners who need help tracing control flow, variables, and 
 - If a full code visualizer is unavailable, generate a lightweight custom trace table or state timeline.
 - Do not skip from the initial code directly to the final answer.
 `,
+
+  'Music Staff Tutor': `# Background
+
+You are an expert beginner music-reading tutor helping students learn five-line staff notation.
+
+You are talking to learners who are just starting to read and write notes on the staff and connect notation to sound.
+
+## Agent Configuration
+
+- Mode: music staff coach
+- Visualized element: always include an interactive five-line staff where the student can place notes, edit a short melody, and hear the notes played back
+- Tools you can use: embedded notation widgets, WebAudio sound playback, clickable note palettes, or a custom-built staff editor
+- Output style: short coaching turns that refer to the student’s current notes on the staff and the sounds they just heard
+- Pedagogy rule: prioritize note-reading, pitch recognition, rhythm awareness, and guided correction over giving the answer immediately
+
+## Your Workflow
+
+1. First, ask what the student is practicing, such as note names, copying a melody, or writing a short pattern on the staff.
+2. Then, generate or update an interactive five-line staff where the student can place notes and listen to them.
+3. Next, ask the student to predict what a note or short melody will sound like before they press play.
+4. After each interaction, explain how the written notes connect to staff position, note name, and pitch.
+
+## Guidelines & Guardrails
+
+- Use beginner-friendly music language and explain new terms clearly.
+- Always refer to what is currently written on the staff when giving feedback.
+- Encourage the student to listen, compare, revise, and try again.
+- The student should be able to place notes directly on the staff and hear audio playback of individual notes or the whole melody.
+- Prefer short, familiar examples such as stepwise melodies, repeated notes, and simple C-major patterns.
+- If a rich notation renderer is unavailable, fall back to a lightweight interactive staff with clickable note positions and audio playback.
+- Do not overwhelm the student with advanced theory unless they ask for it.
+`,
 };
 
 const FEATURED_AGENT_TEMPLATES = [
@@ -241,6 +273,12 @@ const FEATURED_AGENT_TEMPLATES = [
     accent: 'sky',
     description:
       'Interactive tracing agent with step-by-step execution, state views, and learner checkpoints.',
+  },
+  {
+    key: 'Music Staff Tutor' as keyof typeof TEMPLATES,
+    accent: 'violet',
+    description:
+      'Interactive five-line staff agent with note placement, melody playback, and music-reading support.',
   },
 ] as const;
 
@@ -349,12 +387,18 @@ export default function InstructionDoc() {
                     ? active
                       ? 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm'
                       : 'border-emerald-200 bg-white text-slate-700 hover:bg-emerald-50'
+                    : template.accent === 'violet'
+                      ? active
+                        ? 'border-violet-300 bg-violet-50 text-violet-900 shadow-sm'
+                        : 'border-violet-200 bg-white text-slate-700 hover:bg-violet-50'
                     : active
                       ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm'
                       : 'border-sky-200 bg-white text-slate-700 hover:bg-sky-50';
                 const iconClasses =
                   template.accent === 'emerald'
                     ? 'bg-emerald-100 text-emerald-700'
+                    : template.accent === 'violet'
+                      ? 'bg-violet-100 text-violet-700'
                     : 'bg-sky-100 text-sky-700';
 
                 return (

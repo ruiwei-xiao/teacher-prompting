@@ -21,6 +21,17 @@ type VisualizationState =
       };
     }
   | {
+      mode?: "music-staff";
+      data?: {
+        clef?: "treble";
+        selectedNote?: string;
+        selectedDuration?: "quarter" | "half";
+        lastInteraction?: string;
+        notes?: { pitch: string; slot: number; duration: "quarter" | "half" }[];
+        melody?: string[];
+      };
+    }
+  | {
       mode?: "virtual-lab";
       data?: {
         equation?: string;
@@ -40,21 +51,52 @@ function buildVisualizationContext(visualizationState?: VisualizationState) {
   if (visualizationState.mode === "code-tracing") {
     const data = visualizationState.data as {
       code?: string;
+      selectedExample?: string;
       activeStep?: number;
       totalSteps?: number;
       currentStatement?: string;
       currentState?: Record<string, string>;
       output?: string[];
+      clickedLine?: number | null;
+      lastInteraction?: string;
+      recentInteractions?: string[];
     };
     return [
       "## Current interactive code tracing state",
       `- Code snippet: ${data.code || "Unknown"}`,
+      `- Selected example: ${data.selectedExample || "None"}`,
       `- Active step: ${(data.activeStep ?? 0) + 1} of ${data.totalSteps ?? 0}`,
       `- Current statement: ${data.currentStatement || "Unknown"}`,
       `- Current runtime state: ${JSON.stringify(data.currentState || {})}`,
       `- Current output: ${JSON.stringify(data.output || [])}`,
+      `- Clicked line: ${data.clickedLine ?? "None"}`,
+      `- Last interaction: ${data.lastInteraction || "None"}`,
+      `- Recent interactions: ${JSON.stringify(data.recentInteractions || [])}`,
       "",
-      "Use this tracing state to ground your tutoring response. Refer to the learner's current execution step instead of responding as if no trace exists.",
+      "Use this tracing state to ground your tutoring response. Refer to the learner's current execution step and their recent interactions in the trace UI instead of responding as if no trace exists.",
+    ].join("\n");
+  }
+
+  if (visualizationState.mode === "music-staff") {
+    const data = visualizationState.data as {
+      clef?: "treble";
+      selectedNote?: string;
+      selectedDuration?: "quarter" | "half";
+      lastInteraction?: string;
+      notes?: { pitch: string; slot: number; duration: "quarter" | "half" }[];
+      melody?: string[];
+    };
+
+    return [
+      "## Current interactive music staff state",
+      `- Clef: ${data.clef || "treble"}`,
+      `- Selected note: ${data.selectedNote || "None"}`,
+      `- Selected duration: ${data.selectedDuration || "quarter"}`,
+      `- Last interaction: ${data.lastInteraction || "None"}`,
+      `- Notes on staff: ${JSON.stringify(data.notes || [])}`,
+      `- Current melody: ${JSON.stringify(data.melody || [])}`,
+      "",
+      "Use this music staff state to ground your tutoring response. Refer to the student's current notation and what they just placed or played on the staff.",
     ].join("\n");
   }
 
