@@ -327,7 +327,7 @@ export default function PublishedChatbot({
             />
             <button
               type="button"
-              onClick={send}
+              onClick={() => void send()}
               disabled={busy}
               className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
             >
