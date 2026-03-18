@@ -70,8 +70,12 @@ export default function ShareDialog({
   chatbotError,
   projectShareVisibility,
   shareAuthorName,
+  subject,
+  tagsInput,
   onProjectShareVisibilityChange,
   onShareAuthorNameChange,
+  onSubjectChange,
+  onTagsInputChange,
   onSaveProjectSettings,
   onClose,
 }: {
@@ -85,12 +89,28 @@ export default function ShareDialog({
   chatbotError?: string;
   projectShareVisibility: "private" | "public";
   shareAuthorName: boolean;
+  subject: string;
+  tagsInput: string;
   onProjectShareVisibilityChange: (value: "private" | "public") => void;
   onShareAuthorNameChange: (value: boolean) => void;
+  onSubjectChange: (value: string) => void;
+  onTagsInputChange: (value: string) => void;
   onSaveProjectSettings: () => void;
   onClose: () => void;
 }) {
   if (!open) return null;
+
+  const subjectOptions = [
+    "General",
+    "Computer Science",
+    "Chemistry",
+    "Music",
+    "Literacy",
+    "Math",
+    "Science",
+    "Social Studies",
+    "Language Learning",
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
@@ -131,7 +151,7 @@ export default function ShareDialog({
             <>
               <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="text-sm font-semibold text-slate-900">
-                  Project sharing settings
+                  Project and community settings
                 </div>
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
                   <label className="text-sm text-slate-700">
@@ -159,6 +179,29 @@ export default function ShareDialog({
                     />
                     <span>Show author name on the shared project page</span>
                   </label>
+                  <label className="text-sm text-slate-700">
+                    <span className="mb-1 block font-medium">Community subject</span>
+                    <select
+                      value={subject}
+                      onChange={(event) => onSubjectChange(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    >
+                      {subjectOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-700">
+                    <span className="mb-1 block font-medium">Community tags</span>
+                    <input
+                      value={tagsInput}
+                      onChange={(event) => onTagsInputChange(event.target.value)}
+                      placeholder="vocabulary, middle school, retrieval practice"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
                 </div>
                 <div className="mt-3 flex items-center gap-2">
                   <button
@@ -167,10 +210,11 @@ export default function ShareDialog({
                     className="rounded-lg bg-sky-600 px-4 py-2 text-sm text-white disabled:opacity-50"
                     disabled={savingSettings}
                   >
-                    {savingSettings ? "Saving..." : "Update project sharing"}
+                    {savingSettings ? "Saving..." : "Update sharing settings"}
                   </button>
                   <span className="text-xs text-slate-500">
-                    Private project links stay accessible only to the owner.
+                    Private project links stay accessible only to the owner. Tags
+                    use commas to separate items.
                   </span>
                 </div>
               </div>

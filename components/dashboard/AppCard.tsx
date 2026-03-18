@@ -6,6 +6,7 @@ type Props = {
   ctaLabel: string;
   onOpen?: () => void;
   onShare?: () => void;
+  shareDisabled?: boolean;
   onDelete?: () => void;
 };
 
@@ -17,6 +18,7 @@ export default function AppCard({
   ctaLabel,
   onOpen,
   onShare,
+  shareDisabled,
   onDelete,
 }: Props) {
   return (
@@ -41,7 +43,9 @@ export default function AppCard({
           <button
             type="button"
             onClick={onShare}
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50"
+            disabled={shareDisabled}
+            title={shareDisabled ? "Publish this bot before sharing." : undefined}
+            className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-300 disabled:hover:bg-white"
           >
             Share
           </button>

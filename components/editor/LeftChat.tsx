@@ -14,7 +14,7 @@ function getHintFactorySystemPrompt() {
       : "";
 
   return [
-    "You are the Pedagogical Prompting Tutor.",
+    "You are the Pedagogical Agent Builder.",
     "Help the user improve prompts, iterate on app behavior, and think through better instructional scaffolds.",
     "Be concise, practical, and collaborative.",
     "When useful, propose concrete wording edits or next-step experiments.",
@@ -45,7 +45,7 @@ export default function LeftChat({
       {
         role: "assistant",
         content:
-          "Welcome to the Pedagogical Prompting Tutor. I'm here to help you develop ideas or iterate on your prompts.\n\nWould you consider yourself a beginner, intermediate, or advanced user?",
+          "Welcome to the Pedagogical Agent Builder. I'm here to help you develop ideas or iterate on your prompts.\n\nWould you consider yourself a beginner, intermediate, or advanced user?",
       },
     ]);
   }, [appId]);
@@ -168,7 +168,7 @@ export default function LeftChat({
           <span className="text-xs text-slate-500">{modelLabel}</span>
         </div>
         <h2 className="mt-2 text-base font-semibold text-slate-900">
-          Pedagogical Prompting Tutor
+          Pedagogical Agent Builder
         </h2>
         <p className="mt-1 text-sm text-slate-600">
           Ask for prompt feedback, iteration ideas, and follow-up questions about
@@ -188,7 +188,7 @@ export default function LeftChat({
         {messages.map((m, i) => (
           <div key={i}>
             <div className="text-xs mb-1 text-slate-400">
-              {m.role === "user" ? "You" : "Pedagogical Prompting Tutor"}
+              {m.role === "user" ? "You" : "Pedagogical Agent Builder"}
             </div>
 
             <div className="rounded-xl border bg-white px-3 py-2 whitespace-pre-wrap">

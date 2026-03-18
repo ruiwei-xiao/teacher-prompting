@@ -29,12 +29,8 @@ export default function PublishDialog({
               Publish
             </div>
             <h2 className="mt-1 text-lg font-semibold text-slate-900">
-              Share your chatbot
+              Publish result
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              This link opens a standalone web-based AI chatbot using the
-              published system prompt.
-            </p>
           </div>
 
           <button
@@ -51,13 +47,17 @@ export default function PublishDialog({
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}
             </div>
-          ) : (
+          ) : url ? (
             <>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Chatbot link
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+                <div className="text-sm font-semibold text-emerald-900">
+                  Chatbot is live.
                 </div>
-                <div className="mt-2 break-all text-sm text-slate-800">{url}</div>
+                <p className="mt-1 text-sm text-emerald-900/90">
+                  Share the link with your students. You can keep editing and
+                  publish again anytime to update the live version.
+                </p>
+                <div className="mt-3 break-all text-sm text-slate-800">{url}</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -78,7 +78,7 @@ export default function PublishDialog({
                 </a>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

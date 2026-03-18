@@ -29,6 +29,8 @@ export type AppConfig = {
   variability?: number;
   systemPrompt?: string;
   builderState?: PromptBuilderState;
+  communitySubject?: string;
+  communityTags?: string[];
   publishedAt?: string;
   projectSharedAt?: string;
   projectShareVisibility?: ProjectShareVisibility;

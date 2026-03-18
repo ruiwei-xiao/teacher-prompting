@@ -11,7 +11,7 @@ export default function CreateAppForm({
   genaiModel: string;
   genaiApiKey: string;
 }) {
-  const [name, setName] = useState("PEDAGOGICAL-PROMPTING");
+  const [name, setName] = useState("PEDAGOGICAL-AGENT-BUILDER");
   const [desc, setDesc] = useState("Support for course learning objectives");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

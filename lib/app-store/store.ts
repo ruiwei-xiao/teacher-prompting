@@ -24,6 +24,8 @@ type AppRow = {
   variability: number | null;
   system_prompt: string | null;
   builder_state: string | null;
+  community_subject: string | null;
+  community_tags: string | null;
   published_at: string | Date | null;
   project_shared_at: string | Date | null;
   project_share_visibility: string | null;
@@ -39,6 +41,18 @@ function parseBuilderState(raw: string | null): PromptBuilderState | undefined {
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as PromptBuilderState;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseStringArray(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : undefined;
   } catch {
     return undefined;
   }
@@ -75,6 +89,8 @@ function rowToApp(row: AppRow): AppConfig {
     variability: row.variability ?? undefined,
     systemPrompt: row.system_prompt || undefined,
     builderState: parseBuilderState(row.builder_state),
+    communitySubject: row.community_subject || undefined,
+    communityTags: parseStringArray(row.community_tags),
     publishedAt: row.published_at
       ? new Date(row.published_at).toISOString()
       : undefined,
@@ -138,6 +154,8 @@ async function ensurePostgresStore() {
           variability INTEGER,
           system_prompt TEXT,
           builder_state TEXT,
+          community_subject TEXT,
+          community_tags TEXT,
           published_at TIMESTAMPTZ,
           project_shared_at TIMESTAMPTZ,
           project_share_visibility TEXT,
@@ -173,6 +191,16 @@ async function ensurePostgresStore() {
       await sql`
         ALTER TABLE apps
         ADD COLUMN IF NOT EXISTS project_shared_at TIMESTAMPTZ
+      `;
+
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS community_subject TEXT
+      `;
+
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS community_tags TEXT
       `;
 
       await sql`
@@ -233,6 +261,8 @@ async function insertAppIntoPostgres(app: AppConfig) {
       variability,
       system_prompt,
       builder_state,
+      community_subject,
+      community_tags,
       published_at,
       project_shared_at,
       project_share_visibility,
@@ -255,6 +285,8 @@ async function insertAppIntoPostgres(app: AppConfig) {
       ${app.variability ?? null},
       ${app.systemPrompt ?? null},
       ${app.builderState ? JSON.stringify(app.builderState) : null},
+      ${app.communitySubject ?? null},
+      ${app.communityTags ? JSON.stringify(app.communityTags) : null},
       ${app.publishedAt ?? null},
       ${app.projectSharedAt ?? null},
       ${app.projectShareVisibility ?? "private"},
@@ -296,6 +328,8 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           variability,
           system_prompt,
           builder_state,
+          community_subject,
+          community_tags,
           published_at,
           project_shared_at,
           project_share_visibility,
@@ -323,6 +357,8 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           variability,
           system_prompt,
           builder_state,
+          community_subject,
+          community_tags,
           published_at,
           project_shared_at,
           project_share_visibility,
@@ -358,6 +394,8 @@ async function listAppsFromPostgres(ownerId?: string) {
           variability,
           system_prompt,
           builder_state,
+          community_subject,
+          community_tags,
           published_at,
           project_shared_at,
           project_share_visibility,
@@ -385,6 +423,8 @@ async function listAppsFromPostgres(ownerId?: string) {
           variability,
           system_prompt,
           builder_state,
+          community_subject,
+          community_tags,
           published_at,
           project_shared_at,
           project_share_visibility,
@@ -430,6 +470,8 @@ async function updateAppInPostgres(
       variability = ${next.variability ?? null},
       system_prompt = ${next.systemPrompt ?? null},
       builder_state = ${next.builderState ? JSON.stringify(next.builderState) : null},
+      community_subject = ${next.communitySubject ?? null},
+      community_tags = ${next.communityTags ? JSON.stringify(next.communityTags) : null},
       published_at = ${next.publishedAt ?? null},
       project_shared_at = ${next.projectSharedAt ?? null},
       project_share_visibility = ${next.projectShareVisibility ?? "private"},
@@ -481,6 +523,8 @@ async function getAppByPublicSlugFromPostgres(publicSlug: string) {
       variability,
       system_prompt,
       builder_state,
+      community_subject,
+      community_tags,
       published_at,
       project_shared_at,
       project_share_visibility,
@@ -520,6 +564,8 @@ async function getAppByProjectShareSlugFromPostgres(projectShareSlug: string) {
       variability,
       system_prompt,
       builder_state,
+      community_subject,
+      community_tags,
       published_at,
       project_shared_at,
       project_share_visibility,

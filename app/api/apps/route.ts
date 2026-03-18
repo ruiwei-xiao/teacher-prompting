@@ -38,6 +38,8 @@ export async function GET() {
       projectSharedAt: app.projectSharedAt || null,
       projectShareVisibility: app.projectShareVisibility || "private",
       shareAuthorName: app.shareAuthorName ?? false,
+      communitySubject: app.communitySubject || null,
+      communityTags: app.communityTags || [],
       forkedFromProjectName: app.forkedFromProjectName || null,
       forkedFromAuthorName: app.forkedFromAuthorName || null,
     })),

@@ -2,6 +2,8 @@ import { auth } from "@/auth";
 import TopNav from "@/components/app-shell/TopNav";
 import SignInPanel from "@/components/auth/SignInPanel";
 import AppGrid from "@/components/dashboard/AppGrid";
+import CommunityGrid from "@/components/dashboard/CommunityGrid";
+import DashboardTabs from "@/components/dashboard/DashboardTabs";
 import { claimUnownedApps } from "@/lib/app-store/store";
 
 export default async function DashboardPage({
@@ -39,22 +41,46 @@ export default async function DashboardPage({
       <TopNav />
       <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40">
         <div className="mx-auto flex max-w-5xl flex-col items-center px-4 py-16 sm:px-6 lg:px-8">
-          <section className="w-full text-center">
-            <div className="inline-flex rounded-full bg-sky-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-sky-700">
-              My Bots
-            </div>
-            <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
-              Build and manage your tutoring bots
-            </h1>
-            <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg">
-              Open an existing bot, keep iterating on the prompt, or create a
-              new one for a different course or teaching goal.
-            </p>
-          </section>
+          <DashboardTabs
+            myBots={
+              <section className="w-full">
+                <div className="text-center">
+                  <div className="inline-flex rounded-full bg-sky-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-sky-700">
+                    My Bots
+                  </div>
+                  <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">
+                    Build and manage your tutoring bots
+                  </h1>
+                  <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg">
+                    Open an existing bot, keep iterating on the prompt, or create a
+                    new one for a different course or teaching goal.
+                  </p>
+                </div>
 
-          <section className="mt-10 w-full">
-            <AppGrid />
-          </section>
+                <div className="mt-10">
+                  <AppGrid />
+                </div>
+              </section>
+            }
+            community={
+              <section className="w-full">
+                <div className="mb-6">
+                  <div className="inline-flex rounded-full bg-violet-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-violet-700">
+                    Community
+                  </div>
+                  <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
+                    Explore published bots
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm text-slate-600 md:text-base">
+                    Browse bots that have already been published. Open a chatbot
+                    directly, or view the source project when the author shared it
+                    publicly.
+                  </p>
+                </div>
+                <CommunityGrid />
+              </section>
+            }
+          />
         </div>
       </main>
     </div>

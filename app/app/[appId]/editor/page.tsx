@@ -32,6 +32,9 @@ export default function EditorPage({
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishUrl, setPublishUrl] = useState("");
   const [publishError, setPublishError] = useState("");
+  const [isPublished, setIsPublished] = useState(false);
+  const [communitySubject, setCommunitySubject] = useState("General");
+  const [communityTagsInput, setCommunityTagsInput] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareError, setShareError] = useState("");
@@ -63,8 +66,11 @@ export default function EditorPage({
           setHeaderVariabilityLabel(
             formatVariabilityLabel(normalizeVariability(body.app.variability))
           );
+          setIsPublished(Boolean(body.app.publishedAt));
           setProjectShareVisibility(body.app.projectShareVisibility || "private");
           setShareAuthorName(body.app.shareAuthorName ?? false);
+          setCommunitySubject(body.app.communitySubject || "General");
+          setCommunityTagsInput((body.app.communityTags || []).join(", "));
           setForkedFromProjectName(body.app.forkedFromProjectName || "");
           setForkedFromAuthorName(body.app.forkedFromAuthorName || "");
           setForkedFromProjectShareSlug(body.app.forkedFromProjectShareSlug || "");
@@ -108,6 +114,7 @@ export default function EditorPage({
         typeof window !== "undefined" ? window.location.origin : "";
       const publicIdentifier = body?.app?.publicSlug || appId;
       setPublishUrl(`${baseUrl}/chat/${publicIdentifier}`);
+      setIsPublished(true);
       setPublishOpen(true);
       setAppVersion((value) => value + 1);
     } catch (e: any) {
@@ -135,6 +142,11 @@ export default function EditorPage({
           projectShareVisibility:
             settings?.projectShareVisibility ?? projectShareVisibility,
           shareAuthorName: settings?.shareAuthorName ?? shareAuthorName,
+          communitySubject,
+          communityTags: communityTagsInput
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean),
         }),
       });
 
@@ -187,7 +199,12 @@ export default function EditorPage({
       variabilityLabel={headerVariabilityLabel}
       onShare={handleShare}
       shareBusy={shareBusy}
-      onPublish={handlePublish}
+      shareDisabled={!isPublished}
+      onPublish={() => {
+        setPublishUrl("");
+        setPublishError("");
+        void handlePublish();
+      }}
       publishBusy={publishBusy}
     >
       {forkedFromProjectName && (
@@ -265,8 +282,12 @@ export default function EditorPage({
         chatbotError={chatbotShareError}
         projectShareVisibility={projectShareVisibility}
         shareAuthorName={shareAuthorName}
+        subject={communitySubject}
+        tagsInput={communityTagsInput}
         onProjectShareVisibilityChange={setProjectShareVisibility}
         onShareAuthorNameChange={setShareAuthorName}
+        onSubjectChange={setCommunitySubject}
+        onTagsInputChange={setCommunityTagsInput}
         onSaveProjectSettings={() => {
           void saveProjectSharing({
             projectShareVisibility,

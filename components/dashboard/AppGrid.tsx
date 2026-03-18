@@ -17,6 +17,8 @@ type AppSummary = {
   projectShareSlug?: string | null;
   projectShareVisibility?: "private" | "public";
   shareAuthorName?: boolean;
+  communitySubject?: string | null;
+  communityTags?: string[];
   forkedFromProjectName?: string | null;
   forkedFromAuthorName?: string | null;
 };
@@ -35,6 +37,8 @@ export default function AppGrid() {
     "private" | "public"
   >("private");
   const [shareAuthorName, setShareAuthorName] = useState(false);
+  const [communitySubject, setCommunitySubject] = useState("General");
+  const [communityTagsInput, setCommunityTagsInput] = useState("");
 
   const appOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -111,6 +115,11 @@ export default function AppGrid() {
             settings?.projectShareVisibility ?? projectShareVisibility,
           shareAuthorName:
             settings?.shareAuthorName ?? shareAuthorName,
+          communitySubject,
+          communityTags: communityTagsInput
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean),
         }),
       });
       const body = await res.json();
@@ -136,6 +145,9 @@ export default function AppGrid() {
             : typeof settings?.shareAuthorName === "boolean"
               ? settings.shareAuthorName
               : app.shareAuthorName ?? false,
+        communitySubject:
+          body?.app?.communitySubject || communitySubject || app.communitySubject || null,
+        communityTags: body?.app?.communityTags || [],
       };
 
       setApps((current) =>
@@ -150,9 +162,12 @@ export default function AppGrid() {
   }
 
   async function handleShare(app: AppSummary) {
+    if (!app.publishedAt) return;
     setShareTarget(app);
     setProjectShareVisibility(app.projectShareVisibility || "private");
     setShareAuthorName(app.shareAuthorName ?? false);
+    setCommunitySubject(app.communitySubject || "General");
+    setCommunityTagsInput((app.communityTags || []).join(", "));
     await saveProjectSharing(app, {
       projectShareVisibility: app.projectShareVisibility || "private",
       shareAuthorName: app.shareAuthorName ?? false,
@@ -197,6 +212,7 @@ export default function AppGrid() {
               ctaLabel="Open bot"
               onOpen={() => router.push(`/app/${app.id}/editor`)}
               onShare={() => void handleShare(app)}
+              shareDisabled={!app.publishedAt}
               onDelete={() => {
                 setDeleteError("");
                 setDeleteTarget(app);
@@ -248,8 +264,12 @@ export default function AppGrid() {
         }
         projectShareVisibility={projectShareVisibility}
         shareAuthorName={shareAuthorName}
+        subject={communitySubject}
+        tagsInput={communityTagsInput}
         onProjectShareVisibilityChange={setProjectShareVisibility}
         onShareAuthorNameChange={setShareAuthorName}
+        onSubjectChange={setCommunitySubject}
+        onTagsInputChange={setCommunityTagsInput}
         onSaveProjectSettings={() => {
           if (!shareTarget) return;
           void saveProjectSharing(shareTarget, {

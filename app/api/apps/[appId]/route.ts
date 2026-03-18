@@ -76,6 +76,8 @@ export async function GET(
       variability: normalizeVariability(app.variability),
       systemPrompt: app.systemPrompt || "",
       builderState: app.builderState || null,
+      communitySubject: app.communitySubject || null,
+      communityTags: app.communityTags || [],
       publishedAt: app.publishedAt || null,
       publicSlug: app.publicSlug || null,
       projectShareSlug: app.projectShareSlug || null,
@@ -114,6 +116,8 @@ export async function PATCH(
       builderState?: PromptBuilderState;
       projectShareVisibility?: "private" | "public";
       shareAuthorName?: boolean;
+      communitySubject?: string;
+      communityTags?: string[];
     };
 
     const existing = await getAppById(appId, userId);
@@ -129,6 +133,8 @@ export async function PATCH(
       variability?: number;
       systemPrompt?: string;
       builderState?: PromptBuilderState;
+      communitySubject?: string;
+      communityTags?: string[];
       publishedAt?: string;
       publicSlug?: string;
       projectShareSlug?: string;
@@ -168,6 +174,17 @@ export async function PATCH(
 
     if (body.builderState && typeof body.builderState === "object") {
       patch.builderState = body.builderState;
+    }
+
+    if (typeof body.communitySubject === "string") {
+      patch.communitySubject = body.communitySubject.trim();
+    }
+
+    if (Array.isArray(body.communityTags)) {
+      patch.communityTags = body.communityTags
+        .map((tag) => String(tag).trim())
+        .filter(Boolean)
+        .slice(0, 8);
     }
 
     if (
@@ -215,6 +232,8 @@ export async function PATCH(
       typeof patch.variability !== "number" &&
       typeof patch.systemPrompt !== "string" &&
       !patch.builderState &&
+      typeof patch.communitySubject !== "string" &&
+      !patch.communityTags &&
       !patch.publishedAt &&
       !patch.publicSlug &&
       !patch.projectShareSlug &&
@@ -241,6 +260,8 @@ export async function PATCH(
         variability: normalizeVariability(app.variability),
         systemPrompt: app.systemPrompt || "",
         builderState: app.builderState || null,
+        communitySubject: app.communitySubject || null,
+        communityTags: app.communityTags || [],
         publishedAt: app.publishedAt || null,
         publicSlug: app.publicSlug || null,
         projectShareSlug: app.projectShareSlug || null,

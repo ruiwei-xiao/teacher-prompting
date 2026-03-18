@@ -30,7 +30,7 @@ export default function SignInPanel({
   return (
     <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="text-xs font-medium uppercase tracking-wide text-sky-700">
-        Pedagogical Prompting Tutor
+        Pedagogical Agent Builder
       </div>
       <h1 className="mt-2 text-2xl font-semibold text-slate-900">Sign in</h1>
       <p className="mt-2 text-sm text-slate-600">

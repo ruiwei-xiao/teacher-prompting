@@ -4,7 +4,7 @@ type Step = { title: string; body: ReactNode };
 
 const steps: Step[] = [
   {
-    title: "Building apps in Pedagogical Prompting Tutor",
+    title: "Building apps in Pedagogical Agent Builder",
     body: (
       <>
         Welcome to the editor, where you build, test, and iterate on your app! Write your
@@ -30,7 +30,7 @@ const steps: Step[] = [
     title: "Ask our assistant",
     body: (
       <>
-        The Pedagogical Prompting Tutor can help brainstorm ideas, refine instructions, or troubleshoot. Think of it as a collaborator.
+        The Pedagogical Agent Builder can help brainstorm ideas, refine instructions, or troubleshoot. Think of it as a collaborator.
       </>
     ),
   },
