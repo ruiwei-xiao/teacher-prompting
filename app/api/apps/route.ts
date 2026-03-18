@@ -26,7 +26,22 @@ export async function GET() {
   }
 
   const apps = await listApps(userId);
-  return NextResponse.json({ apps });
+  return NextResponse.json({
+    apps: apps.map((app) => ({
+      id: app.id,
+      name: app.name,
+      description: app.description,
+      updatedAt: app.updatedAt,
+      publishedAt: app.publishedAt || null,
+      publicSlug: app.publicSlug || null,
+      projectShareSlug: app.projectShareSlug || null,
+      projectSharedAt: app.projectSharedAt || null,
+      projectShareVisibility: app.projectShareVisibility || "private",
+      shareAuthorName: app.shareAuthorName ?? false,
+      forkedFromProjectName: app.forkedFromProjectName || null,
+      forkedFromAuthorName: app.forkedFromAuthorName || null,
+    })),
+  });
 }
 
 export async function POST(req: NextRequest) {

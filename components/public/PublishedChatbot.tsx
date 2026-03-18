@@ -56,6 +56,7 @@ export default function PublishedChatbot({
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
+  const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -209,7 +210,7 @@ export default function PublishedChatbot({
           ref={listRef}
           className="flex h-[65vh] flex-col gap-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 px-6 py-5"
         >
-          {visualizationMode && (
+          {visualizationMode && visualizationMode !== "spacing-testing" && (
             <div
               className={[
                 "border border-slate-200 bg-white shadow-sm",
@@ -239,6 +240,7 @@ export default function PublishedChatbot({
                 <VisualizationSurface
                   mode={visualizationMode}
                   latestUserMessage={latestUserMessage}
+                  assistantTurnCount={assistantTurnCount}
                   onStateChange={setVisualizationState}
                 />
               </div>
@@ -280,6 +282,26 @@ export default function PublishedChatbot({
               </div>
             </div>
           ))}
+
+          {visualizationMode === "spacing-testing" && (
+            <div className="flex flex-col items-start">
+              <div className="mb-1 px-2 text-xs font-medium text-slate-500">
+                {appName} buddy
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
+                  🤖
+                </div>
+                <VisualizationSurface
+                  mode={visualizationMode}
+                  latestUserMessage={latestUserMessage}
+                  assistantTurnCount={assistantTurnCount}
+                  embedded={true}
+                  onStateChange={setVisualizationState}
+                />
+              </div>
+            </div>
+          )}
 
           {busy && (
             <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
@@ -367,7 +389,7 @@ export default function PublishedChatbot({
         </div>
       </div>
 
-      {visualizationMode && visualFullscreen && (
+      {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/45"
           onClick={() => setVisualFullscreen(false)}

@@ -107,6 +107,26 @@ async function getUserByEmailFromPostgres(email: string) {
   return row ? rowToUser(row) : null;
 }
 
+async function getUserByIdFromPostgres(id: string) {
+  await ensurePostgresStore();
+  const result = await sql<UserRow>`
+    SELECT
+      id,
+      email,
+      name,
+      password_hash,
+      image,
+      created_at,
+      updated_at
+    FROM users
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+
+  const row = result.rows[0];
+  return row ? rowToUser(row) : null;
+}
+
 async function createUserInPostgres(user: StoredUser) {
   await ensurePostgresStore();
   const existing = await getUserByEmailFromPostgres(user.email);
@@ -182,6 +202,11 @@ async function getUserByEmailFromFile(email: string) {
   return users.find((user) => user.email.toLowerCase() === email.toLowerCase()) ?? null;
 }
 
+async function getUserByIdFromFile(id: string) {
+  const users = await readUsersFromFile();
+  return users.find((user) => user.id === id) ?? null;
+}
+
 async function createUserInFile(user: StoredUser) {
   const users = await readUsersFromFile();
   const existing = users.find(
@@ -237,6 +262,14 @@ export async function getUserByEmail(email: string) {
   }
 
   return getUserByEmailFromFile(email);
+}
+
+export async function getUserById(id: string) {
+  if (shouldUsePostgres()) {
+    return getUserByIdFromPostgres(id);
+  }
+
+  return getUserByIdFromFile(id);
 }
 
 export async function createUser(input: {

@@ -29,6 +29,22 @@ export type VisualizationState =
       };
     }
   | {
+      mode: "spacing-testing";
+      data: {
+        deckTitle: string;
+        activeCard: number;
+        flipped: boolean;
+        studyMoments: string[];
+        cards: {
+          id: string;
+          front: string;
+          back: string;
+          status: "new" | "hard" | "easy";
+        }[];
+        lastInteraction: string;
+      };
+    }
+  | {
       mode: "music-staff";
       data: {
         clef: "treble";
@@ -111,6 +127,15 @@ Don’t give me the solution to the problem.`;
 
 export function detectVisualizationMode(prompt: string) {
   const normalized = prompt.toLowerCase();
+  if (
+    normalized.includes("spacing & testing") ||
+    normalized.includes("learning principle: spacing & testing") ||
+    normalized.includes("retrieval checks") ||
+    normalized.includes("flip-style flashcard deck")
+  ) {
+    return "spacing-testing" as const;
+  }
+
   if (
     normalized.includes("code tracing coach") ||
     normalized.includes("visual trace") ||
@@ -2409,6 +2434,488 @@ function renderSpeechAwareSentence(
   });
 }
 
+function getFlashcardSourceText(message?: string) {
+  if (!message?.trim()) return "";
+  return message.split("[Uploaded file:")[0]?.trim() || message.trim();
+}
+
+type FlashcardStatus = "new" | "hard" | "easy";
+
+type Flashcard = {
+  id: string;
+  front: string;
+  back: string;
+  status: FlashcardStatus;
+};
+
+function buildSpacingTestingCards(message?: string): Flashcard[] {
+  const source = getFlashcardSourceText(message);
+  const fallbackCards: Flashcard[] = [
+    {
+      id: "card-0",
+      front: "hola",
+      back: "hello; try saying: Hola, Ana.",
+      status: "new",
+    },
+    {
+      id: "card-1",
+      front: "gracias",
+      back: "thank you; try saying: Gracias por tu ayuda.",
+      status: "new",
+    },
+    {
+      id: "card-2",
+      front: "adios",
+      back: "goodbye; try saying: Adios, nos vemos manana.",
+      status: "new",
+    },
+    {
+      id: "card-3",
+      front: "bonjour",
+      back: "hello / good morning; try saying: Bonjour, Madame.",
+      status: "new",
+    },
+    {
+      id: "card-4",
+      front: "merci",
+      back: "thank you; try saying: Merci beaucoup.",
+      status: "new",
+    },
+  ];
+
+  if (!source) return fallbackCards;
+
+  const candidateLines = source
+    .split(/\n|;/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const pairs = candidateLines
+    .map((line) => {
+      const match = line.match(/^(.+?)\s*(?:-|:|=|->|=>)\s*(.+)$/);
+      if (!match) return null;
+      return {
+        front: match[1].trim(),
+        back: match[2].trim(),
+      };
+    })
+    .filter((entry): entry is { front: string; back: string } => Boolean(entry));
+
+  if (pairs.length) {
+    return pairs.slice(0, 8).map((pair, index) => ({
+      id: `card-${index}`,
+      front: pair.front,
+      back: `${pair.back}; use it in a short sentence.`,
+      status: "new",
+    }));
+  }
+
+  const words = source
+    .split(/[\n,]/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (words.length) {
+    return words.map((word, index) => ({
+      id: `card-${index}`,
+      front: word,
+      back: `Recall the meaning of "${word}", then say it in a short sentence.`,
+      status: "new",
+    }));
+  }
+
+  return fallbackCards;
+}
+
+function getNextFlashcardIndex(cards: Flashcard[], activeCard: number) {
+  if (!cards.length) return 0;
+
+  const statusWeight: Record<FlashcardStatus, number> = {
+    hard: 0,
+    new: 1,
+    easy: 2,
+  };
+
+  const rotatedIndices = cards.map((_, offset) => (activeCard + offset + 1) % cards.length);
+
+  return rotatedIndices.sort((left, right) => {
+    const leftWeight = statusWeight[cards[left].status];
+    const rightWeight = statusWeight[cards[right].status];
+    if (leftWeight !== rightWeight) return leftWeight - rightWeight;
+    return left - right;
+  })[0];
+}
+
+function SpacingTestingVisualization({
+  latestUserMessage,
+  assistantTurnCount,
+  embedded = false,
+  onStateChange,
+}: {
+  latestUserMessage?: string;
+  assistantTurnCount?: number;
+  embedded?: boolean;
+  onStateChange?: (state: VisualizationState) => void;
+}) {
+  const baseCards = useMemo(() => buildSpacingTestingCards(latestUserMessage), [latestUserMessage]);
+  const [cards, setCards] = useState<Flashcard[]>(baseCards);
+  const [activeCard, setActiveCard] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [lastInteraction, setLastInteraction] = useState("Opened vocabulary flashcards");
+  const studyMoments = ["Now", "1 chat later", "Later today", "Tomorrow", "This week"];
+  const previousAssistantTurnRef = useRef(assistantTurnCount ?? 0);
+
+  useEffect(() => {
+    setCards(baseCards);
+    setActiveCard(0);
+    setFlipped(false);
+    setLastInteraction("Loaded a new vocabulary deck");
+  }, [baseCards]);
+
+  const currentCard = cards[Math.min(activeCard, Math.max(cards.length - 1, 0))];
+
+  useEffect(() => {
+    if (!onStateChange || !currentCard) return;
+    onStateChange({
+      mode: "spacing-testing",
+      data: {
+        deckTitle: "Spacing & Testing flashcards",
+        activeCard,
+        flipped,
+        studyMoments,
+        cards,
+        lastInteraction,
+      },
+    });
+  }, [activeCard, cards, currentCard, flipped, lastInteraction, onStateChange]);
+
+  useEffect(() => {
+    if (!assistantTurnCount || assistantTurnCount <= 1 || !cards.length) return;
+    if (assistantTurnCount === previousAssistantTurnRef.current) return;
+
+    previousAssistantTurnRef.current = assistantTurnCount;
+
+    if (!flipped) {
+      setFlipped(true);
+      setLastInteraction(`Chatbot flipped card ${activeCard + 1} to reveal the answer`);
+      return;
+    }
+
+    const nextCard = getNextFlashcardIndex(cards, activeCard);
+    setActiveCard(nextCard);
+    setFlipped(false);
+    setLastInteraction(`Chatbot moved to spaced review card ${nextCard + 1}`);
+  }, [activeCard, assistantTurnCount, cards, flipped]);
+
+  function markCard(status: Extract<FlashcardStatus, "hard" | "easy">) {
+    setCards((current) =>
+      current.map((card, index) => (index === activeCard ? { ...card, status } : card))
+    );
+    setLastInteraction(`Marked card ${activeCard + 1} as ${status}`);
+  }
+
+  function goToCard(nextIndex: number) {
+    const clamped = Math.max(0, Math.min(cards.length - 1, nextIndex));
+    setActiveCard(clamped);
+    setFlipped(false);
+    setLastInteraction(`Moved to card ${clamped + 1}`);
+  }
+
+  if (!currentCard) return null;
+
+  const easyCount = cards.filter((card) => card.status === "easy").length;
+  const hardCount = cards.filter((card) => card.status === "hard").length;
+
+  if (embedded) {
+    return (
+      <div className="max-w-[85%] rounded-[1.5rem] border-2 border-violet-200 bg-white/95 p-3 shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-violet-500">
+            Flashcard
+          </div>
+          <div className="rounded-full bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700">
+            {activeCard + 1} / {cards.length}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setFlipped((current) => !current);
+            setLastInteraction(
+              flipped
+                ? `Turned card ${activeCard + 1} back to question`
+                : `Flipped card ${activeCard + 1} to answer`
+            );
+          }}
+          className="block w-full rounded-[1.25rem] text-left"
+          style={{ perspective: "1200px" }}
+        >
+          <div
+            className="relative h-48 w-full transition-transform duration-500"
+            style={{
+              transformStyle: "preserve-3d",
+              transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
+            }}
+          >
+            <div
+              className="absolute inset-0 rounded-[1.25rem] border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5"
+              style={{ backfaceVisibility: "hidden" }}
+            >
+              <div className="text-[11px] font-medium uppercase tracking-wide text-violet-500">
+                Word
+              </div>
+              <div className="mt-5 text-2xl font-semibold leading-snug text-slate-900">
+                {currentCard.front}
+              </div>
+              <div className="mt-4 text-sm text-slate-500">
+                Recall it first, then tap to flip.
+              </div>
+            </div>
+            <div
+              className="absolute inset-0 rounded-[1.25rem] border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5"
+              style={{
+                backfaceVisibility: "hidden",
+                transform: "rotateY(180deg)",
+              }}
+            >
+              <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-600">
+                Meaning and use
+              </div>
+              <div className="mt-5 text-lg font-semibold leading-snug text-slate-900">
+                {currentCard.back}
+              </div>
+              <div className="mt-4 text-sm text-slate-600">
+                Mark it, then the next chat turn will continue the review.
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => markCard("hard")}
+            className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800"
+          >
+            Hard
+          </button>
+          <button
+            type="button"
+            onClick={() => markCard("easy")}
+            className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800"
+          >
+            Easy
+          </button>
+          <button
+            type="button"
+            onClick={() => goToCard(activeCard - 1)}
+            disabled={activeCard === 0}
+            className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            onClick={() => goToCard(activeCard + 1)}
+            disabled={activeCard === cards.length - 1}
+            className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+          <span className="rounded-full bg-slate-100 px-2 py-1">
+            Status: {currentCard.status}
+          </span>
+          <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
+            Easy {easyCount}
+          </span>
+          <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">
+            Hard {hardCount}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-sky-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-violet-500">
+              Spacing & testing
+            </div>
+            <div className="mt-1 text-sm text-slate-600">
+              One vocabulary card at a time. Each chatbot turn flips or advances the deck.
+            </div>
+          </div>
+          <div className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-medium text-violet-700">
+            Card {activeCard + 1} / {cards.length}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-5">
+          {studyMoments.map((moment, index) => (
+            <div
+              key={moment}
+              className={[
+                "rounded-xl border px-3 py-2 text-center text-xs font-medium",
+                index === activeCard
+                  ? "border-violet-300 bg-violet-100 text-violet-800"
+                  : "border-slate-200 bg-white text-slate-500",
+              ].join(" ")}
+            >
+              {moment}
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setFlipped((current) => !current);
+            setLastInteraction(
+              flipped
+                ? `Turned card ${activeCard + 1} back to question`
+                : `Flipped card ${activeCard + 1} to answer`
+            );
+          }}
+          className="mt-4 block w-full"
+          style={{ perspective: "1200px" }}
+        >
+          <div
+            className="relative h-64 w-full transition-transform duration-500"
+            style={{
+              transformStyle: "preserve-3d",
+              transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
+            }}
+          >
+            <div
+              className="absolute inset-0 rounded-[1.75rem] border-2 border-violet-200 bg-white p-6 text-left shadow-sm"
+              style={{ backfaceVisibility: "hidden" }}
+            >
+              <div className="text-xs font-medium uppercase tracking-wide text-violet-500">
+                Word
+              </div>
+              <div className="mt-6 text-2xl font-semibold leading-snug text-slate-900">
+                {currentCard.front}
+              </div>
+              <div className="mt-6 text-sm text-slate-500">
+                Try to recall the meaning before the chatbot flips the card.
+              </div>
+            </div>
+            <div
+              className="absolute inset-0 rounded-[1.75rem] border-2 border-emerald-200 bg-emerald-50 p-6 text-left shadow-sm"
+              style={{
+                backfaceVisibility: "hidden",
+                transform: "rotateY(180deg)",
+              }}
+            >
+              <div className="text-xs font-medium uppercase tracking-wide text-emerald-600">
+                Meaning and use
+              </div>
+              <div className="mt-6 text-xl font-semibold leading-snug text-slate-900">
+                {currentCard.back}
+              </div>
+              <div className="mt-6 text-sm text-slate-600">
+                Mark it easy if it came quickly, or hard if this word should come back sooner.
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Vocabulary controls
+            </div>
+            <div className="text-xs text-slate-400">Latest: {lastInteraction}</div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => goToCard(activeCard - 1)}
+              disabled={activeCard === 0}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => goToCard(activeCard + 1)}
+              disabled={activeCard === cards.length - 1}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-40"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => markCard("hard")}
+              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
+            >
+              Hard
+            </button>
+            <button
+              type="button"
+              onClick={() => markCard("easy")}
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800"
+            >
+              Easy
+            </button>
+          </div>
+          <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+            Current status:{" "}
+            <span className="font-medium text-slate-800">{currentCard.status}</span>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Review progress
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+              <div className="text-xs text-emerald-700">Easy</div>
+              <div className="mt-1 text-2xl font-semibold text-emerald-900">{easyCount}</div>
+            </div>
+            <div className="rounded-2xl bg-amber-50 px-4 py-3">
+              <div className="text-xs text-amber-700">Hard</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-900">{hardCount}</div>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {cards.map((card, index) => (
+              <button
+                key={card.id}
+                type="button"
+                onClick={() => goToCard(index)}
+                className={[
+                  "rounded-full border px-3 py-1 text-xs font-medium",
+                  index === activeCard
+                    ? "border-violet-300 bg-violet-100 text-violet-800"
+                    : card.status === "easy"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : card.status === "hard"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-slate-200 bg-slate-50 text-slate-500",
+                ].join(" ")}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DyslexiaSupportVisualization({
   latestUserMessage,
   onStateChange,
@@ -3164,12 +3671,32 @@ function DyslexiaSupportVisualization({
 export function VisualizationSurface({
   mode,
   latestUserMessage,
+  assistantTurnCount,
+  embedded = false,
   onStateChange,
 }: {
-  mode: "code-tracing" | "music-staff" | "virtual-lab" | "dyslexia-support";
+  mode:
+    | "code-tracing"
+    | "spacing-testing"
+    | "music-staff"
+    | "virtual-lab"
+    | "dyslexia-support";
   latestUserMessage?: string;
+  assistantTurnCount?: number;
+  embedded?: boolean;
   onStateChange?: (state: VisualizationState) => void;
 }) {
+  if (mode === "spacing-testing") {
+    return (
+      <SpacingTestingVisualization
+        latestUserMessage={latestUserMessage}
+        assistantTurnCount={assistantTurnCount}
+        embedded={embedded}
+        onStateChange={onStateChange}
+      />
+    );
+  }
+
   if (mode === "code-tracing") {
     return (
       <TraceVisualization
@@ -3196,9 +3723,18 @@ export function VisualizationSurface({
 }
 
 export function getVisualizationTitle(
-  mode: "code-tracing" | "music-staff" | "virtual-lab" | "dyslexia-support",
+  mode:
+    | "code-tracing"
+    | "spacing-testing"
+    | "music-staff"
+    | "virtual-lab"
+    | "dyslexia-support",
   fullscreen: boolean
 ) {
+  if (mode === "spacing-testing") {
+    return fullscreen ? "Flashcard practice deck" : "Embedded flashcard deck";
+  }
+
   if (mode === "code-tracing") {
     return fullscreen ? "Code tracing visualizer" : "Embedded code trace view";
   }
@@ -3216,11 +3752,13 @@ export function getVisualizationTitle(
   return fullscreen ? "Virtual lab visualizer" : "Embedded virtual lab view";
 }
 
-function getInitialMessages(appName: string): ChatMessage[] {
+function getInitialMessages(appName: string, readOnly = false): ChatMessage[] {
   return [
     {
       role: "assistant",
-      content: `Hi! I'm ${appName}. Let's learn together step by step.\n\nTry typing a message, using the mic, or attaching a file.`,
+      content: readOnly
+        ? `This is a read-only preview of ${appName}.\n\nYou can inspect the chatbot setup and visualization, but not edit or chat from this shared project view.`
+        : `Hi! I'm ${appName}. Let's learn together step by step.\n\nTry typing a message, using the mic, or attaching a file.`,
     },
   ];
 }
@@ -3229,15 +3767,21 @@ export default function AssistantPanel({
   appId,
   appName,
   appVersion,
+  readOnly = false,
+  promptOverride,
+  modelLabelOverride,
 }: {
   appId: string;
   appName: string;
   appVersion?: number;
+  readOnly?: boolean;
+  promptOverride?: string;
+  modelLabelOverride?: string;
 }) {
   const displayName = appName.trim() || appId;
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    getInitialMessages(displayName)
+    getInitialMessages(displayName, readOnly)
   );
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
@@ -3260,8 +3804,14 @@ export default function AssistantPanel({
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
+  const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
 
   async function loadApp() {
+    if (readOnly) {
+      setModelLabel(modelLabelOverride || "Shared project preview");
+      return;
+    }
+
     try {
       const res = await fetch(`/api/apps/${appId}`);
       const body = await res.json();
@@ -3278,7 +3828,7 @@ export default function AssistantPanel({
   }
 
   function resetSession() {
-    setMessages(getInitialMessages(displayName));
+    setMessages(getInitialMessages(displayName, readOnly));
     setInput("");
   }
 
@@ -3288,7 +3838,7 @@ export default function AssistantPanel({
 
   useEffect(() => {
     resetSession();
-  }, [appId, appName, appVersion]);
+  }, [appId, appName, appVersion, readOnly]);
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -3304,6 +3854,11 @@ export default function AssistantPanel({
   }, []);
 
   useEffect(() => {
+    if (readOnly) {
+      setPromptMarkdown(promptOverride || "");
+      return;
+    }
+
     if (typeof window === "undefined") return;
 
     const syncPrompt = () => {
@@ -3323,7 +3878,7 @@ export default function AssistantPanel({
       window.removeEventListener("instruction-doc-updated", onPromptUpdate);
       window.removeEventListener("focus", syncPrompt);
     };
-  }, []);
+  }, [promptOverride, readOnly]);
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
@@ -3472,34 +4027,40 @@ export default function AssistantPanel({
             </div>
             <h3 className="mt-2 font-semibold truncate">{displayName}</h3>
             <div className="text-xs text-slate-500 truncate">
-              Runs the current middle-editor prompt as this app's system prompt.
+              {readOnly
+                ? "Read-only preview of the shared project's final prompt."
+                : "Runs the current middle-editor prompt as this app's system prompt."}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            className="rounded-xl p-1.5 hover:bg-white/70"
-            title="Refresh"
-            onClick={() => {
-              resetSession();
-              void loadApp();
-            }}
-          >
-            <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
-          </button>
-          <button
-            className="rounded-xl bg-white/80 px-3 py-1 text-xs hover:bg-white"
-            onClick={resetSession}
-            type="button"
-          >
-            New session
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              className="rounded-xl p-1.5 hover:bg-white/70"
+              title="Refresh"
+              onClick={() => {
+                resetSession();
+                void loadApp();
+              }}
+            >
+              <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
+            </button>
+            <button
+              className="rounded-xl bg-white/80 px-3 py-1 text-xs hover:bg-white"
+              onClick={resetSession}
+              type="button"
+            >
+              New session
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600">
-        Test how the current prompt behaves with a real user message.
+        {readOnly
+          ? "Inspect how the shared project's final prompt would appear in the preview panel."
+          : "Test how the current prompt behaves with a real user message."}
       </div>
 
       <div
@@ -3510,7 +4071,7 @@ export default function AssistantPanel({
           Preview session {new Date().toLocaleDateString()} · {displayName}
         </div>
 
-        {visualizationMode && (
+        {visualizationMode && visualizationMode !== "spacing-testing" && (
           <div
             className={[
               "border border-slate-200 bg-white shadow-sm",
@@ -3540,6 +4101,7 @@ export default function AssistantPanel({
               <VisualizationSurface
                 mode={visualizationMode}
                 latestUserMessage={latestUserMessage}
+                assistantTurnCount={assistantTurnCount}
                 onStateChange={setVisualizationState}
               />
             </div>
@@ -3594,6 +4156,26 @@ export default function AssistantPanel({
           </div>
         ))}
 
+        {visualizationMode === "spacing-testing" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
+                🤖
+              </div>
+              <div className="text-xs font-medium text-slate-500">
+                {displayName} preview
+              </div>
+            </div>
+            <VisualizationSurface
+              mode={visualizationMode}
+              latestUserMessage={latestUserMessage}
+              assistantTurnCount={assistantTurnCount}
+              embedded={true}
+              onStateChange={setVisualizationState}
+            />
+          </div>
+        )}
+
         {busy && (
           <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
             Thinking...
@@ -3601,7 +4183,8 @@ export default function AssistantPanel({
         )}
       </div>
 
-      <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4">
+      {!readOnly && (
+        <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4">
         <div className="flex gap-2">
           <button
             className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
@@ -3678,9 +4261,10 @@ export default function AssistantPanel({
           This panel previews the current prompt and supports voice input plus
           text-based file upload.
         </p>
-      </div>
+        </div>
+      )}
 
-      {visualizationMode && visualFullscreen && (
+      {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/45"
           onClick={() => setVisualFullscreen(false)}

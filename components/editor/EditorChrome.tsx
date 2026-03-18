@@ -4,6 +4,8 @@ export default function EditorChrome({
   appName,
   modelLabel,
   variabilityLabel,
+  onShare,
+  shareBusy,
   onPublish,
   publishBusy,
   children,
@@ -11,6 +13,8 @@ export default function EditorChrome({
   appName: React.ReactNode;
   modelLabel?: React.ReactNode;
   variabilityLabel?: React.ReactNode;
+  onShare?: () => void;
+  shareBusy?: boolean;
   onPublish?: () => void;
   publishBusy?: boolean;
   children: React.ReactNode;
@@ -36,14 +40,26 @@ export default function EditorChrome({
                 {variabilityLabel || "70% variability"}
               </span>
             </div>
-            <button
-              className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
-              onClick={onPublish}
-              disabled={publishBusy}
-              type="button"
-            >
-              {publishBusy ? "Publishing..." : "Publish"}
-            </button>
+            {onShare && (
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-3 h-9 text-slate-700 disabled:opacity-50"
+                onClick={onShare}
+                disabled={shareBusy}
+                type="button"
+              >
+                {shareBusy ? "Preparing..." : "Share"}
+              </button>
+            )}
+            {onPublish && (
+              <button
+                className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
+                onClick={onPublish}
+                disabled={publishBusy}
+                type="button"
+              >
+                {publishBusy ? "Publishing..." : "Publish"}
+              </button>
+            )}
           </div>
         </div>
       </header>

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppCard from "./AppCard";
 import DeleteBotDialog from "./DeleteBotDialog";
-import PublishDialog from "@/components/editor/PublishDialog";
+import ShareDialog from "./ShareDialog";
 
 type AppSummary = {
   id: string;
@@ -14,6 +14,11 @@ type AppSummary = {
   updatedAt?: string;
   publishedAt?: string | null;
   publicSlug?: string;
+  projectShareSlug?: string | null;
+  projectShareVisibility?: "private" | "public";
+  shareAuthorName?: boolean;
+  forkedFromProjectName?: string | null;
+  forkedFromAuthorName?: string | null;
 };
 
 export default function AppGrid() {
@@ -24,6 +29,12 @@ export default function AppGrid() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [shareTarget, setShareTarget] = useState<AppSummary | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState("");
+  const [projectShareVisibility, setProjectShareVisibility] = useState<
+    "private" | "public"
+  >("private");
+  const [shareAuthorName, setShareAuthorName] = useState(false);
 
   const appOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -31,6 +42,11 @@ export default function AppGrid() {
   function getShareUrl(app: AppSummary) {
     if (!app.publishedAt || !appOrigin) return "";
     return `${appOrigin}/chat/${app.publicSlug || app.id}`;
+  }
+
+  function getProjectShareUrl(app: AppSummary) {
+    if (!app.projectShareSlug || !appOrigin) return "";
+    return `${appOrigin}/project/${app.projectShareSlug}`;
   }
 
   useEffect(() => {
@@ -75,6 +91,74 @@ export default function AppGrid() {
     }
   }
 
+  async function saveProjectSharing(
+    app: AppSummary,
+    settings?: {
+      projectShareVisibility?: "private" | "public";
+      shareAuthorName?: boolean;
+    }
+  ) {
+    setShareBusy(true);
+    setShareError("");
+
+    try {
+      const res = await fetch(`/api/apps/${app.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shareProject: true,
+          projectShareVisibility:
+            settings?.projectShareVisibility ?? projectShareVisibility,
+          shareAuthorName:
+            settings?.shareAuthorName ?? shareAuthorName,
+        }),
+      });
+      const body = await res.json();
+
+      if (!res.ok) {
+        throw new Error(body?.error || "Failed to prepare share links.");
+      }
+
+      const nextApp: AppSummary = {
+        ...app,
+        publishedAt: body?.app?.publishedAt || app.publishedAt || null,
+        publicSlug: body?.app?.publicSlug || app.publicSlug || null,
+        projectShareSlug:
+          body?.app?.projectShareSlug || app.projectShareSlug || null,
+        projectShareVisibility:
+          body?.app?.projectShareVisibility ||
+          settings?.projectShareVisibility ||
+          app.projectShareVisibility ||
+          "private",
+        shareAuthorName:
+          typeof body?.app?.shareAuthorName === "boolean"
+            ? body.app.shareAuthorName
+            : typeof settings?.shareAuthorName === "boolean"
+              ? settings.shareAuthorName
+              : app.shareAuthorName ?? false,
+      };
+
+      setApps((current) =>
+        current.map((item) => (item.id === app.id ? { ...item, ...nextApp } : item))
+      );
+      setShareTarget(nextApp);
+    } catch (e: any) {
+      setShareError(e?.message || "Failed to prepare share links.");
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function handleShare(app: AppSummary) {
+    setShareTarget(app);
+    setProjectShareVisibility(app.projectShareVisibility || "private");
+    setShareAuthorName(app.shareAuthorName ?? false);
+    await saveProjectSharing(app, {
+      projectShareVisibility: app.projectShareVisibility || "private",
+      shareAuthorName: app.shareAuthorName ?? false,
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -92,7 +176,7 @@ export default function AppGrid() {
         <button
           type="button"
           onClick={() => router.push("/create")}
-          className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50"
         >
           Create new bot
         </button>
@@ -112,7 +196,7 @@ export default function AppGrid() {
               meta={app.updatedAt ? `Updated ${new Date(app.updatedAt).toLocaleDateString()}` : undefined}
               ctaLabel="Open bot"
               onOpen={() => router.push(`/app/${app.id}/editor`)}
-              onShare={() => setShareTarget(app)}
+              onShare={() => void handleShare(app)}
               onDelete={() => {
                 setDeleteError("");
                 setDeleteTarget(app);
@@ -130,7 +214,7 @@ export default function AppGrid() {
           <button
             type="button"
             onClick={() => router.push("/create")}
-            className="mt-5 h-10 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white hover:bg-sky-700"
+            className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
           >
             Create your first bot
           </button>
@@ -149,15 +233,35 @@ export default function AppGrid() {
         }}
         onConfirm={() => void handleDelete()}
       />
-      <PublishDialog
+      <ShareDialog
         open={Boolean(shareTarget)}
-        url={shareTarget ? getShareUrl(shareTarget) : ""}
-        error={
+        appName={shareTarget?.name || "this bot"}
+        loading={shareBusy}
+        savingSettings={shareBusy}
+        error={shareError}
+        projectUrl={shareTarget ? getProjectShareUrl(shareTarget) : ""}
+        chatbotUrl={shareTarget ? getShareUrl(shareTarget) : ""}
+        chatbotError={
           shareTarget && !shareTarget.publishedAt
             ? "Publish this bot from the editor before sharing its public link."
             : undefined
         }
-        onClose={() => setShareTarget(null)}
+        projectShareVisibility={projectShareVisibility}
+        shareAuthorName={shareAuthorName}
+        onProjectShareVisibilityChange={setProjectShareVisibility}
+        onShareAuthorNameChange={setShareAuthorName}
+        onSaveProjectSettings={() => {
+          if (!shareTarget) return;
+          void saveProjectSharing(shareTarget, {
+            projectShareVisibility,
+            shareAuthorName,
+          });
+        }}
+        onClose={() => {
+          if (shareBusy) return;
+          setShareError("");
+          setShareTarget(null);
+        }}
       />
     </div>
   );

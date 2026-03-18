@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { deleteApp, getAppById, listApps, updateApp } from "@/lib/app-store/store";
+import type { PromptBuilderState } from "@/lib/app-store/types";
 import {
   normalizeVariability,
   parseModelSelection,
@@ -16,13 +17,17 @@ function slugify(value: string) {
   );
 }
 
-async function buildUniquePublicSlug(name: string, appId: string) {
-  const base = slugify(name);
+async function buildUniqueSlug(
+  baseValue: string,
+  appId: string,
+  field: "publicSlug" | "projectShareSlug"
+) {
+  const base = slugify(baseValue);
   const apps = await listApps();
   const used = new Set(
     apps
       .filter((app) => app.id !== appId)
-      .map((app) => app.publicSlug)
+      .map((app) => (field === "publicSlug" ? app.publicSlug : app.projectShareSlug))
       .filter(Boolean)
   );
 
@@ -34,6 +39,14 @@ async function buildUniquePublicSlug(name: string, appId: string) {
   }
 
   return `${base}-${attempt}`;
+}
+
+async function buildUniquePublicSlug(name: string, appId: string) {
+  return buildUniqueSlug(name, appId, "publicSlug");
+}
+
+async function buildUniqueProjectShareSlug(name: string, appId: string) {
+  return buildUniqueSlug(`${name} project`, appId, "projectShareSlug");
 }
 
 export async function GET(
@@ -62,8 +75,16 @@ export async function GET(
       model: app.model,
       variability: normalizeVariability(app.variability),
       systemPrompt: app.systemPrompt || "",
+      builderState: app.builderState || null,
       publishedAt: app.publishedAt || null,
       publicSlug: app.publicSlug || null,
+      projectShareSlug: app.projectShareSlug || null,
+      projectSharedAt: app.projectSharedAt || null,
+      projectShareVisibility: app.projectShareVisibility || "private",
+      shareAuthorName: app.shareAuthorName ?? false,
+      forkedFromProjectName: app.forkedFromProjectName || null,
+      forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
+      forkedFromAuthorName: app.forkedFromAuthorName || null,
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,
     },
@@ -89,6 +110,10 @@ export async function PATCH(
       variability?: number;
       systemPrompt?: string;
       publish?: boolean;
+      shareProject?: boolean;
+      builderState?: PromptBuilderState;
+      projectShareVisibility?: "private" | "public";
+      shareAuthorName?: boolean;
     };
 
     const existing = await getAppById(appId, userId);
@@ -103,8 +128,13 @@ export async function PATCH(
       apiKey?: string;
       variability?: number;
       systemPrompt?: string;
+      builderState?: PromptBuilderState;
       publishedAt?: string;
       publicSlug?: string;
+      projectShareSlug?: string;
+      projectSharedAt?: string;
+      projectShareVisibility?: "private" | "public";
+      shareAuthorName?: boolean;
     } = {};
 
     if (typeof body.name === "string") {
@@ -136,12 +166,45 @@ export async function PATCH(
       patch.systemPrompt = body.systemPrompt;
     }
 
+    if (body.builderState && typeof body.builderState === "object") {
+      patch.builderState = body.builderState;
+    }
+
+    if (
+      body.projectShareVisibility === "private" ||
+      body.projectShareVisibility === "public"
+    ) {
+      patch.projectShareVisibility = body.projectShareVisibility;
+    }
+
+    if (typeof body.shareAuthorName === "boolean") {
+      patch.shareAuthorName = body.shareAuthorName;
+    }
+
     if (body.publish) {
       patch.publishedAt = new Date().toISOString();
       patch.publicSlug = await buildUniquePublicSlug(
         patch.name || existing.name,
         existing.id
       );
+    }
+
+    if (body.shareProject) {
+      patch.projectSharedAt = new Date().toISOString();
+      patch.projectShareSlug =
+        existing.projectShareSlug ||
+        (await buildUniqueProjectShareSlug(
+          patch.name || existing.name,
+          existing.id
+        ));
+      patch.projectShareVisibility =
+        patch.projectShareVisibility ||
+        existing.projectShareVisibility ||
+        "private";
+      patch.shareAuthorName =
+        typeof patch.shareAuthorName === "boolean"
+          ? patch.shareAuthorName
+          : existing.shareAuthorName ?? false;
     }
 
     if (
@@ -151,8 +214,11 @@ export async function PATCH(
       !patch.apiKey &&
       typeof patch.variability !== "number" &&
       typeof patch.systemPrompt !== "string" &&
+      !patch.builderState &&
       !patch.publishedAt &&
-      !patch.publicSlug
+      !patch.publicSlug &&
+      !patch.projectShareSlug &&
+      !patch.projectSharedAt
     ) {
       return NextResponse.json(
         { error: "No settings changes provided" },
@@ -174,8 +240,16 @@ export async function PATCH(
         model: app.model,
         variability: normalizeVariability(app.variability),
         systemPrompt: app.systemPrompt || "",
+        builderState: app.builderState || null,
         publishedAt: app.publishedAt || null,
         publicSlug: app.publicSlug || null,
+        projectShareSlug: app.projectShareSlug || null,
+        projectSharedAt: app.projectSharedAt || null,
+        projectShareVisibility: app.projectShareVisibility || "private",
+        shareAuthorName: app.shareAuthorName ?? false,
+        forkedFromProjectName: app.forkedFromProjectName || null,
+        forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
+        forkedFromAuthorName: app.forkedFromAuthorName || null,
         createdAt: app.createdAt,
         updatedAt: app.updatedAt,
       },

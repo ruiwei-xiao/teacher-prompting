@@ -21,6 +21,7 @@ import {
   UndoRedo,
   Separator
 } from '@mdxeditor/editor';
+import type { PromptBuilderState } from '@/lib/app-store/types';
 
 function AgentIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
@@ -103,15 +104,17 @@ Provide **two tiny input–output pairs**, then narrate the transformation *in o
 
   // === Screenshot 2: Learning Sciences principles ===
   'Spacing & Testing (Memory & Fluency)': `# Learning Principle: Spacing & Testing
-Design a short **practice plan** that spaces 5 mini-exercises over time and includes quick **retrieval** checks.
+Design a short **foreign-language vocabulary practice flow** that uses spaced review and quick retrieval checks.
 
 ## Instructions
-- Each exercise should take ~2–3 minutes and revisit the same concept (e.g., for-loop over indices) with slight variation.
-- After each, include a **one-question quiz** to test recall (no code solution).
+- Always include a simple **flip-style flashcard deck** for vocabulary.
+- Show **one word card at a time** and use the chat turns to alternate between prompting recall and revealing/checking the answer.
+- Revisit harder words sooner and easier words later, so the deck reflects **spacing & testing**.
+- Ask the learner to recall meaning, pronunciation, usage, or translation before revealing the answer.
 
 ## Guardrails
 - Keep prompts minimal and focused.
-- Do **not** provide final code.
+- Do not dump the whole vocabulary list at once.
 `,
 
   'Optimized Scheduling (Practice Selection)': `# Learning Principle: Optimized Scheduling
@@ -393,18 +396,8 @@ function saveInstructionDoc(md: string) {
   );
 }
 
-type BuilderState = {
-  learningObjective: string;
-  learningObjectivePrompt: string;
-  uploadedExerciseName: string;
-  uploadedExerciseText: string;
-  exercisePrompt: string;
-  gradeLevel: string;
-  language: string;
-  learnerNotes: string;
-  learnerProfilePrompt: string;
+export type BuilderState = Omit<PromptBuilderState, 'selectedTemplate'> & {
   selectedTemplate: keyof typeof TEMPLATES;
-  templatePrompt: string;
 };
 
 type SectionKey = 'objective' | 'exercises' | 'profile' | 'template';
@@ -428,21 +421,32 @@ function saveBuilderState(state: BuilderState) {
   localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(state));
 }
 
+function coerceBuilderState(state?: Partial<PromptBuilderState> | null): BuilderState {
+  return {
+    ...DEFAULT_BUILDER_STATE,
+    ...state,
+    selectedTemplate:
+      state?.selectedTemplate && state.selectedTemplate in TEMPLATES
+        ? (state.selectedTemplate as keyof typeof TEMPLATES)
+        : DEFAULT_TEMPLATE_KEY,
+  };
+}
+
+function serializeBuilderState(state: BuilderState): PromptBuilderState {
+  return {
+    ...state,
+    selectedTemplate: state.selectedTemplate,
+  };
+}
+
 function loadBuilderState(): BuilderState | null {
   if (typeof window === 'undefined') return null;
 
   try {
     const raw = localStorage.getItem(BUILDER_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<BuilderState>;
-    return {
-      ...DEFAULT_BUILDER_STATE,
-      ...parsed,
-      selectedTemplate:
-        parsed.selectedTemplate && parsed.selectedTemplate in TEMPLATES
-          ? parsed.selectedTemplate
-          : DEFAULT_TEMPLATE_KEY,
-    };
+    const parsed = JSON.parse(raw) as Partial<PromptBuilderState>;
+    return coerceBuilderState(parsed);
   } catch {
     return null;
   }
@@ -578,9 +582,19 @@ function AccordionSection({
   );
 }
 
-export default function InstructionDoc() {
+export default function InstructionDoc({
+  appId: appIdProp,
+  readOnly = false,
+  initialBuilderState,
+  initialPrompt,
+}: {
+  appId?: string;
+  readOnly?: boolean;
+  initialBuilderState?: PromptBuilderState | null;
+  initialPrompt?: string;
+}) {
   const params = useParams<{ appId: string }>();
-  const appId = params?.appId || '';
+  const appId = appIdProp || params?.appId || '';
   const editorRef = useRef<MDXEditorMethods>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const draftRequestIds = useRef<Record<SectionKey, number>>({
@@ -606,11 +620,14 @@ export default function InstructionDoc() {
 
   function applyPrompt(nextPrompt: string) {
     setValue(nextPrompt);
-    saveInstructionDoc(nextPrompt);
+    if (!readOnly) {
+      saveInstructionDoc(nextPrompt);
+    }
     editorRef.current?.setMarkdown(nextPrompt);
   }
 
   function updateBuilder<K extends keyof BuilderState>(key: K, nextValue: BuilderState[K]) {
+    if (readOnly) return;
     setAutoGenerate(true);
     setBuilder((current) => {
       const next = { ...current, [key]: nextValue };
@@ -742,32 +759,75 @@ export default function InstructionDoc() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    let cancelled = false;
 
-    const storedBuilder = loadBuilderState();
-    const stored = localStorage.getItem('instruction-doc-md') || '';
-    if (storedBuilder) {
-      setBuilder(storedBuilder);
-      const nextPrompt = buildPrompt(storedBuilder);
-      applyPrompt(nextPrompt);
-      setAutoGenerate(true);
+    async function hydrateFromLocalOrServer() {
+      if (readOnly) {
+        const readonlyBuilder = coerceBuilderState(initialBuilderState);
+        const nextPrompt =
+          initialPrompt?.trim() || buildPrompt(readonlyBuilder) || DEFAULT_MD;
+        if (cancelled) return;
+        setBuilder(readonlyBuilder);
+        setValue(nextPrompt);
+        editorRef.current?.setMarkdown(nextPrompt);
+        setAutoGenerate(false);
+        setHydrated(true);
+        return;
+      }
+
+      const storedBuilder = loadBuilderState();
+      const stored = localStorage.getItem('instruction-doc-md') || '';
+
+      if (storedBuilder) {
+        if (cancelled) return;
+        setBuilder(storedBuilder);
+        const nextPrompt = buildPrompt(storedBuilder);
+        applyPrompt(nextPrompt);
+        setAutoGenerate(true);
+        setHydrated(true);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/apps/${appId}`);
+        const body = await res.json();
+        if (!cancelled && res.ok && body?.app?.builderState) {
+          const serverBuilder = coerceBuilderState(body.app.builderState);
+          setBuilder(serverBuilder);
+          const nextPrompt =
+            body?.app?.systemPrompt?.trim() || buildPrompt(serverBuilder);
+          applyPrompt(nextPrompt);
+          saveBuilderState(serverBuilder);
+          setAutoGenerate(true);
+          setHydrated(true);
+          return;
+        }
+      } catch {}
+
+      if (cancelled) return;
+      const initial = stored.trim() || buildPrompt(DEFAULT_BUILDER_STATE) || DEFAULT_MD;
+      setValue(initial);
+      saveInstructionDoc(initial);
+      editorRef.current?.setMarkdown(initial);
+      setAutoGenerate(!stored.trim());
       setHydrated(true);
-      return;
     }
 
-    const initial = stored.trim() || buildPrompt(DEFAULT_BUILDER_STATE) || DEFAULT_MD;
-    setValue(initial);
-    saveInstructionDoc(initial);
-    editorRef.current?.setMarkdown(initial);
-    setAutoGenerate(!stored.trim());
-    setHydrated(true);
-  }, []);
+    void hydrateFromLocalOrServer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, initialBuilderState, initialPrompt, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     if (!hydrated || !autoGenerate) return;
     applyPrompt(generatedPrompt);
-  }, [autoGenerate, generatedPrompt, hydrated]);
+  }, [autoGenerate, generatedPrompt, hydrated, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     if (!hydrated || !appId) return;
 
     const sections: SectionKey[] = ['objective', 'profile', 'exercises', 'template'];
@@ -804,7 +864,25 @@ export default function InstructionDoc() {
         if (timer) window.clearTimeout(timer);
       });
     };
-  }, [appId, builder, hydrated]);
+  }, [appId, builder, hydrated, readOnly]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    if (!hydrated || !appId) return;
+
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/apps/${appId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemPrompt: value,
+          builderState: serializeBuilderState(builder),
+        }),
+      });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [appId, builder, hydrated, readOnly, value]);
 
   const objectiveSummary = summarizeText(
     builder.learningObjectivePrompt || builder.learningObjective,
@@ -912,7 +990,9 @@ export default function InstructionDoc() {
             Prompt Builder
           </span>
           <span className="text-sm text-slate-600">
-            Fill the steps below and the system prompt will update automatically.
+            {readOnly
+              ? 'Read-only shared project view.'
+              : 'Fill the steps below and the system prompt will update automatically.'}
           </span>
         </div>
 
@@ -936,8 +1016,9 @@ export default function InstructionDoc() {
               onChange={(event) =>
                 updateBuilder('learningObjective', event.target.value)
               }
+              disabled={readOnly}
               placeholder="Example: Help Grade 7 students understand conservation of mass through predicting and explaining simple reactions."
-              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50 disabled:text-slate-500"
             />
             {draftingSections.objective && (
               <div className="mt-2 text-xs text-sky-700">
@@ -972,7 +1053,8 @@ export default function InstructionDoc() {
                 <select
                   value={builder.gradeLevel}
                   onChange={(event) => updateBuilder('gradeLevel', event.target.value)}
-                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                  disabled={readOnly}
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {GRADE_LEVEL_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -989,7 +1071,8 @@ export default function InstructionDoc() {
                 <select
                   value={builder.language}
                   onChange={(event) => updateBuilder('language', event.target.value)}
-                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                  disabled={readOnly}
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {LANGUAGE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -1008,8 +1091,9 @@ export default function InstructionDoc() {
                 rows={3}
                 value={builder.learnerNotes}
                 onChange={(event) => updateBuilder('learnerNotes', event.target.value)}
+                disabled={readOnly}
                 placeholder="Example: multilingual learners, needs more scaffolding, preparing for an in-class lab, etc."
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50 disabled:text-slate-500"
               />
             </div>
             {draftingSections.profile && (
@@ -1036,12 +1120,19 @@ export default function InstructionDoc() {
           >
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <label
+                  className={`inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium ${
+                    readOnly
+                      ? 'cursor-not-allowed text-slate-400'
+                      : 'cursor-pointer text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
                   Upload file
                   <input
                     type="file"
                     accept=".txt,.md,.csv,.json"
                     onChange={handleExerciseUpload}
+                    disabled={readOnly}
                     className="sr-only"
                   />
                 </label>
@@ -1056,8 +1147,9 @@ export default function InstructionDoc() {
                 onChange={(event) =>
                   updateBuilder('uploadedExerciseText', event.target.value)
                 }
+                disabled={readOnly}
                 placeholder="Paste a link or content."
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50 disabled:text-slate-500"
               />
               {draftingSections.exercises && (
                 <div className="text-xs text-sky-700">
@@ -1093,8 +1185,9 @@ export default function InstructionDoc() {
                     !isFeaturedAgentTemplate(builder.selectedTemplate)
                       ? 'border-slate-200 text-slate-400'
                       : 'border-slate-300 text-slate-700'
-                  }`}
+                  } disabled:bg-slate-50 disabled:text-slate-500`}
                   value={builder.selectedTemplate}
+                  disabled={readOnly}
                   onChange={(event) =>
                     updateBuilder(
                       'selectedTemplate',
@@ -1154,8 +1247,9 @@ export default function InstructionDoc() {
                     <button
                       key={template.key}
                       type="button"
+                      disabled={readOnly}
                       onClick={() => updateBuilder('selectedTemplate', template.key)}
-                      className={`flex min-w-[250px] items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${cardClasses}`}
+                      className={`flex min-w-[250px] items-start gap-3 rounded-2xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${cardClasses}`}
                     >
                       <div className={`mt-0.5 rounded-xl p-2 ${iconClasses}`}>
                         <AgentIcon className="h-4 w-4" />
@@ -1208,13 +1302,15 @@ export default function InstructionDoc() {
             >
               {promptOpen ? 'Hide' : 'Show'}
             </button>
-            <button
-              type="button"
-              onClick={() => applyPrompt(generatedPrompt)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              Regenerate prompt
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => applyPrompt(generatedPrompt)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Regenerate prompt
+              </button>
+            )}
           </div>
         </div>
 
@@ -1223,36 +1319,44 @@ export default function InstructionDoc() {
             ref={editorContainerRef}
             className="instruction-doc-editor min-h-0 flex-1 overflow-hidden"
           >
-            <MDXEditor
-              ref={editorRef}
-              className="h-full overflow-auto px-6 pb-6"
-              markdown={value}
-              onChange={(md) => {
-                setValue(md || '');
-                saveInstructionDoc(md || '');
-              }}
-              plugins={[
-                headingsPlugin(),
-                listsPlugin(),
-                linkPlugin(),
-                quotePlugin(),
-                codeBlockPlugin(),
-                markdownShortcutPlugin(),
-                toolbarPlugin({
-                  toolbarContents: () => (
-                    <>
-                      <BlockTypeSelect />
-                      <BoldItalicUnderlineToggles />
-                      <ListsToggle />
-                      <CodeToggle />
-                      <CreateLink />
-                      <Separator />
-                      <UndoRedo />
-                    </>
-                  ),
-                }),
-              ]}
-            />
+            {readOnly ? (
+              <div className="h-full overflow-auto px-6 pb-6 pt-4">
+                <div className="whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-800">
+                  {value}
+                </div>
+              </div>
+            ) : (
+              <MDXEditor
+                ref={editorRef}
+                className="h-full overflow-auto px-6 pb-6"
+                markdown={value}
+                onChange={(md) => {
+                  setValue(md || '');
+                  saveInstructionDoc(md || '');
+                }}
+                plugins={[
+                  headingsPlugin(),
+                  listsPlugin(),
+                  linkPlugin(),
+                  quotePlugin(),
+                  codeBlockPlugin(),
+                  markdownShortcutPlugin(),
+                  toolbarPlugin({
+                    toolbarContents: () => (
+                      <>
+                        <BlockTypeSelect />
+                        <BoldItalicUnderlineToggles />
+                        <ListsToggle />
+                        <CodeToggle />
+                        <CreateLink />
+                        <Separator />
+                        <UndoRedo />
+                      </>
+                    ),
+                  }),
+                ]}
+              />
+            )}
           </div>
         )}
       </div>

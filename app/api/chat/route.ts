@@ -32,6 +32,22 @@ type VisualizationState =
       };
     }
   | {
+      mode?: "spacing-testing";
+      data?: {
+        deckTitle?: string;
+        activeCard?: number;
+        flipped?: boolean;
+        studyMoments?: string[];
+        cards?: {
+          id?: string;
+          front?: string;
+          back?: string;
+          status?: "new" | "hard" | "easy";
+        }[];
+        lastInteraction?: string;
+      };
+    }
+  | {
       mode?: "dyslexia-support";
       data?: {
         sourceText?: string;
@@ -123,6 +139,42 @@ function buildVisualizationContext(visualizationState?: VisualizationState) {
       `- Current melody: ${JSON.stringify(data.melody || [])}`,
       "",
       "Use this music staff state to ground your tutoring response. Refer to the student's current notation and what they just placed or played on the staff.",
+    ].join("\n");
+  }
+
+  if (visualizationState.mode === "spacing-testing") {
+    const data = visualizationState.data as {
+      deckTitle?: string;
+      activeCard?: number;
+      flipped?: boolean;
+      studyMoments?: string[];
+      cards?: {
+        id?: string;
+        front?: string;
+        back?: string;
+        status?: "new" | "hard" | "easy";
+      }[];
+      lastInteraction?: string;
+    };
+
+    const currentCard = data.cards?.[data.activeCard ?? 0];
+
+    return [
+      "## Current spacing-and-testing vocabulary flashcard state",
+      `- Deck title: ${data.deckTitle || "Vocabulary flashcard deck"}`,
+      `- Active card: ${(data.activeCard ?? 0) + 1} of ${data.cards?.length ?? 0}`,
+      `- Card side showing: ${data.flipped ? "answer" : "question"}`,
+      `- Study moments: ${JSON.stringify(data.studyMoments || [])}`,
+      `- Current vocabulary word: ${currentCard?.front || "Unknown"}`,
+      `- Current card answer / usage cue: ${currentCard?.back || "Unknown"}`,
+      `- Current card status: ${currentCard?.status || "new"}`,
+      `- All card statuses: ${JSON.stringify((data.cards || []).map((card) => ({
+        front: card.front,
+        status: card.status || "new",
+      })))}`,
+      `- Last interaction: ${data.lastInteraction || "None"}`,
+      "",
+      "Use this vocabulary flashcard state to ground your response. Treat the conversation as one-word-at-a-time retrieval practice, refer to the current word and card side, and bring hard words back sooner than easy ones.",
     ].join("\n");
   }
 
