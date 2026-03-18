@@ -5,6 +5,7 @@ type Props = {
   badge?: string;
   ctaLabel: string;
   onOpen?: () => void;
+  onShare?: () => void;
   onDelete?: () => void;
 };
 
@@ -15,6 +16,7 @@ export default function AppCard({
   badge = "Bot",
   ctaLabel,
   onOpen,
+  onShare,
   onDelete,
 }: Props) {
   return (
@@ -35,6 +37,15 @@ export default function AppCard({
         >
           {ctaLabel}
         </button>
+        {onShare && (
+          <button
+            type="button"
+            onClick={onShare}
+            className="h-10 rounded-xl border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Share
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"

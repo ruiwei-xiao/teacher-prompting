@@ -16,7 +16,7 @@ export default function EditorChrome({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex min-h-screen flex-col overflow-hidden">
       {/* Sticky header spans full width */}
       <header className="border-b bg-white h-16 sticky top-0 z-10">
         <div className="h-full w-full page-pad flex items-center justify-between">
@@ -49,8 +49,10 @@ export default function EditorChrome({
       </header>
 
       {/* Full-bleed content that fills the rest of the viewport */}
-      <main className="flex-1 page-pad">
-        <div className="main-viewport py-4 md:py-5">{children}</div>
+      <main className="page-pad min-h-0 flex-1 overflow-hidden">
+        <div className="main-viewport box-border min-h-0 overflow-hidden py-4 md:py-5">
+          {children}
+        </div>
       </main>
     </div>
   );

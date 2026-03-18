@@ -32,6 +32,32 @@ type VisualizationState =
       };
     }
   | {
+      mode?: "dyslexia-support";
+      data?: {
+        sourceText?: string;
+        adaptedText?: string;
+        displayMode?: "chunked" | "spaced" | "guided-writing";
+        fontMode?: "default" | "opendyslexic-style";
+        spacingPreset?: "standard" | "comfortable" | "maximum";
+        lineFocusEnabled?: boolean;
+        maskEnabled?: boolean;
+        syllableHighlight?: boolean;
+        autoReadFocusedChunk?: boolean;
+        focusChunk?: number;
+        activeSpokenChunk?: number | null;
+        activeSpokenSentence?: number | null;
+        activeSpokenChar?: number | null;
+        speechRate?: number;
+        selectedVoice?: string;
+        speakingTarget?: "none" | "focused-chunk" | "full-preview";
+        chunkSize?: number;
+        keywords?: string[];
+        sentenceFrame?: string;
+        checklist?: string[];
+        lastInteraction?: string;
+      };
+    }
+  | {
       mode?: "virtual-lab";
       data?: {
         equation?: string;
@@ -97,6 +123,59 @@ function buildVisualizationContext(visualizationState?: VisualizationState) {
       `- Current melody: ${JSON.stringify(data.melody || [])}`,
       "",
       "Use this music staff state to ground your tutoring response. Refer to the student's current notation and what they just placed or played on the staff.",
+    ].join("\n");
+  }
+
+  if (visualizationState.mode === "dyslexia-support") {
+    const data = visualizationState.data as {
+      sourceText?: string;
+      adaptedText?: string;
+      displayMode?: "chunked" | "spaced" | "guided-writing";
+      fontMode?: "default" | "opendyslexic-style";
+      spacingPreset?: "standard" | "comfortable" | "maximum";
+      lineFocusEnabled?: boolean;
+      maskEnabled?: boolean;
+      syllableHighlight?: boolean;
+      autoReadFocusedChunk?: boolean;
+      focusChunk?: number;
+      activeSpokenChunk?: number | null;
+      activeSpokenSentence?: number | null;
+      activeSpokenChar?: number | null;
+      speechRate?: number;
+      selectedVoice?: string;
+      speakingTarget?: "none" | "focused-chunk" | "full-preview";
+      chunkSize?: number;
+      keywords?: string[];
+      sentenceFrame?: string;
+      checklist?: string[];
+      lastInteraction?: string;
+    };
+
+    return [
+      "## Current dyslexia-friendly literacy support state",
+      `- Original task: ${data.sourceText || "Unknown"}`,
+      `- Adapted version: ${data.adaptedText || "Unknown"}`,
+      `- Display mode: ${data.displayMode || "chunked"}`,
+      `- Font mode: ${data.fontMode || "default"}`,
+      `- Spacing preset: ${data.spacingPreset || "comfortable"}`,
+      `- Line focus ruler: ${data.lineFocusEnabled ? "on" : "off"}`,
+      `- Reading mask: ${data.maskEnabled ? "on" : "off"}`,
+      `- Syllable highlighting: ${data.syllableHighlight ? "on" : "off"}`,
+      `- Auto-read focused chunk: ${data.autoReadFocusedChunk ? "on" : "off"}`,
+      `- Focused chunk: ${(data.focusChunk ?? 0) + 1}`,
+      `- Active spoken chunk: ${data.activeSpokenChunk == null ? "None" : data.activeSpokenChunk + 1}`,
+      `- Active spoken sentence: ${data.activeSpokenSentence == null ? "None" : data.activeSpokenSentence + 1}`,
+      `- Active spoken character: ${data.activeSpokenChar == null ? "None" : data.activeSpokenChar + 1}`,
+      `- Speech rate: ${data.speechRate ?? 0.9}`,
+      `- Selected voice: ${data.selectedVoice || "System default"}`,
+      `- Speaking target: ${data.speakingTarget || "none"}`,
+      `- Chunk size: ${data.chunkSize ?? 1}`,
+      `- Keywords: ${JSON.stringify(data.keywords || [])}`,
+      `- Sentence frame: ${data.sentenceFrame || "None"}`,
+      `- Checklist: ${JSON.stringify(data.checklist || [])}`,
+      `- Last interaction: ${data.lastInteraction || "None"}`,
+      "",
+      "Use this literacy-support state to ground your response. Refer to the adapted text structure, keyword supports, and writing scaffold currently visible in the interface.",
     ].join("\n");
   }
 

@@ -19,7 +19,7 @@ export default function EditorPage({
   params: Promise<{ appId: string }>;
 }) {
   const { appId } = use(params);
-  const [assistantOpen, setAssistantOpen] = useState(true);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
@@ -107,8 +107,8 @@ export default function EditorPage({
       onPublish={handlePublish}
       publishBusy={publishBusy}
     >
-      <div className={`h-full grid ${gridCols} gap-0 divide-x divide-slate-200`}>
-        <div className="h-full bg-white">
+      <div className={`grid h-full min-h-0 overflow-hidden ${gridCols} gap-0 divide-x divide-slate-200`}>
+        <div className="h-full min-h-0 overflow-hidden bg-white">
           <RightRail
             assistantOpen={assistantOpen}
             settingsOpen={settingsOpen}
@@ -118,18 +118,18 @@ export default function EditorPage({
         </div>
 
         {assistantOpen && (
-          <div className="h-full bg-white">
+          <div className="h-full min-h-0 overflow-hidden bg-white">
             <LeftChat appId={appId} appVersion={appVersion} />
           </div>
         )}
 
-        <section className="h-full bg-white flex flex-col">
-          <div className="min-h-0 flex-1">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
+          <div className="min-h-0 flex-1 overflow-hidden">
             <InstructionDoc />
           </div>
         </section>
 
-        <div className="h-full bg-white">
+        <div className="h-full min-h-0 overflow-hidden bg-white">
           <AssistantPanel
             appId={appId}
             appName={appName}

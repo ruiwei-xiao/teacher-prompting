@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import '@mdxeditor/editor/style.css';
 import type { MDXEditorMethods } from '@mdxeditor/editor';
 import {
@@ -28,6 +29,20 @@ function AgentIcon({ className = 'h-4 w-4' }: { className?: string }) {
         fill="currentColor"
         d="M12 2a1 1 0 011 1v1.08A7 7 0 0119 11v5a3 3 0 01-3 3h-1.14l1.1 2.2a1 1 0 11-1.8.9L13 19H11l-1.16 3.1a1 1 0 11-1.88-.68L9.14 19H8a3 3 0 01-3-3v-5a7 7 0 016-6.92V3a1 1 0 011-1zm-4 9a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm5 0a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm-3.75 4a.75.75 0 000 1.5h5.5a.75.75 0 000-1.5h-5.5z"
       />
+    </svg>
+  );
+}
+
+function StepIcon({
+  d,
+  className = 'h-4 w-4',
+}: {
+  d: string;
+  className?: string;
+}) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="currentColor" d={d} />
     </svg>
   );
 }
@@ -259,6 +274,38 @@ You are talking to learners who are just starting to read and write notes on the
 - If a rich notation renderer is unavailable, fall back to a lightweight interactive staff with clickable note positions and audio playback.
 - Do not overwhelm the student with advanced theory unless they ask for it.
 `,
+
+  'Dyslexia Support Tutor': `# Background
+
+You are an expert literacy support tutor helping teachers adapt reading and writing activities for students with dyslexia.
+
+You are talking to learners who may need clearer text structure, lower visual load, explicit decoding support, and more accessible writing tasks.
+
+## Agent Configuration
+
+- Mode: dyslexia-friendly literacy support
+- Visualized element: when helpful, present text in short chunks, highlighted syllables, keyword lists, guided reading frames, or step-by-step writing scaffolds
+- Tools you can use: text simplification, structured reading supports, phonics-aware chunking, sentence frames, vocabulary previews, and rewrite suggestions
+- Output style: calm, explicit, low-clutter instructions with short sentences and predictable structure
+- Accessibility rule: always optimize for readability, reduced overload, and confidence-building support
+
+## Your Workflow
+
+1. First, ask for the original reading or writing exercise and the student's current challenge.
+2. Then, transform the material into a dyslexia-friendly version with simpler layout, clearer wording, and manageable chunks.
+3. Next, add supports such as vocabulary previews, sentence frames, decoding cues, or step-by-step instructions.
+4. After that, explain to the teacher what was changed and why those adaptations are more supportive for students with dyslexia.
+
+## Guidelines & Guardrails
+
+- Break long paragraphs into short chunks.
+- Prefer short, concrete sentences and familiar vocabulary when possible.
+- Reduce unnecessary visual clutter and avoid dense blocks of text.
+- When adapting writing tasks, provide explicit structure such as starters, frames, and checklists.
+- When adapting reading tasks, support decoding and comprehension without making the content feel childish unless the teacher asks for that.
+- Preserve the original learning objective while making the task more accessible.
+- Keep a respectful, strengths-based tone and never frame dyslexia as lack of intelligence or effort.
+`,
 };
 
 const FEATURED_AGENT_TEMPLATES = [
@@ -280,6 +327,32 @@ const FEATURED_AGENT_TEMPLATES = [
     description:
       'Interactive five-line staff agent with note placement, melody playback, and music-reading support.',
   },
+  {
+    key: 'Dyslexia Support Tutor' as keyof typeof TEMPLATES,
+    accent: 'amber',
+    description:
+      'Accessibility-focused literacy agent that rewrites reading and writing tasks into dyslexia-friendly versions.',
+  },
+] as const;
+const FEATURED_AGENT_TEMPLATE_KEYS = new Set(
+  FEATURED_AGENT_TEMPLATES.map((template) => template.key)
+);
+
+const BUILDER_STORAGE_KEY = 'instruction-doc-builder-state';
+const DEFAULT_TEMPLATE_KEY = '— Select a template —' as const;
+const GRADE_LEVEL_OPTIONS = [
+  'Elementary school',
+  'Middle school',
+  'High school',
+  'College / university',
+  'Adult learner',
+] as const;
+const LANGUAGE_OPTIONS = [
+  'English',
+  'Chinese',
+  'Bilingual (English + Chinese)',
+  'Spanish',
+  'Other',
 ] as const;
 
 /* ---------- Default text if no template chosen ---------- */
@@ -320,169 +393,881 @@ function saveInstructionDoc(md: string) {
   );
 }
 
+type BuilderState = {
+  learningObjective: string;
+  learningObjectivePrompt: string;
+  uploadedExerciseName: string;
+  uploadedExerciseText: string;
+  exercisePrompt: string;
+  gradeLevel: string;
+  language: string;
+  learnerNotes: string;
+  learnerProfilePrompt: string;
+  selectedTemplate: keyof typeof TEMPLATES;
+  templatePrompt: string;
+};
+
+type SectionKey = 'objective' | 'exercises' | 'profile' | 'template';
+
+const DEFAULT_BUILDER_STATE: BuilderState = {
+  learningObjective: '',
+  learningObjectivePrompt: '',
+  uploadedExerciseName: '',
+  uploadedExerciseText: '',
+  exercisePrompt: '',
+  gradeLevel: GRADE_LEVEL_OPTIONS[1],
+  language: LANGUAGE_OPTIONS[0],
+  learnerNotes: '',
+  learnerProfilePrompt: '',
+  selectedTemplate: DEFAULT_TEMPLATE_KEY,
+  templatePrompt: '',
+};
+
+function saveBuilderState(state: BuilderState) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadBuilderState(): BuilderState | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = localStorage.getItem(BUILDER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<BuilderState>;
+    return {
+      ...DEFAULT_BUILDER_STATE,
+      ...parsed,
+      selectedTemplate:
+        parsed.selectedTemplate && parsed.selectedTemplate in TEMPLATES
+          ? parsed.selectedTemplate
+          : DEFAULT_TEMPLATE_KEY,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function summarizeText(text: string, fallback: string) {
+  const normalized = text
+    .replace(/```[\w-]*\s*/g, '')
+    .replace(/^#+\s+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return fallback;
+  return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
+}
+
+function buildPrompt(state: BuilderState) {
+  const templateBody = TEMPLATES[state.selectedTemplate]?.trim();
+  const sections = [
+    `# Learning Objective\n\n${
+      state.learningObjectivePrompt.trim() ||
+      state.learningObjective.trim() ||
+      'Describe the learning goal, target concept, and what success looks like for students.'
+    }`,
+    `# Learner Profile\n\n${
+      state.learnerProfilePrompt.trim() ||
+      `- Grade level: ${state.gradeLevel || 'Not specified'}\n- Language: ${state.language || 'Not specified'}\n- Additional learner notes: ${
+        state.learnerNotes.trim() || 'None provided.'
+      }`
+    }`,
+    `# Reference Learning Materials\n\n${
+      state.exercisePrompt.trim()
+        ? state.exercisePrompt.trim()
+        : state.uploadedExerciseText.trim()
+          ? `The teacher shared reference learning materials from **${state.uploadedExerciseName || 'a material file or link'}**:\n\n${state.uploadedExerciseText.trim()}`
+          : 'No reference learning materials were provided. If the teacher later adds links or files, incorporate them into the tutoring flow.'
+    }`,
+    `# Template Selection\n\n${
+      state.selectedTemplate !== DEFAULT_TEMPLATE_KEY
+        ? `The teacher selected **${state.selectedTemplate}**.\n\n${templateBody}${
+            state.templatePrompt.trim()
+              ? `\n\n## Template Adaptation Notes\n\n${state.templatePrompt.trim()}`
+              : ''
+          }`
+        : 'No template selected yet. Choose an instructional template below and tailor the agent behavior to it.'
+    }`,
+    `# Final Instruction\n\nUse the four sections above as the grounding context for this teaching agent. Keep the response aligned with the stated learning objective, adapt to the learner profile, reuse or transform any uploaded exercises when appropriate, and follow the selected template faithfully.`,
+  ];
+
+  return sections.join('\n\n');
+}
+
+function isFeaturedAgentTemplate(templateKey: keyof typeof TEMPLATES) {
+  return FEATURED_AGENT_TEMPLATE_KEYS.has(templateKey);
+}
+
+function AccordionSection({
+  title,
+  step,
+  summary,
+  icon,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  title: string;
+  step: number;
+  summary: string;
+  icon: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border shadow-sm transition ${
+        isOpen
+          ? 'border-sky-300 bg-sky-50/60 ring-2 ring-sky-100'
+          : 'border-slate-200 bg-white'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                isOpen
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'bg-sky-100 text-sky-700'
+              }`}
+            >
+              {step}
+            </span>
+            <span className={`text-sm font-semibold ${isOpen ? 'text-sky-950' : 'text-slate-900'}`}>
+              {title}
+            </span>
+            <span
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ${
+                isOpen ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {typeof icon === 'string' ? icon : icon}
+            </span>
+            {isOpen && (
+              <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                Current step
+              </span>
+            )}
+          </div>
+          <div
+            className={`mt-1.5 flex items-start gap-2 text-sm ${
+              isOpen ? 'text-sky-800' : 'text-slate-500'
+            }`}
+          >
+            <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-400">
+              <StepIcon
+                d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l8.06-8.06.92.92L5.92 19.58zM20.71 7.04a1 1 0 000-1.41L18.37 3.29a1 1 0 00-1.41 0l-1.13 1.13 3.75 3.75 1.13-1.13z"
+                className="h-3.5 w-3.5"
+              />
+            </span>
+            <p>{summary}</p>
+          </div>
+        </div>
+        <span className={`text-sm font-medium ${isOpen ? 'text-sky-700' : 'text-slate-400'}`}>
+          {isOpen ? 'Hide' : 'Show'}
+        </span>
+      </button>
+      {isOpen && <div className="border-t border-sky-100 px-4 py-3">{children}</div>}
+    </div>
+  );
+}
+
 export default function InstructionDoc() {
+  const params = useParams<{ appId: string }>();
+  const appId = params?.appId || '';
   const editorRef = useRef<MDXEditorMethods>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+  const draftRequestIds = useRef<Record<SectionKey, number>>({
+    objective: 0,
+    exercises: 0,
+    profile: 0,
+    template: 0,
+  });
+  const draftedSignatures = useRef<Partial<Record<SectionKey, string>>>({});
+  const desiredSignatures = useRef<Partial<Record<SectionKey, string>>>({});
   const [value, setValue] = useState<string>(DEFAULT_MD);
-  const [selectedKey, setSelectedKey] =
-    useState<keyof typeof TEMPLATES>('— Select a template —');
-  const selectedTemplate = TEMPLATES[selectedKey] ?? '';
+  const [builder, setBuilder] = useState<BuilderState>(DEFAULT_BUILDER_STATE);
+  const [openSection, setOpenSection] = useState<SectionKey | null>('objective');
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const [autoGenerate, setAutoGenerate] = useState(false);
+  const [draftingSections, setDraftingSections] = useState<
+    Partial<Record<SectionKey, boolean>>
+  >({});
+  const [sectionErrors, setSectionErrors] = useState<Partial<Record<SectionKey, string>>>({});
 
-  const insertTemplate = () => {
-    if (!selectedTemplate) return;
-    editorRef.current?.setMarkdown(selectedTemplate);
-    setValue(selectedTemplate);
-    saveInstructionDoc(selectedTemplate);
-  };
+  const generatedPrompt = useMemo(() => buildPrompt(builder), [builder]);
 
-  const appendTemplate = () => {
-    if (!selectedTemplate) return;
-    const next = value.trim().length ? `${value}\n\n${selectedTemplate}` : selectedTemplate;
-    editorRef.current?.setMarkdown(next);
-    setValue(next);
-    saveInstructionDoc(next);
-  };
+  function applyPrompt(nextPrompt: string) {
+    setValue(nextPrompt);
+    saveInstructionDoc(nextPrompt);
+    editorRef.current?.setMarkdown(nextPrompt);
+  }
+
+  function updateBuilder<K extends keyof BuilderState>(key: K, nextValue: BuilderState[K]) {
+    setAutoGenerate(true);
+    setBuilder((current) => {
+      const next = { ...current, [key]: nextValue };
+      saveBuilderState(next);
+      return next;
+    });
+  }
+
+  function getDraftField(section: SectionKey): keyof BuilderState {
+    if (section === 'objective') return 'learningObjectivePrompt';
+    if (section === 'exercises') return 'exercisePrompt';
+    if (section === 'profile') return 'learnerProfilePrompt';
+    return 'templatePrompt';
+  }
+
+  function getSectionSignature(section: SectionKey, state: BuilderState) {
+    if (section === 'objective') {
+      return state.learningObjective.trim();
+    }
+
+    if (section === 'profile') {
+      return JSON.stringify({
+        gradeLevel: state.gradeLevel,
+        language: state.language,
+        learnerNotes: state.learnerNotes.trim(),
+      });
+    }
+
+    if (section === 'exercises') {
+      return JSON.stringify({
+        uploadedExerciseName: state.uploadedExerciseName.trim(),
+        uploadedExerciseText: state.uploadedExerciseText.trim(),
+      });
+    }
+
+    return JSON.stringify({
+      selectedTemplate: state.selectedTemplate,
+      learningObjective: state.learningObjective.trim(),
+      gradeLevel: state.gradeLevel,
+      language: state.language,
+      learnerNotes: state.learnerNotes.trim(),
+      uploadedExerciseText: state.uploadedExerciseText.trim(),
+    });
+  }
+
+  function hasMeaningfulSectionInput(section: SectionKey, state: BuilderState) {
+    if (section === 'objective') {
+      return Boolean(state.learningObjective.trim());
+    }
+
+    if (section === 'profile') {
+      return Boolean(
+        state.learnerNotes.trim() ||
+          state.gradeLevel !== DEFAULT_BUILDER_STATE.gradeLevel ||
+          state.language !== DEFAULT_BUILDER_STATE.language
+      );
+    }
+
+    if (section === 'exercises') {
+      return Boolean(state.uploadedExerciseName.trim() || state.uploadedExerciseText.trim());
+    }
+
+    return state.selectedTemplate !== DEFAULT_TEMPLATE_KEY;
+  }
+
+  async function draftSectionWithAI(section: SectionKey, signature: string) {
+    draftRequestIds.current[section] += 1;
+    const requestId = draftRequestIds.current[section];
+    setDraftingSections((current) => ({ ...current, [section]: true }));
+    setSectionErrors((current) => ({ ...current, [section]: '' }));
+
+    try {
+      const res = await fetch('/api/prompt-builder/section', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId,
+          section,
+          context: builder,
+        }),
+      });
+
+      const body = await res.json();
+      if (!res.ok) {
+        throw new Error(body?.error || 'Failed to draft this section.');
+      }
+
+      if (
+        draftRequestIds.current[section] !== requestId ||
+        desiredSignatures.current[section] !== signature
+      ) {
+        return;
+      }
+      draftedSignatures.current[section] = signature;
+      updateBuilder(getDraftField(section), body?.draft || '');
+    } catch (error: any) {
+      if (
+        draftRequestIds.current[section] !== requestId ||
+        desiredSignatures.current[section] !== signature
+      ) {
+        return;
+      }
+      setSectionErrors((current) => ({
+        ...current,
+        [section]: error?.message || 'Failed to draft this section.',
+      }));
+    } finally {
+      if (draftRequestIds.current[section] !== requestId) return;
+      setDraftingSections((current) => ({ ...current, [section]: false }));
+    }
+  }
+
+  async function handleExerciseUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      updateBuilder('uploadedExerciseName', file.name);
+      updateBuilder('uploadedExerciseText', text.trim());
+    } catch {
+      updateBuilder('uploadedExerciseName', file.name);
+      updateBuilder(
+        'uploadedExerciseText',
+        `Uploaded file: ${file.name}\n\nPlease use the file name as context and ask the teacher to paste the exercise content manually if more detail is needed.`
+      );
+    }
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    const storedBuilder = loadBuilderState();
     const stored = localStorage.getItem('instruction-doc-md') || '';
-    const initial = stored.trim() || DEFAULT_MD;
+    if (storedBuilder) {
+      setBuilder(storedBuilder);
+      const nextPrompt = buildPrompt(storedBuilder);
+      applyPrompt(nextPrompt);
+      setAutoGenerate(true);
+      setHydrated(true);
+      return;
+    }
 
+    const initial = stored.trim() || buildPrompt(DEFAULT_BUILDER_STATE) || DEFAULT_MD;
     setValue(initial);
     saveInstructionDoc(initial);
     editorRef.current?.setMarkdown(initial);
+    setAutoGenerate(!stored.trim());
+    setHydrated(true);
   }, []);
 
+  useEffect(() => {
+    if (!hydrated || !autoGenerate) return;
+    applyPrompt(generatedPrompt);
+  }, [autoGenerate, generatedPrompt, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !appId) return;
+
+    const sections: SectionKey[] = ['objective', 'profile', 'exercises', 'template'];
+    const timers = sections.map((section) => {
+      const draftField = getDraftField(section);
+      const signature = getSectionSignature(section, builder);
+
+      if (!hasMeaningfulSectionInput(section, builder)) {
+        desiredSignatures.current[section] = '';
+        draftRequestIds.current[section] += 1;
+        draftedSignatures.current[section] = '';
+        setDraftingSections((current) => ({ ...current, [section]: false }));
+        if (builder[draftField]) {
+          updateBuilder(draftField, '');
+        }
+        if (sectionErrors[section]) {
+          setSectionErrors((current) => ({ ...current, [section]: '' }));
+        }
+        return null;
+      }
+
+      desiredSignatures.current[section] = signature;
+      if (draftedSignatures.current[section] === signature) {
+        return null;
+      }
+
+      return window.setTimeout(() => {
+        void draftSectionWithAI(section, signature);
+      }, section === 'template' ? 500 : 900);
+    });
+
+    return () => {
+      timers.forEach((timer) => {
+        if (timer) window.clearTimeout(timer);
+      });
+    };
+  }, [appId, builder, hydrated]);
+
+  const objectiveSummary = summarizeText(
+    builder.learningObjectivePrompt || builder.learningObjective,
+    "What's the learning objective?"
+  );
+  const exerciseSummary = builder.exercisePrompt
+    ? summarizeText(builder.exercisePrompt, 'Paste a link or upload a reference file')
+    : builder.uploadedExerciseName
+      ? `${builder.uploadedExerciseName} uploaded`
+      : 'Paste a link or upload a reference file';
+  const learnerSummary = builder.learnerProfilePrompt
+    ? summarizeText(builder.learnerProfilePrompt, 'Select learner profile')
+    : `Grade ${builder.gradeLevel || 'not set'} · ${builder.language || 'language not set'}`;
+  const templateSummary =
+    builder.templatePrompt
+      ? summarizeText(builder.templatePrompt, 'Select a teaching template')
+      : builder.selectedTemplate === DEFAULT_TEMPLATE_KEY
+      ? 'Select a teaching template'
+      : builder.selectedTemplate;
+
+  useEffect(() => {
+    const wrapper = editorContainerRef.current;
+    if (!wrapper) return;
+
+    const contentRoot =
+      (wrapper.querySelector('[contenteditable="true"]') as HTMLElement | null) || wrapper;
+
+    const clearHighlight = () => {
+      contentRoot
+        .querySelectorAll('.prompt-section-active, .prompt-section-heading-active')
+        .forEach((node) => {
+          node.classList.remove('prompt-section-active');
+          node.classList.remove('prompt-section-heading-active');
+        });
+    };
+
+    const headingMap: Record<SectionKey, string> = {
+      objective: 'learning objective',
+      exercises: 'reference learning materials',
+      profile: 'learner profile',
+      template: 'template selection',
+    };
+
+    const getTopLevelNode = (node: HTMLElement) => {
+      let current: HTMLElement | null = node;
+      while (current && current.parentElement && current.parentElement !== contentRoot) {
+        current = current.parentElement;
+      }
+      return current;
+    };
+
+    const applySectionHighlight = () => {
+      clearHighlight();
+      if (!openSection) return;
+
+      const targetHeading = headingMap[openSection];
+      const headings = Array.from(
+        contentRoot.querySelectorAll('h1, h2, h3')
+      ) as HTMLElement[];
+      const startHeading = headings.find((heading) =>
+        heading.textContent?.trim().toLowerCase().includes(targetHeading)
+      );
+
+      if (!startHeading) return;
+
+      startHeading.classList.add('prompt-section-heading-active');
+
+      const startNode = getTopLevelNode(startHeading);
+      if (!startNode || !startNode.parentElement) return;
+
+      let current: Element | null = startNode;
+      while (current) {
+        const nestedHeading =
+          current instanceof HTMLElement
+            ? (current.querySelector('h1, h2, h3') as HTMLElement | null)
+            : null;
+
+        if (
+          current !== startNode &&
+          ((/^H[1-3]$/.test(current.tagName) && current.textContent?.trim()) ||
+            nestedHeading)
+        ) {
+          break;
+        }
+
+        if (current instanceof HTMLElement) {
+          current.classList.add('prompt-section-active');
+        }
+
+        current = current.nextElementSibling;
+      }
+
+      startHeading.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+
+    const timer = window.setTimeout(applySectionHighlight, 80);
+    return () => window.clearTimeout(timer);
+  }, [openSection, value]);
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Top strip with dropdown + actions */}
-      <div className="w-full border-b bg-white px-3 md:px-4 py-2">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
-                System Prompt Editor
-              </span>
-              <span className="text-sm text-slate-600">
-                Editing system prompt for Preview panel
-              </span>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="shrink-0 border-b bg-slate-50/70 px-4 py-3">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+            Prompt Builder
+          </span>
+          <span className="text-sm text-slate-600">
+            Fill the steps below and the system prompt will update automatically.
+          </span>
+        </div>
+
+        <div className="space-y-2.5">
+          <AccordionSection
+            step={1}
+            title="What's the learning objective?"
+            summary={objectiveSummary}
+            icon="🎯"
+            isOpen={openSection === 'objective'}
+            onToggle={() =>
+              setOpenSection((current) => (current === 'objective' ? null : 'objective'))
+            }
+          >
+            <label className="block text-sm font-medium text-slate-700">
+              Describe the learning goal
+            </label>
+            <textarea
+              rows={3}
+              value={builder.learningObjective}
+              onChange={(event) =>
+                updateBuilder('learningObjective', event.target.value)
+              }
+              placeholder="Example: Help Grade 7 students understand conservation of mass through predicting and explaining simple reactions."
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+            />
+            {draftingSections.objective && (
+              <div className="mt-2 text-xs text-sky-700">
+                Updating the learning objective in the system prompt...
+              </div>
+            )}
+            {sectionErrors.objective && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {sectionErrors.objective}
+              </div>
+            )}
+          </AccordionSection>
+
+          <AccordionSection
+            step={2}
+            title="Select learner profile"
+            summary={learnerSummary}
+            icon="👩‍🎓"
+            isOpen={openSection === 'profile'}
+            onToggle={() =>
+              setOpenSection((current) => (current === 'profile' ? null : 'profile'))
+            }
+          >
+            <div className="mb-4 text-sm font-medium text-slate-700">
+              Grade, language, and learner support needs
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-600">Templates:</label>
-              <select
-                className="h-9 min-w-[260px] rounded-md border px-2 text-sm"
-                value={selectedKey}
-                onChange={(e) => setSelectedKey(e.target.value as keyof typeof TEMPLATES)}
-              >
-                {Object.keys(TEMPLATES).map((k) => (
-                  <option key={k} value={k}>{k}</option>
-                ))}
-              </select>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">
+                  Grade level
+                </label>
+                <select
+                  value={builder.gradeLevel}
+                  onChange={(event) => updateBuilder('gradeLevel', event.target.value)}
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                >
+                  {GRADE_LEVEL_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">
+                  Language
+                </label>
+                <select
+                  value={builder.language}
+                  onChange={(event) => updateBuilder('language', event.target.value)}
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {FEATURED_AGENT_TEMPLATES.map((template) => {
-                const active = selectedKey === template.key;
-                const cardClasses =
-                  template.accent === 'emerald'
-                    ? active
-                      ? 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm'
-                      : 'border-emerald-200 bg-white text-slate-700 hover:bg-emerald-50'
-                    : template.accent === 'violet'
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700">
+                Additional learner notes
+              </label>
+              <textarea
+                rows={3}
+                value={builder.learnerNotes}
+                onChange={(event) => updateBuilder('learnerNotes', event.target.value)}
+                placeholder="Example: multilingual learners, needs more scaffolding, preparing for an in-class lab, etc."
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-sky-400"
+              />
+            </div>
+            {draftingSections.profile && (
+              <div className="mt-2 text-xs text-sky-700">
+                Updating the learner profile in the system prompt...
+              </div>
+            )}
+            {sectionErrors.profile && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {sectionErrors.profile}
+              </div>
+            )}
+          </AccordionSection>
+
+          <AccordionSection
+            step={3}
+            title="Reference materials"
+            summary={exerciseSummary}
+            icon="📝"
+            isOpen={openSection === 'exercises'}
+            onToggle={() =>
+              setOpenSection((current) => (current === 'exercises' ? null : 'exercises'))
+            }
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Upload file
+                  <input
+                    type="file"
+                    accept=".txt,.md,.csv,.json"
+                    onChange={handleExerciseUpload}
+                    className="sr-only"
+                  />
+                </label>
+                <span className="text-sm text-slate-500">
+                  {builder.uploadedExerciseName || 'or paste a link below'}
+                </span>
+              </div>
+
+              <input
+                type="text"
+                value={builder.uploadedExerciseText}
+                onChange={(event) =>
+                  updateBuilder('uploadedExerciseText', event.target.value)
+                }
+                placeholder="Paste a link or content."
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-sky-400"
+              />
+              {draftingSections.exercises && (
+                <div className="text-xs text-sky-700">
+                  Updating the exercise context in the system prompt...
+                </div>
+              )}
+              {sectionErrors.exercises && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {sectionErrors.exercises}
+                </div>
+              )}
+            </div>
+          </AccordionSection>
+
+          <AccordionSection
+            step={4}
+            title="Template selection"
+            summary={templateSummary}
+            icon="🧩"
+            isOpen={openSection === 'template'}
+            onToggle={() =>
+              setOpenSection((current) => (current === 'template' ? null : 'template'))
+            }
+          >
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">
+                  Choose a teaching template
+                </label>
+                <select
+                  className={`mt-2 h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-sky-400 ${
+                    builder.selectedTemplate !== DEFAULT_TEMPLATE_KEY &&
+                    !isFeaturedAgentTemplate(builder.selectedTemplate)
+                      ? 'border-slate-200 text-slate-400'
+                      : 'border-slate-300 text-slate-700'
+                  }`}
+                  value={builder.selectedTemplate}
+                  onChange={(event) =>
+                    updateBuilder(
+                      'selectedTemplate',
+                      event.target.value as keyof typeof TEMPLATES
+                    )
+                  }
+                >
+                  {Object.keys(TEMPLATES).map((key) => (
+                    <option
+                      key={key}
+                      value={key}
+                      className={
+                        key === DEFAULT_TEMPLATE_KEY ||
+                        isFeaturedAgentTemplate(key as keyof typeof TEMPLATES)
+                          ? 'text-slate-700'
+                          : 'text-slate-400'
+                      }
+                    >
+                      {key}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 text-xs text-slate-500">
+                  Featured agents stay highlighted. Other generic templates are shown in gray.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {FEATURED_AGENT_TEMPLATES.map((template) => {
+                  const active = builder.selectedTemplate === template.key;
+                  const cardClasses =
+                    template.accent === 'emerald'
                       ? active
-                        ? 'border-violet-300 bg-violet-50 text-violet-900 shadow-sm'
-                        : 'border-violet-200 bg-white text-slate-700 hover:bg-violet-50'
-                    : active
-                      ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm'
-                      : 'border-sky-200 bg-white text-slate-700 hover:bg-sky-50';
-                const iconClasses =
-                  template.accent === 'emerald'
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : template.accent === 'violet'
-                      ? 'bg-violet-100 text-violet-700'
-                    : 'bg-sky-100 text-sky-700';
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm'
+                        : 'border-emerald-200 bg-white text-slate-700 hover:bg-emerald-50'
+                      : template.accent === 'amber'
+                        ? active
+                          ? 'border-amber-300 bg-amber-50 text-amber-900 shadow-sm'
+                          : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-50'
+                      : template.accent === 'violet'
+                        ? active
+                          ? 'border-violet-300 bg-violet-50 text-violet-900 shadow-sm'
+                          : 'border-violet-200 bg-white text-slate-700 hover:bg-violet-50'
+                        : active
+                          ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm'
+                          : 'border-sky-200 bg-white text-slate-700 hover:bg-sky-50';
+                  const iconClasses =
+                    template.accent === 'emerald'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : template.accent === 'amber'
+                        ? 'bg-amber-100 text-amber-700'
+                      : template.accent === 'violet'
+                        ? 'bg-violet-100 text-violet-700'
+                        : 'bg-sky-100 text-sky-700';
 
-                return (
-                  <button
-                    key={template.key}
-                    type="button"
-                    onClick={() => setSelectedKey(template.key)}
-                    className={`flex min-w-[250px] items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${cardClasses}`}
-                    title={`Select ${template.key}`}
-                  >
-                    <div className={`mt-0.5 rounded-xl p-2 ${iconClasses}`}>
-                      <AgentIcon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{template.key}</span>
-                        <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                          Beta
-                        </span>
+                  return (
+                    <button
+                      key={template.key}
+                      type="button"
+                      onClick={() => updateBuilder('selectedTemplate', template.key)}
+                      className={`flex min-w-[250px] items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${cardClasses}`}
+                    >
+                      <div className={`mt-0.5 rounded-xl p-2 ${iconClasses}`}>
+                        <AgentIcon className="h-4 w-4" />
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {template.description}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{template.key}</span>
+                          <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                            Beta
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {template.description}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+              {draftingSections.template && (
+                <div className="text-xs text-sky-700">
+                  Updating the template instructions in the system prompt...
+                </div>
+              )}
+              {sectionErrors.template && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {sectionErrors.template}
+                </div>
+              )}
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={insertTemplate}
-              disabled={!selectedTemplate}
-              className="h-9 px-3 rounded-md bg-sky-600 text-white text-sm disabled:opacity-50"
-              title="Replace the editor content with the selected template"
-            >
-              Insert
-            </button>
-            <button
-              type="button"
-              onClick={appendTemplate}
-              disabled={!selectedTemplate}
-              className="h-9 px-3 rounded-md border text-sm disabled:opacity-50"
-              title="Append the selected template at the end"
-            >
-              Append
-            </button>
-          </div>
+          </AccordionSection>
         </div>
       </div>
 
-      {/* Editor */}
-      <MDXEditor
-        ref={editorRef}
-        className="flex-1 overflow-auto px-6 pb-6"
-        markdown={value}
-        onChange={(md) => {
-          setValue(md);
-          saveInstructionDoc(md || '');
-        }}
-        plugins={[
-          headingsPlugin(),
-          listsPlugin(),
-          linkPlugin(),
-          quotePlugin(),
-          codeBlockPlugin(),
-          markdownShortcutPlugin(),
-          toolbarPlugin({
-            toolbarContents: () => (
-              <>
-                <BlockTypeSelect />
-                <BoldItalicUnderlineToggles />
-                <ListsToggle />
-                <CodeToggle />
-                <CreateLink />
-                <Separator />
-                <UndoRedo />
-              </>
-            )
-          })
-        ]}
-      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Generated system prompt</div>
+            <div className="text-xs text-slate-500">
+              {promptOpen
+                ? 'You can still edit the final prompt directly below.'
+                : 'Hidden by default. Expand to inspect or edit the final prompt.'}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPromptOpen((current) => !current)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              {promptOpen ? 'Hide' : 'Show'}
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPrompt(generatedPrompt)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Regenerate prompt
+            </button>
+          </div>
+        </div>
+
+        {promptOpen && (
+          <div
+            ref={editorContainerRef}
+            className="instruction-doc-editor min-h-0 flex-1 overflow-hidden"
+          >
+            <MDXEditor
+              ref={editorRef}
+              className="h-full overflow-auto px-6 pb-6"
+              markdown={value}
+              onChange={(md) => {
+                setValue(md || '');
+                saveInstructionDoc(md || '');
+              }}
+              plugins={[
+                headingsPlugin(),
+                listsPlugin(),
+                linkPlugin(),
+                quotePlugin(),
+                codeBlockPlugin(),
+                markdownShortcutPlugin(),
+                toolbarPlugin({
+                  toolbarContents: () => (
+                    <>
+                      <BlockTypeSelect />
+                      <BoldItalicUnderlineToggles />
+                      <ListsToggle />
+                      <CodeToggle />
+                      <CreateLink />
+                      <Separator />
+                      <UndoRedo />
+                    </>
+                  ),
+                }),
+              ]}
+            />
+          </div>
+        )}
+      </div>
+      <style jsx global>{`
+        .instruction-doc-editor .prompt-section-active {
+          background: rgba(14, 165, 233, 0.08);
+          border-radius: 12px;
+          box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.18);
+          transition: background 160ms ease, box-shadow 160ms ease;
+        }
+
+        .instruction-doc-editor .prompt-section-heading-active {
+          color: rgb(3, 105, 161);
+        }
+      `}</style>
     </div>
   );
 }

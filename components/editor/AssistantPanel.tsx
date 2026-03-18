@@ -1,6 +1,11 @@
 "use client";
 
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildFileAttachmentText,
+  getSpeechRecognitionConstructor,
+  TEXT_FILE_INPUT_ACCEPT,
+} from "@/lib/chat-input/client";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -32,6 +37,32 @@ export type VisualizationState =
         lastInteraction: string;
         notes: { pitch: string; slot: number; duration: "quarter" | "half" }[];
         melody: string[];
+      };
+    }
+  | {
+      mode: "dyslexia-support";
+      data: {
+        sourceText: string;
+        adaptedText: string;
+        displayMode: "chunked" | "spaced" | "guided-writing";
+        fontMode: "default" | "opendyslexic-style";
+        spacingPreset: "standard" | "comfortable" | "maximum";
+        lineFocusEnabled: boolean;
+        maskEnabled: boolean;
+        syllableHighlight: boolean;
+        autoReadFocusedChunk: boolean;
+        focusChunk: number;
+        activeSpokenChunk: number | null;
+        activeSpokenSentence: number | null;
+        activeSpokenChar: number | null;
+        speechRate: number;
+        selectedVoice: string;
+        speakingTarget: "none" | "focused-chunk" | "full-preview";
+        chunkSize: number;
+        keywords: string[];
+        sentenceFrame: string;
+        checklist: string[];
+        lastInteraction: string;
       };
     }
   | {
@@ -94,6 +125,14 @@ export function detectVisualizationMode(prompt: string) {
     normalized.includes("staff notation")
   ) {
     return "music-staff" as const;
+  }
+
+  if (
+    normalized.includes("dyslexia-friendly literacy support") ||
+    normalized.includes("students with dyslexia") ||
+    normalized.includes("dyslexia-friendly version")
+  ) {
+    return "dyslexia-support" as const;
   }
 
   if (
@@ -919,6 +958,10 @@ function MusicStaffVisualization({
     "Opened the music staff"
   );
   const [draggingSlot, setDraggingSlot] = useState<number | null>(null);
+  const [hoveredPlacement, setHoveredPlacement] = useState<{
+    slot: number;
+    pitch: string;
+  } | null>(null);
 
   function recordInteraction(event: string) {
     setLastInteraction(event);
@@ -1072,6 +1115,33 @@ function MusicStaffVisualization({
     );
   }
 
+  const staffTop = 32;
+  const lineSpacing = 18;
+  const noteAreaLeft = 88;
+  const slotWidth = 76;
+  const measureGap = 18;
+  const noteAreaWidth =
+    totalSlots * slotWidth + Math.floor((totalSlots - 1) / barSize) * measureGap;
+  const noteAreaHeight = 156;
+  const totalStaffWidth = noteAreaLeft + noteAreaWidth + 16;
+
+  function getSlotLeft(slot: number) {
+    return noteAreaLeft + slot * slotWidth + Math.floor(slot / barSize) * measureGap;
+  }
+
+  function getSlotCenter(slot: number) {
+    return getSlotLeft(slot) + slotWidth / 2;
+  }
+
+  function getMeasureBarLeft(boundary: number) {
+    if (boundary <= 0) return noteAreaLeft;
+    if (boundary >= totalSlots) {
+      return getSlotLeft(totalSlots - 1) + slotWidth;
+    }
+
+    return getSlotLeft(boundary) - measureGap / 2;
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
@@ -1118,9 +1188,8 @@ function MusicStaffVisualization({
           </div>
         </div>
 
-        <div className="mt-3 text-xs text-violet-700">
-          Click the staff to place notes. Then press and drag a placed note to the
-          right to lengthen it.
+        <div className="mt-3 text-[11px] text-violet-500/90">
+          Place notes directly on the staff. Drag right to lengthen.
         </div>
       </div>
 
@@ -1131,207 +1200,175 @@ function MusicStaffVisualization({
               Five-line staff
             </div>
             <div className="mt-1 text-sm text-slate-700">
-              Click any slot on a row to place the currently selected note there.
+              Write directly on the staff.
             </div>
           </div>
-          <div className="text-xs text-slate-500">Treble clef staff</div>
+          <div className="text-xs text-slate-400">Treble clef</div>
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <div className="min-w-[620px] rounded-2xl border border-amber-100 bg-[linear-gradient(to_bottom,#fffdf8,#fffaf0)] p-4">
-            <div className="grid grid-cols-[72px_1fr] gap-3">
-              <div className="flex flex-col items-center justify-center rounded-2xl bg-white/70">
-                <div className="text-5xl leading-none text-slate-700">𝄞</div>
-                <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-                  Treble
-                </div>
+          <div className="rounded-2xl border border-amber-100 bg-[linear-gradient(to_bottom,#fffefb,#fffaf0)] p-4">
+            <div
+              className="relative min-w-[720px] rounded-xl bg-white/55"
+              style={{ width: `${totalStaffWidth}px`, height: `${noteAreaHeight}px` }}
+            >
+              <div className="absolute left-2 top-[18px] text-6xl leading-none text-slate-800">
+                𝄞
+              </div>
+              <div className="absolute left-[42px] top-[22px] flex flex-col items-center text-slate-800">
+                <span className="text-3xl font-semibold leading-none">4</span>
+                <span className="text-3xl font-semibold leading-none">4</span>
               </div>
 
-              <div className="space-y-1">
-                <div className="grid grid-cols-[44px_repeat(8,minmax(0,1fr))] items-center gap-x-0">
-                  <div />
-                  {Array.from({ length: totalSlots }, (_, slot) => (
-                    <div
-                      key={`measure-${slot}`}
-                      className="flex justify-center text-[10px] uppercase tracking-wide text-slate-400"
-                    >
-                      {slot + 1}
-                    </div>
-                  ))}
-                </div>
+              {[0, 1, 2, 3, 4].map((line) => (
+                <div
+                  key={line}
+                  className="absolute h-px bg-slate-700"
+                  style={{
+                    left: `${noteAreaLeft}px`,
+                    top: `${staffTop + line * lineSpacing}px`,
+                    width: `${noteAreaWidth}px`,
+                  }}
+                />
+              ))}
 
-                <div className="rounded-xl bg-white/40 px-1 py-2">
-                  <div className="space-y-0">
-                    {STAFF_NOTE_POSITIONS.map((staffNote) => {
-                      const isLine = Number.isInteger(staffNote.lineIndex);
-                      return (
-                        <div
-                          key={staffNote.pitch}
-                          className="grid grid-cols-[44px_repeat(8,minmax(0,1fr))] items-center gap-x-0"
-                        >
-                          <div className="pr-2 text-right text-[11px] font-medium text-slate-400">
-                            {staffNote.pitch}
-                          </div>
-                          {Array.from({ length: totalSlots }, (_, slot) => {
-                            const noteAtSlot = notes.find((note) => note.slot === slot);
-                            const continuationNote = notes.find(
-                              (note) =>
-                                note.duration === "half" &&
-                                note.slot + 1 === slot &&
-                                note.pitch === staffNote.pitch
-                            );
-                            const active = noteAtSlot?.pitch === staffNote.pitch;
-                            const barBoundary = (slot + 1) % barSize === 0;
+              {Array.from({ length: Math.ceil(totalSlots / barSize) }, (_, measureIndex) => (
+                <div
+                  key={`measure-bg-${measureIndex}`}
+                  className="absolute rounded-md bg-slate-100/35"
+                  style={{
+                    left: `${getSlotLeft(measureIndex * barSize)}px`,
+                    top: `${staffTop - 10}px`,
+                    width: `${barSize * slotWidth}px`,
+                    height: `${lineSpacing * 4 + 20}px`,
+                  }}
+                />
+              ))}
 
-                            return (
-                              <button
-                                key={`${staffNote.pitch}-${slot}`}
-                                type="button"
-                                onClick={() => setNoteAtSlot(slot, staffNote.pitch)}
-                                onDragOver={(event) => {
-                                  event.preventDefault();
-                                  event.dataTransfer.dropEffect = "copy";
-                                }}
-                                onDrop={(event) => {
-                                  event.preventDefault();
-                                  const droppedDuration =
-                                    (event.dataTransfer.getData("text/plain") as StaffDuration) ||
-                                    draggedDuration ||
-                                    "quarter";
-                                  setNoteAtSlot(slot, staffNote.pitch, droppedDuration);
-                                  setDraggedDuration(null);
-                                }}
-                                onMouseDown={() => {
-                                  if (active && noteAtSlot) {
-                                    setDraggingSlot(noteAtSlot.slot);
-                                  }
-                                }}
-                                onMouseEnter={() => {
-                                  if (draggingSlot !== null) {
-                                    resizeNoteFromDrag(slot);
-                                  }
-                                }}
-                                onDoubleClick={() => clearSlot(slot)}
-                                className={[
-                                  "relative h-10 border-slate-200/70 transition",
-                                  isLine ? "border-t border-slate-700" : "",
-                                  barBoundary
-                                    ? "border-r-[3px] border-r-slate-700"
-                                    : "border-r border-r-slate-200/70",
-                                  slot === totalSlots - 1 ? "border-r-[3px] border-r-slate-700" : "",
-                                  active ? "bg-violet-100/20" : "hover:bg-slate-100/35",
-                                ].join(" ")}
-                                title={`Place ${staffNote.pitch} in slot ${slot + 1}`}
-                              >
-                                {continuationNote && (
-                                  <span className="absolute left-0 right-0 top-1/2 h-[1.5px] -translate-y-1/2 bg-slate-900/75" />
-                                )}
-                                {active &&
-                                  renderPlacedNote(
-                                    staffNote.pitch,
-                                    noteAtSlot?.duration || "quarter"
-                                  )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+              {Array.from({ length: totalSlots + 1 }, (_, boundary) => {
+                const thick =
+                  boundary === 0 ||
+                  boundary === totalSlots ||
+                  (boundary > 0 && boundary % barSize === 0);
 
-        <div className="mt-3 text-xs text-slate-500">
-          Tip: double-click a filled slot to erase that note.
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Current melody
-          </div>
-          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200 bg-[linear-gradient(to_bottom,#ffffff,#faf8ff)] p-4">
-            <div className="relative min-w-[500px]">
-              <div className="pointer-events-none absolute inset-x-0 top-4 bottom-4">
-                {[0, 1, 2, 3, 4].map((line) => (
-                  <div
-                    key={line}
-                    className="absolute inset-x-0 h-px bg-slate-700"
-                    style={{ top: `${line * 18 + 24}px` }}
-                  />
-                ))}
-                {[barSize, totalSlots].map((boundary) => (
+                return (
                   <div
                     key={boundary}
-                    className="absolute top-16 bottom-8 w-0.5 bg-slate-700"
-                    style={{ left: `${(boundary / totalSlots) * 100}%` }}
+                    className={`absolute bg-slate-700 ${thick ? "w-[2px]" : "w-px"}`}
+                    style={{
+                      left: `${getMeasureBarLeft(boundary)}px`,
+                      top: `${staffTop}px`,
+                      height: `${lineSpacing * 4}px`,
+                    }}
                   />
-                ))}
-              </div>
+                );
+              })}
 
-              <div className="relative grid grid-cols-[56px_repeat(8,minmax(0,1fr))] items-end gap-x-0 pt-4">
-                <div className="flex items-center justify-center text-5xl leading-none text-slate-700">
-                  𝄞
+              {hoveredPlacement && !notes.find(
+                (note) =>
+                  note.slot === hoveredPlacement.slot &&
+                  note.pitch === hoveredPlacement.pitch
+              ) && (
+                <div
+                  className="pointer-events-none absolute"
+                  style={{
+                    left: `${getSlotCenter(hoveredPlacement.slot)}px`,
+                    top: `${
+                      staffTop +
+                      (getStaffPosition(hoveredPlacement.pitch)?.lineIndex ?? 0) *
+                        lineSpacing -
+                      1
+                    }px`,
+                  }}
+                >
+                  {renderPlacedNote(
+                    hoveredPlacement.pitch,
+                    selectedDuration,
+                    "opacity-35"
+                  )}
                 </div>
-                {Array.from({ length: totalSlots }, (_, slot) => {
-                  const note = notes.find((item) => item.slot === slot);
-                  const continuation = notes.find(
-                    (item) => item.duration === "half" && item.slot + 1 === slot
+              )}
+
+              {STAFF_NOTE_POSITIONS.map((staffNote) =>
+                Array.from({ length: totalSlots }, (_, slot) => {
+                  const noteAtSlot = notes.find((note) => note.slot === slot);
+                  const continuationNote = notes.find(
+                    (note) =>
+                      note.duration === "half" &&
+                      note.slot + 1 === slot &&
+                      note.pitch === staffNote.pitch
                   );
-                  const staffPosition = note ? getStaffPosition(note.pitch) : null;
-                  const top = staffPosition ? staffPosition.lineIndex * 18 + 24 : 78;
+                  const active = noteAtSlot?.pitch === staffNote.pitch;
+                  const top = staffTop + staffNote.lineIndex * lineSpacing - 18;
 
                   return (
                     <button
-                      key={slot}
+                      key={`${staffNote.pitch}-${slot}`}
                       type="button"
-                      onClick={() => {
-                        if (note) {
-                          void playToneSequence([
-                            { pitch: note.pitch, duration: note.duration },
-                          ]);
-                          recordInteraction(
-                            `Played ${note.duration} note ${note.pitch} from slot ${slot + 1}`
-                          );
+                      onClick={() => setNoteAtSlot(slot, staffNote.pitch)}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "copy";
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const droppedDuration =
+                          (event.dataTransfer.getData("text/plain") as StaffDuration) ||
+                          draggedDuration ||
+                          "quarter";
+                        setNoteAtSlot(slot, staffNote.pitch, droppedDuration);
+                        setDraggedDuration(null);
+                      }}
+                      onMouseDown={() => {
+                        if (active && noteAtSlot) {
+                          setDraggingSlot(noteAtSlot.slot);
                         }
                       }}
-                      className="relative h-[128px]"
+                      onMouseEnter={() => {
+                        setHoveredPlacement({ slot, pitch: staffNote.pitch });
+                        if (draggingSlot !== null) {
+                          resizeNoteFromDrag(slot);
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredPlacement((current) =>
+                          current?.slot === slot && current?.pitch === staffNote.pitch
+                            ? null
+                            : current
+                        );
+                      }}
+                      onDoubleClick={() => clearSlot(slot)}
+                      className="absolute rounded-md transition hover:bg-violet-100/15"
+                      style={{
+                        left: `${getSlotLeft(slot) + 4}px`,
+                        top: `${top}px`,
+                        width: `${slotWidth - 8}px`,
+                        height: "36px",
+                      }}
+                      title={`Place ${staffNote.pitch} in slot ${slot + 1}`}
                     >
-                      {note ? (
-                        <>
-                          <div
-                            className="absolute left-1/2 -translate-x-1/2"
-                            style={{ top: `${top}px` }}
-                          >
-                            {renderPlacedNote(note.pitch, note.duration)}
-                          </div>
-                          {note.duration === "half" && (
-                            <span className="absolute left-[52%] right-0 top-[72px] h-[1.5px] bg-slate-900/75" />
-                          )}
-                          <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-wide text-slate-500">
-                            {note.duration === "half" ? "1/2" : "1/4"}
-                          </span>
-                        </>
-                      ) : continuation ? (
-                        <span className="absolute inset-x-0 top-[72px] h-[1.5px] bg-slate-900/75" />
-                      ) : (
-                        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-slate-300">
-                          rest
-                        </span>
+                      {continuationNote && (
+                        <span className="absolute left-0 right-0 top-1/2 h-[1.5px] -translate-y-1/2 bg-slate-900/75" />
                       )}
+                      {active &&
+                        renderPlacedNote(
+                          staffNote.pitch,
+                          noteAtSlot?.duration || "quarter"
+                        )}
                     </button>
                   );
-                })}
-              </div>
+                })
+              )}
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+        <div className="mt-3 text-[11px] text-slate-400">
+          Double-click a note to erase it.
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-violet-700">
             Reading cue
           </div>
@@ -1348,7 +1385,6 @@ function MusicStaffVisualization({
             Encourage the student to say the note name before pressing play, then
             compare what they predicted with what they heard.
           </div>
-        </div>
       </div>
     </div>
   );
@@ -2155,12 +2191,982 @@ function VirtualLabVisualization({
   );
 }
 
+const DEFAULT_DYSLEXIA_TEXT = `Read the paragraph and then write three sentences explaining the main idea. Use details from the text to support your answer.
+
+Plants need sunlight, water, and air to grow. When a plant does not get enough sunlight, it may become weak and stop growing well.`;
+
+function splitIntoReadingChunks(text: string, chunkSize: number) {
+  const normalized = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+  if (!normalized) return [];
+
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += chunkSize) {
+    chunks.push(sentences.slice(i, i + chunkSize).join(" "));
+  }
+  return chunks;
+}
+
+function extractReadingKeywords(text: string) {
+  const stopWords = new Set([
+    "the",
+    "and",
+    "for",
+    "that",
+    "with",
+    "from",
+    "your",
+    "then",
+    "into",
+    "this",
+    "have",
+    "will",
+    "they",
+    "them",
+    "does",
+    "need",
+    "when",
+    "what",
+    "well",
+    "write",
+    "read",
+    "three",
+    "using",
+    "about",
+  ]);
+
+  const counts = new Map<string, number>();
+  text
+    .toLowerCase()
+    .match(/[a-z]{4,}/g)
+    ?.forEach((word) => {
+      if (stopWords.has(word)) return;
+      counts.set(word, (counts.get(word) || 0) + 1);
+    });
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+}
+
+function buildAdaptedReadingText(
+  sourceText: string,
+  displayMode: "chunked" | "spaced" | "guided-writing",
+  chunkSize: number
+) {
+  const chunks = splitIntoReadingChunks(sourceText, chunkSize);
+  if (!chunks.length) return "";
+
+  if (displayMode === "spaced") {
+    return chunks.join("\n\n").replace(/([A-Za-z])/g, "$1 ");
+  }
+
+  if (displayMode === "guided-writing") {
+    return [
+      "Read one short part at a time.",
+      ...chunks.map((chunk, index) => `Part ${index + 1}: ${chunk}`),
+      "",
+      "Now write using this frame:",
+      "The main idea is ____. One detail is ____. Another detail is ____.",
+    ].join("\n");
+  }
+
+  return chunks.map((chunk, index) => `Part ${index + 1}: ${chunk}`).join("\n\n");
+}
+
+function splitIntoSentences(text: string) {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function tokenizeSpeechText(text: string) {
+  const tokens: Array<{
+    text: string;
+    start: number;
+    end: number;
+    isWord: boolean;
+  }> = [];
+  const pattern = /([A-Za-z']+|\s+|[^A-Za-z'\s]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    const token = match[0];
+    tokens.push({
+      text: token,
+      start: match.index,
+      end: match.index + token.length,
+      isWord: /[A-Za-z]/.test(token),
+    });
+  }
+
+  return tokens;
+}
+
+function splitWordIntoSyllableLikeParts(word: string) {
+  const matches = word.match(/[^aeiouyAEIOUY]*[aeiouyAEIOUY]+(?:[^aeiouyAEIOUY](?=[^aeiouyAEIOUY]*[aeiouyAEIOUY]))?[^aeiouyAEIOUY]*/g);
+  return matches?.filter(Boolean) ?? [word];
+}
+
+function renderSyllableText(text: string, enabled: boolean) {
+  if (!enabled) return text;
+
+  const tokens = text.match(/([A-Za-z']+|\s+|[^A-Za-z'\s]+)/g) || [text];
+  let syllableIndex = 0;
+
+  return tokens.map((token, tokenIndex) => {
+    if (!/[A-Za-z]/.test(token)) {
+      return <span key={`token-${tokenIndex}`}>{token}</span>;
+    }
+
+    const parts = splitWordIntoSyllableLikeParts(token);
+    return (
+      <span key={`word-${tokenIndex}`}>
+        {parts.map((part, partIndex) => {
+          const activeColor =
+            syllableIndex % 2 === 0
+              ? "bg-amber-100 text-amber-900"
+              : "bg-sky-100 text-sky-900";
+          syllableIndex += 1;
+          return (
+            <span
+              key={`part-${tokenIndex}-${partIndex}`}
+              className={`rounded px-0.5 ${activeColor}`}
+            >
+              {part}
+            </span>
+          );
+        })}
+      </span>
+    );
+  });
+}
+
+function renderSpeechAwareSentence(
+  text: string,
+  activeChar: number | null,
+  syllableHighlight: boolean
+) {
+  if (activeChar == null) {
+    return renderSyllableText(text, syllableHighlight);
+  }
+
+  const tokens = tokenizeSpeechText(text);
+
+  return tokens.map((token, tokenIndex) => {
+    if (!token.isWord) {
+      return <span key={`speech-token-${tokenIndex}`}>{token.text}</span>;
+    }
+
+    const isActiveWord = activeChar >= token.start && activeChar < token.end;
+
+    return (
+      <span
+        key={`speech-word-${tokenIndex}`}
+        data-reading-active-word={isActiveWord ? "true" : undefined}
+        className={[
+          "relative inline-block rounded-xl px-0.5 pb-1 pt-0.5 transition-all duration-200",
+          isActiveWord
+            ? "bg-sky-50/90 shadow-sm"
+            : "bg-transparent",
+        ].join(" ")}
+      >
+        {Array.from(token.text).map((char, charIndex) => {
+          const globalCharIndex = token.start + charIndex;
+          const isCurrentChar = activeChar === globalCharIndex;
+          const isPastChar = activeChar > globalCharIndex;
+
+          return (
+            <span
+              key={`speech-char-${tokenIndex}-${charIndex}`}
+              className={[
+                "relative z-10 rounded-md transition-all duration-100",
+                isCurrentChar
+                  ? "bg-sky-600/90 px-0.5 py-0.5 text-white shadow-sm"
+                  : isActiveWord
+                    ? "text-slate-900"
+                    : isPastChar
+                      ? "text-slate-700"
+                      : "text-slate-800",
+              ].join(" ")}
+            >
+              {char}
+            </span>
+          );
+        })}
+      </span>
+    );
+  });
+}
+
+function DyslexiaSupportVisualization({
+  latestUserMessage,
+  onStateChange,
+}: {
+  latestUserMessage?: string;
+  onStateChange?: (state: VisualizationState) => void;
+}) {
+  const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
+  const speechSequenceTokenRef = useRef(0);
+  const hasHandledInitialFocusRef = useRef(false);
+  const activeCharIntervalRef = useRef<number | null>(null);
+  const previewChunksRef = useRef<HTMLDivElement>(null);
+  const [sourceText, setSourceText] = useState(DEFAULT_DYSLEXIA_TEXT);
+  const [displayMode, setDisplayMode] = useState<
+    "chunked" | "spaced" | "guided-writing"
+  >("chunked");
+  const [fontMode, setFontMode] = useState<"default" | "opendyslexic-style">("default");
+  const [spacingPreset, setSpacingPreset] = useState<
+    "standard" | "comfortable" | "maximum"
+  >("comfortable");
+  const [supportPreset, setSupportPreset] = useState<
+    "gentle-focus" | "guided-focus" | "sound-out"
+  >("guided-focus");
+  const [lineFocusEnabled, setLineFocusEnabled] = useState(true);
+  const [maskEnabled, setMaskEnabled] = useState(false);
+  const [syllableHighlight, setSyllableHighlight] = useState(false);
+  const [autoReadFocusedChunk, setAutoReadFocusedChunk] = useState(true);
+  const [chunkSize, setChunkSize] = useState(1);
+  const [focusChunk, setFocusChunk] = useState(0);
+  const [activeSpokenChunk, setActiveSpokenChunk] = useState<number | null>(null);
+  const [activeSpokenSentence, setActiveSpokenSentence] = useState<number | null>(null);
+  const [activeSpokenChar, setActiveSpokenChar] = useState<number | null>(null);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState("");
+  const [speechRate, setSpeechRate] = useState(0.75);
+  const [speakingTarget, setSpeakingTarget] = useState<
+    "none" | "focused-chunk" | "full-preview"
+  >("none");
+  const [rulerStyle, setRulerStyle] = useState<{
+    left: number;
+    width: number;
+    top: number;
+    opacity: number;
+  }>({
+    left: 0,
+    width: 0,
+    top: 0,
+    opacity: 0,
+  });
+  const [lastInteraction, setLastInteraction] = useState("Opened dyslexia support panel");
+
+  const readingChunks = useMemo(
+    () => splitIntoReadingChunks(sourceText, chunkSize),
+    [chunkSize, sourceText]
+  );
+  const adaptedText = useMemo(
+    () => buildAdaptedReadingText(sourceText, displayMode, chunkSize),
+    [chunkSize, displayMode, sourceText]
+  );
+  const keywords = useMemo(() => extractReadingKeywords(sourceText), [sourceText]);
+  const sentenceFrame =
+    "The main idea is ____. One important detail is ____. This helps me understand ____.";
+  const checklist = [
+    "Read one chunk at a time.",
+    "Circle or say the key words.",
+    "Use the sentence frame before writing on your own.",
+  ];
+
+  useEffect(() => {
+    onStateChange?.({
+      mode: "dyslexia-support",
+      data: {
+        sourceText,
+        adaptedText,
+        displayMode,
+        fontMode,
+        spacingPreset,
+        lineFocusEnabled,
+        maskEnabled,
+        syllableHighlight,
+        autoReadFocusedChunk,
+        focusChunk,
+        activeSpokenChunk,
+        activeSpokenSentence,
+        activeSpokenChar,
+        speechRate,
+        selectedVoice,
+        speakingTarget,
+        chunkSize,
+        keywords,
+        sentenceFrame,
+        checklist,
+        lastInteraction,
+      },
+    });
+  }, [
+    adaptedText,
+    checklist,
+    chunkSize,
+    displayMode,
+    fontMode,
+    focusChunk,
+    activeSpokenChunk,
+    activeSpokenSentence,
+    activeSpokenChar,
+    autoReadFocusedChunk,
+    keywords,
+    lineFocusEnabled,
+    lastInteraction,
+    maskEnabled,
+    onStateChange,
+    selectedVoice,
+    speakingTarget,
+    speechRate,
+    spacingPreset,
+    sourceText,
+    syllableHighlight,
+  ]);
+
+  const dyslexiaFriendlyStyle =
+    fontMode === "opendyslexic-style"
+      ? {
+          fontFamily:
+            '"OpenDyslexic", "Comic Sans MS", "Trebuchet MS", Verdana, Arial, sans-serif',
+          letterSpacing: "0.04em",
+          wordSpacing: "0.08em",
+          fontWeight: 600,
+        }
+      : undefined;
+
+  const spacingStyle =
+    spacingPreset === "maximum"
+      ? { letterSpacing: "0.1em", wordSpacing: "0.22em", lineHeight: 2.5 }
+      : spacingPreset === "comfortable"
+        ? { letterSpacing: "0.05em", wordSpacing: "0.12em", lineHeight: 2.15 }
+        : { letterSpacing: "0.02em", wordSpacing: "0.06em", lineHeight: 1.9 };
+
+  const previewTextStyle = { ...dyslexiaFriendlyStyle, ...spacingStyle };
+
+  useEffect(() => {
+    if (supportPreset === "gentle-focus") {
+      setLineFocusEnabled(true);
+      setMaskEnabled(false);
+      setSyllableHighlight(false);
+      return;
+    }
+
+    if (supportPreset === "guided-focus") {
+      setLineFocusEnabled(true);
+      setMaskEnabled(true);
+      setSyllableHighlight(false);
+      return;
+    }
+
+    setLineFocusEnabled(true);
+    setMaskEnabled(true);
+    setSyllableHighlight(true);
+  }, [supportPreset]);
+
+  useEffect(() => {
+    if (!readingChunks.length) {
+      setFocusChunk(0);
+      return;
+    }
+    setFocusChunk((current) => Math.min(current, readingChunks.length - 1));
+  }, [readingChunks.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    const synth = window.speechSynthesis;
+    speechSynthesisRef.current = synth;
+
+    const updateVoices = () => {
+      const voices = synth.getVoices();
+      setAvailableVoices(voices);
+      if (!selectedVoice && voices[0]?.name) {
+        setSelectedVoice(voices[0].name);
+      }
+    };
+
+    updateVoices();
+    synth.addEventListener?.("voiceschanged", updateVoices);
+
+    return () => {
+      synth.cancel();
+      if (activeCharIntervalRef.current) {
+        window.clearInterval(activeCharIntervalRef.current);
+        activeCharIntervalRef.current = null;
+      }
+      synth.removeEventListener?.("voiceschanged", updateVoices);
+    };
+  }, [selectedVoice]);
+
+  function speakText(text: string, target: "focused-chunk" | "full-preview") {
+    const synth = speechSynthesisRef.current;
+    if (!synth || !text.trim()) return;
+
+    const sequence =
+      target === "focused-chunk"
+        ? splitIntoSentences(text).map((sentence, index) => ({
+            chunkIndex: focusChunk,
+            sentenceIndex: index,
+            text: sentence,
+          }))
+        : readingChunks.flatMap((chunk, chunkIndex) =>
+            splitIntoSentences(chunk).map((sentence, sentenceIndex) => ({
+              chunkIndex,
+              sentenceIndex,
+              text: sentence,
+            }))
+          );
+
+    if (!sequence.length) return;
+
+    speechSequenceTokenRef.current += 1;
+    const token = speechSequenceTokenRef.current;
+    synth.cancel();
+
+    const matchedVoice = availableVoices.find((voice) => voice.name === selectedVoice);
+
+    if (activeCharIntervalRef.current) {
+      window.clearInterval(activeCharIntervalRef.current);
+      activeCharIntervalRef.current = null;
+    }
+
+    const speakNext = (index: number) => {
+      if (speechSequenceTokenRef.current !== token) return;
+
+      const current = sequence[index];
+      if (!current) {
+        setSpeakingTarget("none");
+        setActiveSpokenChunk(null);
+        setActiveSpokenSentence(null);
+        setActiveSpokenChar(null);
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(current.text);
+      const tokens = tokenizeSpeechText(current.text);
+      utterance.rate = speechRate;
+      if (matchedVoice) {
+        utterance.voice = matchedVoice;
+      }
+
+      utterance.onstart = () => {
+        setSpeakingTarget(target);
+        setActiveSpokenChunk(current.chunkIndex);
+        setActiveSpokenSentence(current.sentenceIndex);
+        setActiveSpokenChar(0);
+      };
+      utterance.onboundary = (event) => {
+        if (speechSequenceTokenRef.current !== token) return;
+        const charIndex = event.charIndex ?? 0;
+        setActiveSpokenChar(charIndex);
+
+        const activeToken =
+          tokens.find(
+            (tokenEntry) =>
+              tokenEntry.isWord &&
+              charIndex >= tokenEntry.start &&
+              charIndex < tokenEntry.end
+          ) ||
+          tokens.find((tokenEntry) => tokenEntry.isWord && tokenEntry.start >= charIndex);
+
+        if (!activeToken) return;
+
+        if (activeCharIntervalRef.current) {
+          window.clearInterval(activeCharIntervalRef.current);
+        }
+
+        let nextChar = Math.max(charIndex, activeToken.start);
+        activeCharIntervalRef.current = window.setInterval(() => {
+          if (speechSequenceTokenRef.current !== token) {
+            if (activeCharIntervalRef.current) {
+              window.clearInterval(activeCharIntervalRef.current);
+              activeCharIntervalRef.current = null;
+            }
+            return;
+          }
+
+          setActiveSpokenChar(nextChar);
+          nextChar += 1;
+
+          if (nextChar >= activeToken.end) {
+            if (activeCharIntervalRef.current) {
+              window.clearInterval(activeCharIntervalRef.current);
+              activeCharIntervalRef.current = null;
+            }
+          }
+        }, Math.max(22, Math.round(55 / speechRate)));
+      };
+      utterance.onend = () => {
+        if (speechSequenceTokenRef.current !== token) return;
+        if (activeCharIntervalRef.current) {
+          window.clearInterval(activeCharIntervalRef.current);
+          activeCharIntervalRef.current = null;
+        }
+        speakNext(index + 1);
+      };
+      utterance.onerror = () => {
+        if (speechSequenceTokenRef.current !== token) return;
+        if (activeCharIntervalRef.current) {
+          window.clearInterval(activeCharIntervalRef.current);
+          activeCharIntervalRef.current = null;
+        }
+        setSpeakingTarget("none");
+        setActiveSpokenChunk(null);
+        setActiveSpokenSentence(null);
+        setActiveSpokenChar(null);
+      };
+
+      synth.speak(utterance);
+    };
+
+    speakNext(0);
+  }
+
+  function stopSpeech() {
+    speechSequenceTokenRef.current += 1;
+    speechSynthesisRef.current?.cancel();
+    if (activeCharIntervalRef.current) {
+      window.clearInterval(activeCharIntervalRef.current);
+      activeCharIntervalRef.current = null;
+    }
+    setSpeakingTarget("none");
+    setActiveSpokenChunk(null);
+    setActiveSpokenSentence(null);
+    setActiveSpokenChar(null);
+    setLastInteraction("Stopped speech");
+  }
+
+  useEffect(() => {
+    if (!readingChunks.length || !autoReadFocusedChunk) return;
+    if (!hasHandledInitialFocusRef.current) {
+      hasHandledInitialFocusRef.current = true;
+      return;
+    }
+
+    const focusedText = readingChunks[focusChunk];
+    if (!focusedText?.trim()) return;
+
+    const timer = window.setTimeout(() => {
+      speakText(focusedText, "focused-chunk");
+      setLastInteraction(`Auto-read focused chunk ${focusChunk + 1}`);
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [autoReadFocusedChunk, focusChunk, readingChunks]);
+
+  useEffect(() => {
+    const container = previewChunksRef.current;
+    if (!container) return;
+
+    const activeWord = container.querySelector(
+      '[data-reading-active-word="true"]'
+    ) as HTMLElement | null;
+
+    if (!activeWord) {
+      setRulerStyle((current) => ({ ...current, opacity: 0 }));
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const wordRect = activeWord.getBoundingClientRect();
+
+    setRulerStyle({
+      left: wordRect.left - containerRect.left + 4,
+      width: Math.max(18, wordRect.width - 8),
+      top: wordRect.bottom - containerRect.top + 2,
+      opacity: 1,
+    });
+  }, [activeSpokenChar, activeSpokenChunk, activeSpokenSentence, focusChunk, speakingTarget]);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Original literacy task
+            </div>
+            <div className="mt-1 text-sm text-slate-600">
+              Paste a reading or writing activity to generate a more accessible version.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!latestUserMessage?.trim()) return;
+              setSourceText(latestUserMessage.trim());
+              setLastInteraction("Used latest learner text");
+            }}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Use latest message
+          </button>
+        </div>
+        <textarea
+          rows={6}
+          value={sourceText}
+          onChange={(event) => {
+            setSourceText(event.target.value);
+            setLastInteraction("Edited source text");
+          }}
+          className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-400"
+          style={dyslexiaFriendlyStyle}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="text-xs text-slate-600">
+              <span className="mb-1 block font-medium uppercase tracking-wide text-slate-500">
+                Reading view
+              </span>
+              <select
+                value={displayMode}
+                onChange={(event) => {
+                  setDisplayMode(
+                    event.target.value as "chunked" | "spaced" | "guided-writing"
+                  );
+                  setLastInteraction("Changed reading view");
+                }}
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                <option value="chunked">Chunked reading</option>
+                <option value="spaced">Extra spacing</option>
+                <option value="guided-writing">Guided writing</option>
+              </select>
+            </label>
+
+            <label className="text-xs text-slate-600">
+              <span className="mb-1 block font-medium uppercase tracking-wide text-slate-500">
+                Support level
+              </span>
+              <select
+                value={supportPreset}
+                onChange={(event) => {
+                  setSupportPreset(
+                    event.target.value as "gentle-focus" | "guided-focus" | "sound-out"
+                  );
+                  setLastInteraction("Changed support level");
+                }}
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                <option value="gentle-focus">Gentle focus</option>
+                <option value="guided-focus">Guided focus</option>
+                <option value="sound-out">Sound-out support</option>
+              </select>
+            </label>
+
+            <label className="text-xs text-slate-600">
+              <span className="mb-1 block font-medium uppercase tracking-wide text-slate-500">
+                Font
+              </span>
+              <select
+                value={fontMode}
+                onChange={(event) => {
+                  setFontMode(event.target.value as "default" | "opendyslexic-style");
+                  setLastInteraction("Changed font");
+                }}
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                <option value="default">Default font</option>
+                <option value="opendyslexic-style">OpenDyslexic-style</option>
+              </select>
+            </label>
+
+            <label className="text-xs text-slate-600">
+              <span className="mb-1 block font-medium uppercase tracking-wide text-slate-500">
+                Spacing
+              </span>
+              <select
+                value={spacingPreset}
+                onChange={(event) => {
+                  setSpacingPreset(
+                    event.target.value as "standard" | "comfortable" | "maximum"
+                  );
+                  setLastInteraction("Changed spacing");
+                }}
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                <option value="standard">Standard</option>
+                <option value="comfortable">Comfortable</option>
+                <option value="maximum">Maximum</option>
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>
+              Chunk size:{" "}
+              <select
+                value={chunkSize}
+                onChange={(event) => {
+                  setChunkSize(Number(event.target.value));
+                  setLastInteraction("Changed chunk size");
+                }}
+                className="ml-1 h-8 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-700"
+              >
+                <option value={1}>1 sentence</option>
+                <option value={2}>2 sentences</option>
+                <option value={3}>3 sentences</option>
+              </select>
+            </span>
+            <span>
+              Auto-read:{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoReadFocusedChunk((value) => !value);
+                  setLastInteraction(
+                    `${autoReadFocusedChunk ? "Disabled" : "Enabled"} auto-read focused chunk`
+                  );
+                }}
+                className="ml-1 rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                {autoReadFocusedChunk ? "On" : "Off"}
+              </button>
+            </span>
+            <span>
+              {supportPreset === "sound-out"
+                ? "Includes focus ruler, mask, and syllable support."
+                : supportPreset === "guided-focus"
+                  ? "Includes focus ruler and reading mask."
+                  : "Includes a gentle focus ruler."}
+            </span>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/50 p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Accessible preview
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={stopSpeech}
+                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+              >
+                Stop
+              </button>
+              <select
+                value={selectedVoice}
+                onChange={(event) => {
+                  setSelectedVoice(event.target.value);
+                  setLastInteraction("Changed voice");
+                }}
+                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                {availableVoices.length ? (
+                  availableVoices.map((voice) => (
+                    <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))
+                ) : (
+                  <option value="">System voice</option>
+                )}
+              </select>
+              <select
+                value={speechRate}
+                onChange={(event) => {
+                  setSpeechRate(Number(event.target.value));
+                  setLastInteraction("Changed speech rate");
+                }}
+                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
+              >
+                <option value={0.6}>Comfortable</option>
+                <option value={0.75}>Slow</option>
+                <option value={0.9}>Normal</option>
+              </select>
+              <div className="ml-auto text-xs text-slate-500">
+                {speakingTarget === "none"
+                  ? "Speech idle"
+                  : speakingTarget === "focused-chunk"
+                    ? `Reading chunk ${focusChunk + 1}`
+                    : "Reading full preview"}
+              </div>
+            </div>
+            {readingChunks.length ? (
+              <div ref={previewChunksRef} className="relative mt-3 space-y-3">
+                <div
+                  className="pointer-events-none absolute z-20 h-1.5 rounded-full bg-sky-400/80 shadow-[0_0_0_1px_rgba(125,211,252,0.35),0_6px_18px_rgba(56,189,248,0.18)] transition-[transform,width,opacity] duration-200 ease-out"
+                  style={{
+                    width: `${rulerStyle.width}px`,
+                    opacity: rulerStyle.opacity,
+                    transform: `translate(${rulerStyle.left}px, ${rulerStyle.top}px)`,
+                  }}
+                />
+                {readingChunks.map((chunk, index) => {
+                  const isActive = index === focusChunk;
+                  const previewChunk =
+                    displayMode === "guided-writing" ? `Part ${index + 1}: ${chunk}` : chunk;
+
+                  return (
+                    <div
+                      key={`${chunk}-${index}`}
+                      onClick={() => {
+                        setFocusChunk(index);
+                        setLastInteraction(`Focused chunk ${index + 1}`);
+                      }}
+                      className={[
+                        "relative block w-full rounded-xl border px-4 py-3 text-left transition",
+                        lineFocusEnabled && isActive
+                          ? "border-sky-300 bg-white shadow-sm ring-2 ring-sky-100"
+                          : "border-transparent bg-white/70",
+                        maskEnabled && !isActive
+                          ? "opacity-30 saturate-50"
+                          : activeSpokenChunk != null && activeSpokenChunk !== index
+                            ? "opacity-60"
+                            : "opacity-100",
+                      ].join(" ")}
+                    >
+                      {lineFocusEnabled && isActive && (
+                        <span className="absolute inset-y-2 left-1 w-1 rounded-full bg-amber-400" />
+                      )}
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                          Chunk {index + 1}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setFocusChunk(index);
+                            speakText(chunk, "focused-chunk");
+                            setLastInteraction(`Played chunk ${index + 1}`);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                          title={`Read aloud chunk ${index + 1}`}
+                          aria-label={`Read aloud chunk ${index + 1}`}
+                        >
+                          <Icon
+                            d="M3 10v4a1 1 0 001 1h3l4 3V6L7 9H4a1 1 0 00-1 1zm11.5 2a3.5 3.5 0 00-2-3.15v6.3a3.5 3.5 0 002-3.15zm0-7.5v2.05a7 7 0 010 10.9v2.05a1 1 0 001.56.83 9 9 0 000-16.66 1 1 0 00-1.56.83z"
+                            className="h-4 w-4"
+                          />
+                        </button>
+                      </div>
+                      <div
+                        className={[
+                          "whitespace-pre-wrap text-slate-900",
+                          displayMode === "spaced" ? "text-lg" : "text-base",
+                        ].join(" ")}
+                        style={previewTextStyle}
+                      >
+                        {splitIntoSentences(previewChunk).map((sentence, sentenceIndex) => {
+                          const isActiveSentence =
+                            activeSpokenChunk === index && activeSpokenSentence === sentenceIndex;
+                          const isSentenceDimmed =
+                            activeSpokenChunk === index &&
+                            activeSpokenSentence != null &&
+                            activeSpokenSentence !== sentenceIndex;
+                          return (
+                            <span
+                              key={`${index}-${sentenceIndex}-${sentence}`}
+                              className={`rounded-2xl px-1.5 py-1 transition-all duration-200 ${
+                                isActiveSentence
+                                  ? "bg-amber-50 shadow-sm ring-1 ring-amber-200"
+                                  : isSentenceDimmed
+                                    ? "opacity-35"
+                                    : ""
+                              }`}
+                            >
+                              {renderSpeechAwareSentence(
+                                `${sentence} `,
+                                isActiveSentence ? activeSpokenChar : null,
+                                syllableHighlight
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {displayMode === "guided-writing" && (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-700">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      Writing frame
+                    </div>
+                    <div className="mt-2" style={previewTextStyle}>
+                      {renderSyllableText(
+                        "The main idea is ____. One detail is ____. Another detail is ____.",
+                        syllableHighlight
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 text-sm text-slate-500">
+                Add a reading or writing task to preview the accessible version.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Key words
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {keywords.length ? (
+                keywords.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800"
+                  >
+                    {keyword}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-slate-500">Keywords will appear here.</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Sentence frame
+            </div>
+            <div className="mt-3 rounded-xl bg-slate-50 px-3 py-3 text-sm leading-7 text-slate-700">
+              <span style={previewTextStyle}>
+                {renderSyllableText(sentenceFrame, syllableHighlight)}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Support checklist
+            </div>
+            <div className="mt-3 space-y-2">
+              {checklist.map((item) => (
+                <div key={item} className="flex items-start gap-2 text-sm text-slate-700">
+                  <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
+                    ✓
+                  </span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 text-xs text-slate-500">Latest interaction: {lastInteraction}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VisualizationSurface({
   mode,
   latestUserMessage,
   onStateChange,
 }: {
-  mode: "code-tracing" | "music-staff" | "virtual-lab";
+  mode: "code-tracing" | "music-staff" | "virtual-lab" | "dyslexia-support";
   latestUserMessage?: string;
   onStateChange?: (state: VisualizationState) => void;
 }) {
@@ -2177,14 +3183,44 @@ export function VisualizationSurface({
     return <MusicStaffVisualization onStateChange={onStateChange} />;
   }
 
+  if (mode === "dyslexia-support") {
+    return (
+      <DyslexiaSupportVisualization
+        latestUserMessage={latestUserMessage}
+        onStateChange={onStateChange}
+      />
+    );
+  }
+
   return <VirtualLabVisualization onStateChange={onStateChange} />;
+}
+
+export function getVisualizationTitle(
+  mode: "code-tracing" | "music-staff" | "virtual-lab" | "dyslexia-support",
+  fullscreen: boolean
+) {
+  if (mode === "code-tracing") {
+    return fullscreen ? "Code tracing visualizer" : "Embedded code trace view";
+  }
+
+  if (mode === "music-staff") {
+    return fullscreen ? "Music staff visualizer" : "Embedded music staff view";
+  }
+
+  if (mode === "dyslexia-support") {
+    return fullscreen
+      ? "Dyslexia-friendly literacy support"
+      : "Embedded dyslexia support view";
+  }
+
+  return fullscreen ? "Virtual lab visualizer" : "Embedded virtual lab view";
 }
 
 function getInitialMessages(appName: string): ChatMessage[] {
   return [
     {
       role: "assistant",
-      content: `Welcome to ${appName}! How can I help?`,
+      content: `Hi! I'm ${appName}. Let's learn together step by step.\n\nTry typing a message, using the mic, or attaching a file.`,
     },
   ];
 }
@@ -2204,12 +3240,18 @@ export default function AssistantPanel({
     getInitialMessages(displayName)
   );
   const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [composerError, setComposerError] = useState("");
+  const [attachedFileName, setAttachedFileName] = useState("");
+  const [attachedFileText, setAttachedFileText] = useState("");
   const [modelLabel, setModelLabel] = useState("Loading model...");
   const [promptMarkdown, setPromptMarkdown] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
   const [visualizationState, setVisualizationState] =
     useState<VisualizationState | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -2256,6 +3298,12 @@ export default function AssistantPanel({
   }, [messages, busy]);
 
   useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
 
     const syncPrompt = () => {
@@ -2277,8 +3325,11 @@ export default function AssistantPanel({
     };
   }, []);
 
-  async function send() {
-    const text = input.trim();
+  async function send(textOverride?: string) {
+    const baseText = (textOverride ?? input).trim();
+    const text = attachedFileText
+      ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
+      : baseText;
     if (!text || busy) return;
 
     const nextMessages = [
@@ -2286,7 +3337,10 @@ export default function AssistantPanel({
       { role: "user", content: text } as ChatMessage,
     ];
 
+    setComposerError("");
     setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
     setMessages(nextMessages);
     setBusy(true);
 
@@ -2346,9 +3400,61 @@ export default function AssistantPanel({
     }
   }
 
+  function toggleVoiceInput() {
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setComposerError("Voice input is not supported in this browser.");
+      return;
+    }
+
+    if (listening) {
+      recognitionRef.current?.stop?.();
+      setListening(false);
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.lang = navigator.language || "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      setComposerError("");
+      setListening(true);
+    };
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((result: any) => result[0]?.transcript || "")
+        .join(" ");
+      setInput(transcript.trim());
+    };
+    recognition.onerror = () => {
+      setComposerError("Voice input failed. Please try again.");
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.start();
+  }
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const attachmentText = await buildFileAttachmentText(file);
+      setAttachedFileName(file.name);
+      setAttachedFileText(attachmentText);
+      setComposerError("");
+    } catch (error: any) {
+      setComposerError(error?.message || "Could not read that file.");
+    }
+  }
+
   return (
-    <aside className="h-full bg-white flex flex-col">
-      <div className="px-4 py-3 border-b bg-emerald-50/70 flex items-center justify-between gap-3">
+    <aside className="flex h-full flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)]">
+      <div className="flex items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-3">
         <div className="min-w-0 flex items-center gap-2">
           <Icon
             d="M3 12a9 9 0 1018 0A9 9 0 003 12zm10-4H8v2h5V8zm3 4H8v2h8v-2zm-3 4H8v2h5v-2z"
@@ -2356,8 +3462,11 @@ export default function AssistantPanel({
           />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
                 Prompt Preview
+              </span>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
+                friendly
               </span>
               <span className="text-xs text-slate-500 truncate">{modelLabel}</span>
             </div>
@@ -2370,7 +3479,7 @@ export default function AssistantPanel({
 
         <div className="flex items-center gap-2 shrink-0">
           <button
-            className="p-1.5 rounded hover:bg-slate-100"
+            className="rounded-xl p-1.5 hover:bg-white/70"
             title="Refresh"
             onClick={() => {
               resetSession();
@@ -2380,7 +3489,7 @@ export default function AssistantPanel({
             <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
           </button>
           <button
-            className="text-xs px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200"
+            className="rounded-xl bg-white/80 px-3 py-1 text-xs hover:bg-white"
             onClick={resetSession}
             type="button"
           >
@@ -2389,11 +3498,14 @@ export default function AssistantPanel({
         </div>
       </div>
 
-      <div className="px-4 py-3 text-sm text-slate-600 border-b">
+      <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600">
         Test how the current prompt behaves with a real user message.
       </div>
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-auto p-4 space-y-4">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4"
+      >
         <div className="text-[12px] text-slate-500">
           Preview session {new Date().toLocaleDateString()} · {displayName}
         </div>
@@ -2413,13 +3525,7 @@ export default function AssistantPanel({
                   {visualFullscreen ? "Fullscreen visualization" : "Visualized element"}
                 </div>
                 <div className="mt-1 text-sm font-medium text-slate-800">
-                  {visualizationMode === "code-tracing"
-                    ? visualFullscreen
-                      ? "Code tracing visualizer"
-                      : "Embedded code trace view"
-                    : visualFullscreen
-                      ? "Virtual lab visualizer"
-                      : "Embedded virtual lab view"}
+                  {getVisualizationTitle(visualizationMode, visualFullscreen)}
                 </div>
               </div>
               <button
@@ -2441,61 +3547,136 @@ export default function AssistantPanel({
         )}
 
         {messages.map((message, index) => (
-          <div key={index} className="space-y-2">
-            <div className="flex items-center gap-3">
+          <div
+            key={index}
+            className={[
+              "space-y-2",
+              message.role === "assistant" ? "mr-8" : "ml-8",
+            ].join(" ")}
+          >
+            <div
+              className={[
+                "flex items-center gap-3",
+                message.role === "assistant" ? "" : "justify-end",
+              ].join(" ")}
+            >
+              {message.role === "assistant" && (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
+                  🤖
+                </div>
+              )}
               <div
                 className={[
                   "h-5 w-5 rounded-full",
-                  message.role === "assistant" ? "bg-sky-500" : "bg-slate-300",
+                  message.role === "assistant" ? "bg-rose-300" : "bg-sky-300",
                 ].join(" ")}
               />
-              <div className="text-xs text-slate-500">
+              <div className="text-xs font-medium text-slate-500">
                 {message.role === "assistant" ? `${displayName} preview` : "Test user"}
               </div>
+              {message.role === "user" && (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-200 bg-sky-100 text-sm">
+                  🙂 
+                </div>
+              )}
             </div>
 
-            <div className="text-slate-800 leading-relaxed whitespace-pre-wrap">
+            <div
+              className={[
+                "whitespace-pre-wrap rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
+                message.role === "assistant"
+                  ? "border-rose-200 bg-white text-slate-800"
+                  : "border-sky-200 bg-sky-100/90 text-sky-950",
+              ].join(" ")}
+            >
               {message.content}
             </div>
           </div>
         ))}
 
-        {busy && <div className="text-sm text-slate-500">Thinking...</div>}
+        {busy && (
+          <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+            Thinking...
+          </div>
+        )}
       </div>
 
-      <div className="px-4 pb-4">
+      <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4">
         <div className="flex gap-2">
           <button
-            className="p-2 rounded-lg border border-slate-300 text-slate-400 cursor-not-allowed"
-            title="Attach"
-            disabled
+            className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
+            title="Upload a file"
             type="button"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
           >
-            <Icon
-              d="M16.5 6.5l-7.8 7.8a3 3 0 11-4.24-4.24L12 2.5a5 5 0 117.07 7.07l-8.49 8.49"
-              className="w-5 h-5"
-            />
+            <span aria-hidden="true">📃</span>
+          </button>
+          <button
+            className={[
+              "rounded-2xl border-2 p-2 disabled:opacity-50",
+              listening
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-violet-200 bg-violet-50 text-slate-700 hover:bg-violet-100",
+            ].join(" ")}
+            title={listening ? "Stop voice input" : "Start voice input"}
+            type="button"
+            disabled={busy}
+            onClick={toggleVoiceInput}
+          >
+            <span aria-hidden="true">🎙️</span>
           </button>
           <input
-            className="flex-1 h-11 rounded-lg border px-3"
-            placeholder="Send a test user message to preview this prompt"
+            className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400"
+            placeholder={
+              listening
+                ? "Listening..."
+                : "Send a test message, use voice, or upload a file"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={busy}
           />
           <button
-            className="h-11 px-5 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
-            onClick={send}
+            className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
+            onClick={() => void send()}
             disabled={busy}
             type="button"
           >
             Send
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept={TEXT_FILE_INPUT_ACCEPT}
+          onChange={handleFileChange}
+        />
+        {attachedFileName && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1">
+              Attached: {attachedFileName}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAttachedFileName("");
+                setAttachedFileText("");
+              }}
+              className="text-slate-500 hover:text-slate-700"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+        {composerError && (
+          <p className="mt-2 text-xs text-red-600">{composerError}</p>
+        )}
         <p className="mt-2 text-xs text-slate-500">
-          This panel previews the behavior of the current prompt, not the hint
-          assistant.
+          This panel previews the current prompt and supports voice input plus
+          text-based file upload.
         </p>
       </div>
 

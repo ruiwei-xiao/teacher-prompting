@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppCard from "./AppCard";
 import DeleteBotDialog from "./DeleteBotDialog";
+import PublishDialog from "@/components/editor/PublishDialog";
 
 type AppSummary = {
   id: string;
@@ -12,6 +13,7 @@ type AppSummary = {
   description?: string;
   updatedAt?: string;
   publishedAt?: string | null;
+  publicSlug?: string;
 };
 
 export default function AppGrid() {
@@ -21,6 +23,15 @@ export default function AppGrid() {
   const [deleteTarget, setDeleteTarget] = useState<AppSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [shareTarget, setShareTarget] = useState<AppSummary | null>(null);
+
+  const appOrigin =
+    typeof window !== "undefined" ? window.location.origin : "";
+
+  function getShareUrl(app: AppSummary) {
+    if (!app.publishedAt || !appOrigin) return "";
+    return `${appOrigin}/chat/${app.publicSlug || app.id}`;
+  }
 
   useEffect(() => {
     async function loadApps() {
@@ -101,6 +112,7 @@ export default function AppGrid() {
               meta={app.updatedAt ? `Updated ${new Date(app.updatedAt).toLocaleDateString()}` : undefined}
               ctaLabel="Open bot"
               onOpen={() => router.push(`/app/${app.id}/editor`)}
+              onShare={() => setShareTarget(app)}
               onDelete={() => {
                 setDeleteError("");
                 setDeleteTarget(app);
@@ -136,6 +148,16 @@ export default function AppGrid() {
           setDeleteTarget(null);
         }}
         onConfirm={() => void handleDelete()}
+      />
+      <PublishDialog
+        open={Boolean(shareTarget)}
+        url={shareTarget ? getShareUrl(shareTarget) : ""}
+        error={
+          shareTarget && !shareTarget.publishedAt
+            ? "Publish this bot from the editor before sharing its public link."
+            : undefined
+        }
+        onClose={() => setShareTarget(null)}
       />
     </div>
   );
