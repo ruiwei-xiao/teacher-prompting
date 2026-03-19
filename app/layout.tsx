@@ -2,8 +2,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Playlab – AI Collab Sandbox",
-  description: "Mocked multi-screen flow for dashboard → create → tour → editor",
+  title: "Pedagogical Agent Builder",
+  description: "Build, test, and share learning-oriented teaching agents.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
