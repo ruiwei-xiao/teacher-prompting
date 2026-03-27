@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readStoredPrompt } from "@/lib/prompt-storage/client";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-function getHintFactorySystemPrompt() {
+function getHintFactorySystemPrompt(appId?: string) {
   const draft =
     typeof window !== "undefined"
-      ? localStorage.getItem("instruction-doc-md") || ""
+      ? readStoredPrompt(appId)
       : "";
 
   return [
@@ -104,7 +105,7 @@ export default function LeftChat({
         },
         body: JSON.stringify({
           appId,
-          system: getHintFactorySystemPrompt(),
+          system: getHintFactorySystemPrompt(appId),
           messages: nextMessages,
         }),
       });

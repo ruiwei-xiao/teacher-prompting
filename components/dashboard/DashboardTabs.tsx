@@ -14,7 +14,7 @@ export default function DashboardTabs({
   return (
     <div className="w-full">
       <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-2 shadow-sm backdrop-blur">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           <button
             type="button"
             onClick={() => setActiveTab("my-bots")}
@@ -40,7 +40,9 @@ export default function DashboardTabs({
         </div>
       </div>
 
-      <div className="mt-8">{activeTab === "my-bots" ? myBots : community}</div>
+      <div className="mt-8">
+        {activeTab === "my-bots" ? myBots : community}
+      </div>
     </div>
   );
 }

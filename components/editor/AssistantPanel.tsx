@@ -1,16 +1,224 @@
 "use client";
 
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildFileAttachmentText,
   getSpeechRecognitionConstructor,
   TEXT_FILE_INPUT_ACCEPT,
 } from "@/lib/chat-input/client";
+import { readStoredPrompt } from "@/lib/prompt-storage/client";
+import {
+  buildCaseSpecificPrompt,
+  DEFAULT_TEST_CASE_STUDENTS,
+  type StudentProfile,
+} from "@/lib/test-case-students";
 
 type ChatMessage = {
+  id: string;
   role: "user" | "assistant";
   content: string;
+  originalContent: string;
 };
+
+type PromptFeedbackChangedBlock = {
+  heading: string;
+};
+
+type PromptFeedbackEventDetail = {
+  updatedPrompt: string;
+  changedBlocks: PromptFeedbackChangedBlock[];
+  summary: string;
+};
+
+type TestCaseVerificationStatus = "idle" | "pass" | "warning" | "fail";
+
+type PromptUpdateVerificationCheck = {
+  testCaseId: string;
+  testCaseName: string;
+  status: Exclude<TestCaseVerificationStatus, "idle">;
+  score: number;
+  note: string;
+  expectedAssistant: string;
+  candidateAssistant: string;
+};
+
+type PromptUpdateResult = {
+  diffAnalysis: {
+    teacherIntent: string;
+    keyDifferences: string[];
+    desiredBehaviors: string[];
+    guardrailsToKeep: string[];
+    successCriteria: string[];
+  };
+  promptPlan: {
+    targetSections: string[];
+    rewriteInstructions: string[];
+    preserveSections: string[];
+    rationale: string;
+  };
+  candidatePrompt: string;
+  changedBlocks: PromptFeedbackChangedBlock[];
+  verification: {
+    currentCase: PromptUpdateVerificationCheck | null;
+    otherCaseChecks: PromptUpdateVerificationCheck[];
+    regressions: string[];
+    summary: string;
+    shouldApply: boolean;
+  };
+};
+
+type TestCaseStatus = {
+  totalCount: number;
+  passedCount: number;
+  allPassed: boolean;
+};
+
+type BatchRunProgress = {
+  title: string;
+  detail: string;
+};
+
+type TestCaseSet = {
+  id: string;
+  name: string;
+  purposeLabel: string;
+  scenarioSummary: string;
+  script: TestCasePreset;
+  studentProfile: StudentProfile | null;
+  messages: ChatMessage[];
+  visualizationState: VisualizationState | null;
+  passed: boolean;
+  verificationStatus: TestCaseVerificationStatus;
+  verificationNote: string;
+};
+
+function createMessage(
+  role: ChatMessage["role"],
+  content: string,
+  originalContent = content
+): ChatMessage {
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    role,
+    content,
+    originalContent,
+  };
+}
+
+function messageHasEdits(message: ChatMessage) {
+  return message.content !== message.originalContent;
+}
+
+function buildStudentProfileForCase(index: number): StudentProfile {
+  const base = DEFAULT_TEST_CASE_STUDENTS[index] || DEFAULT_TEST_CASE_STUDENTS[index % DEFAULT_TEST_CASE_STUDENTS.length];
+  return {
+    ...base,
+    id: `${base.id}-${index + 1}`,
+    label: `Student ${index + 1}`,
+  };
+}
+
+type TestCasePreset = {
+  purposeLabel: string;
+  scenarioSummary: string;
+  round1User: string;
+  round1Assistant: string;
+  round2User: string;
+  round2Assistant: string;
+  round3User: string;
+};
+
+const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
+  {
+    purposeLabel: "Expected path",
+    scenarioSummary: "A typical learner who should succeed with the intended teaching flow.",
+    round1User:
+      "I want a simple explanation first, and then I want to try a small example on my own.",
+    round1Assistant:
+      "Absolutely. I will start small, use plain language, and check your understanding before moving on.",
+    round2User:
+      "I think I partly get it now. Can you give me one short practice example before making it harder?",
+    round2Assistant:
+      "Yes. Let's use one small example, walk through it together, and then see what pattern you notice.",
+    round3User:
+      "Can I explain it back in my own words, and then you tell me what I understood well and what I should fix?",
+  },
+  {
+    purposeLabel: "Edge case 1",
+    scenarioSummary: "A student who sounds confident but is holding onto a misconception.",
+    round1User:
+      "I already know the idea, so can you skip the explanation and just tell me the final answer quickly?",
+    round1Assistant:
+      "I can be concise, but I still want to check one key idea first so we do not build on a misunderstanding.",
+    round2User:
+      "I think I get it because the rule always works the same way, right? There is basically no exception.",
+    round2Assistant:
+      "That is a useful guess, but let's test it with a counterexample so we can see where the rule holds and where it needs refinement.",
+    round3User:
+      "If my idea is partly wrong, can you correct it gently and show exactly which part I should revise?",
+  },
+  {
+    purposeLabel: "Edge case 2",
+    scenarioSummary: "A frustrated or avoidant student who needs support, redirection, and structure.",
+    round1User:
+      "I do not really want to do this. Can you just do it for me so I can copy it and move on?",
+    round1Assistant:
+      "I can help you get unstuck, but I will keep you involved so you can still learn and feel successful.",
+    round2User:
+      "This is confusing and kind of annoying. I keep losing track of what matters.",
+    round2Assistant:
+      "Let's slow it down, focus on one small step, and use a short checklist so the task feels more manageable.",
+    round3User:
+      "If I drift off-topic or get frustrated again, can you bring me back without sounding harsh?",
+  },
+];
+
+function createTestCaseSet(
+  name: string,
+  appName: string,
+  readOnly = false,
+  studentProfile: StudentProfile | null = null,
+  preset?: TestCasePreset
+): TestCaseSet {
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name,
+    purposeLabel: preset?.purposeLabel || "Custom case",
+    scenarioSummary: preset?.scenarioSummary || "A custom student simulation for this prompt.",
+    script: preset || {
+      purposeLabel: "Custom case",
+      scenarioSummary: "A custom student simulation for this prompt.",
+      round1User: "Can you help me get started?",
+      round1Assistant: "Absolutely. Let's start with one manageable step.",
+      round2User: "I think I partly get it, but I still need support.",
+      round2Assistant: "Let's slow it down and test one idea at a time.",
+      round3User: "Can I try one final response on my own?",
+    },
+    studentProfile,
+    messages: getInitialMessages(appName, studentProfile, preset, readOnly),
+    visualizationState: null,
+    passed: false,
+    verificationStatus: "idle",
+    verificationNote: "",
+  };
+}
+
+function createInitialTestCases(appName: string, readOnly = false) {
+  if (readOnly) {
+    return [createTestCaseSet("Preview", appName, true, buildStudentProfileForCase(0), DEFAULT_TEST_CASE_PRESETS[0])];
+  }
+
+  return DEFAULT_TEST_CASE_PRESETS.map((preset, index) => {
+    const studentProfile = buildStudentProfileForCase(index);
+    return createTestCaseSet(studentProfile.label, appName, false, studentProfile, preset);
+  });
+}
 
 export type VisualizationState =
   | {
@@ -109,9 +317,9 @@ function Icon({
   );
 }
 
-function getAssistantSystemPrompt() {
+function getAssistantSystemPrompt(appId?: string) {
   if (typeof window !== "undefined") {
-    const fromEditor = localStorage.getItem("instruction-doc-md") || "";
+    const fromEditor = readStoredPrompt(appId);
     if (fromEditor.trim()) return fromEditor;
   }
 
@@ -3752,14 +3960,85 @@ export function getVisualizationTitle(
   return fullscreen ? "Virtual lab visualizer" : "Embedded virtual lab view";
 }
 
-function getInitialMessages(appName: string, readOnly = false): ChatMessage[] {
+function getInitialMessages(
+  appName: string,
+  studentProfile: StudentProfile | null = null,
+  preset?: TestCasePreset,
+  readOnly = false
+): ChatMessage[] {
+  if (readOnly) {
+    return [
+      createMessage(
+        "assistant",
+        `This is a read-only preview of ${appName}.\n\nYou can inspect the chatbot setup and visualization, but not edit or chat from this shared project view.`
+      ),
+    ];
+  }
+
+  const studentLabel = studentProfile?.label || "Student";
+  const gradeLevel = studentProfile?.gradeLevel || "middle school";
+  const personality = studentProfile?.personality || "thoughtful and curious";
+  const knowledgeLevel = studentProfile?.knowledgeLevel || "still building core understanding";
+  const purposeLabel = preset?.purposeLabel || "Custom case";
+  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
+
   return [
-    {
-      role: "assistant",
-      content: readOnly
-        ? `This is a read-only preview of ${appName}.\n\nYou can inspect the chatbot setup and visualization, but not edit or chat from this shared project view.`
-        : `Hi! I'm ${appName}. Let's learn together step by step.\n\nTry typing a message, using the mic, or attaching a file.`,
-    },
+    createMessage(
+      "assistant",
+      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}`
+    ),
+    createMessage(
+      "user",
+      `I'm ${studentLabel}. I'm in ${gradeLevel}. ${preset?.round1User || "Can you help me get started?"}`
+    ),
+    createMessage(
+      "assistant",
+      preset?.round1Assistant || "Absolutely. I will start small, use plain language, and check your understanding before moving on."
+    ),
+    createMessage(
+      "user",
+      preset?.round2User || "I think I partly get it, but I still feel unsure and might be mixing up a few ideas."
+    ),
+    createMessage(
+      "assistant",
+      preset?.round2Assistant || "Thanks for telling me. Let's focus on one key idea, test it with a short example, and then compare it with the idea you might be confusing it with."
+    ),
+    createMessage(
+      "user",
+      preset?.round3User || "Can I try answering in my own words first, and then you tell me what I understood well and what I should fix?"
+    ),
+  ];
+}
+
+function buildTestCaseIntroMessage(
+  appName: string,
+  preset?: TestCasePreset
+) {
+  const purposeLabel = preset?.purposeLabel || "Custom case";
+  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
+
+  if (purposeLabel === "Expected path") {
+    return `Hi! I'm ${appName}. Let's learn together step by step. Tell me what you want to understand first, and I'll help you work through it.`;
+  }
+
+  if (purposeLabel === "Edge case 1") {
+    return `Hi! I'm ${appName}. I'm here to help you reason carefully, not just rush to an answer. Share your current thinking and we'll test it together.`;
+  }
+
+  if (purposeLabel === "Edge case 2") {
+    return `Hi! I'm ${appName}. If this feels frustrating, that's okay. We can slow it down, focus on one step at a time, and make a plan together.`;
+  }
+
+  return `Hi! I'm ${appName}. ${scenarioSummary}`;
+}
+
+function buildTestCaseUserMessages(
+  preset?: TestCasePreset
+) {
+  return [
+    preset?.round1User || "Can you help me get started?",
+    preset?.round2User || "I think I partly get it, but I still feel unsure and might be mixing up a few ideas.",
+    preset?.round3User || "Can I try answering in my own words first, and then you tell me what I understood well and what I should fix?",
   ];
 }
 
@@ -3770,6 +4049,7 @@ export default function AssistantPanel({
   readOnly = false,
   promptOverride,
   modelLabelOverride,
+  onTestCaseStatusChange,
 }: {
   appId: string;
   appName: string;
@@ -3777,12 +4057,14 @@ export default function AssistantPanel({
   readOnly?: boolean;
   promptOverride?: string;
   modelLabelOverride?: string;
+  onTestCaseStatusChange?: (status: TestCaseStatus) => void;
 }) {
   const displayName = appName.trim() || appId;
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    getInitialMessages(displayName, readOnly)
+  const [testCases, setTestCases] = useState<TestCaseSet[]>(() =>
+    createInitialTestCases(displayName, readOnly)
   );
+  const [activeTestCaseId, setActiveTestCaseId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [composerError, setComposerError] = useState("");
@@ -3791,8 +4073,13 @@ export default function AssistantPanel({
   const [modelLabel, setModelLabel] = useState("Loading model...");
   const [promptMarkdown, setPromptMarkdown] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
-  const [visualizationState, setVisualizationState] =
-    useState<VisualizationState | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyError, setApplyError] = useState("");
+  const [applySummary, setApplySummary] = useState("");
+  const [pipelineResult, setPipelineResult] = useState<PromptUpdateResult | null>(null);
+  const [batchRunProgress, setBatchRunProgress] = useState<BatchRunProgress | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -3801,10 +4088,20 @@ export default function AssistantPanel({
     () => detectVisualizationMode(promptMarkdown),
     [promptMarkdown]
   );
+  const activeTestCase =
+    testCases.find((testCase) => testCase.id === activeTestCaseId) || testCases[0] || null;
+  const messages = activeTestCase?.messages || [];
+  const visualizationState = activeTestCase?.visualizationState || null;
+  const activeStudentProfile = activeTestCase?.studentProfile || null;
+  const passedCaseCount = testCases.filter((testCase) => testCase.passed).length;
+  const verifiedCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "pass").length;
+  const warningCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "warning").length;
+  const failedCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "fail").length;
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
+  const editedMessageCount = messages.filter(messageHasEdits).length;
 
   async function loadApp() {
     if (readOnly) {
@@ -3827,9 +4124,322 @@ export default function AssistantPanel({
     }
   }
 
+  async function requestPreviewReply(args: {
+    system: string;
+    messages: ChatMessage[];
+    visualizationState: VisualizationState | null;
+  }) {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        appId,
+        system: args.system,
+        messages: args.messages.map(({ role, content }) => ({ role, content })),
+        visualizationState: args.visualizationState,
+      }),
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+    const isJSON = contentType.includes("application/json");
+    const body = isJSON ? await res.json() : await res.text();
+
+    if (!res.ok) {
+      const msg = isJSON
+        ? body?.error || body?.message || "Server error"
+        : String(body).slice(0, 400);
+      throw new Error(msg);
+    }
+
+    const reply = isJSON ? body?.reply ?? "" : String(body);
+    if (isJSON && body?.provider && body?.model) {
+      setModelLabel(`${body.provider} · ${body.model}`);
+    }
+
+    return reply;
+  }
+
+  async function rerunTestCase(
+    testCase: TestCaseSet,
+    prompt: string,
+    testCaseIndex: number,
+    totalCases: number
+  ) {
+    setBatchRunProgress({
+      title: "Thinking...",
+      detail: `Rerunning ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
+    });
+
+    const introMessage = createMessage(
+      "assistant",
+      buildTestCaseIntroMessage(displayName, testCase.script)
+    );
+    const userMessages = buildTestCaseUserMessages(testCase.script);
+    const nextMessages: ChatMessage[] = [introMessage];
+
+    for (const [messageIndex, userMessage] of userMessages.entries()) {
+      setBatchRunProgress({
+        title: "Thinking...",
+        detail: `${testCase.purposeLabel}: generating reply ${messageIndex + 1} of ${userMessages.length}`,
+      });
+      nextMessages.push(createMessage("user", userMessage));
+      const reply = await requestPreviewReply({
+        system: buildCaseSpecificPrompt(prompt, testCase.studentProfile),
+        messages: nextMessages,
+        visualizationState: null,
+      });
+      nextMessages.push(createMessage("assistant", reply));
+    }
+
+    return {
+      ...testCase,
+      messages: nextMessages,
+      visualizationState: null,
+      passed: false,
+      verificationStatus: "idle" as const,
+      verificationNote: "",
+    };
+  }
+
+  async function refreshAllTestCases(prompt: string) {
+    if (!prompt.trim() || readOnly) return;
+
+    setBusy(true);
+    setComposerError("");
+    clearPromptUpdateState(true);
+    setBatchRunProgress({
+      title: "Thinking...",
+      detail: "Preparing all test cases...",
+    });
+
+    try {
+      const rerunCases: TestCaseSet[] = [];
+      for (const [index, testCase] of testCases.entries()) {
+        rerunCases.push(await rerunTestCase(testCase, prompt, index, testCases.length));
+      }
+      setTestCases(rerunCases);
+      setApplySummary("Updated all test cases with the current prompt.");
+    } catch (error: any) {
+      setApplyError(error?.message || "Failed to update all test cases.");
+    } finally {
+      setBatchRunProgress(null);
+      setBusy(false);
+    }
+  }
+
+  function updateTestCaseById(
+    testCaseId: string,
+    updater: (testCase: TestCaseSet) => TestCaseSet
+  ) {
+    setTestCases((current) =>
+      current.map((testCase) =>
+        testCase.id === testCaseId ? updater(testCase) : testCase
+      )
+    );
+  }
+
+  function updateActiveTestCase(
+    updater: (testCase: TestCaseSet) => TestCaseSet
+  ) {
+    const fallbackId = activeTestCase?.id;
+    if (!fallbackId) return;
+    updateTestCaseById(fallbackId, updater);
+  }
+
+  function clearPromptUpdateState(resetCaseVerification = false) {
+    setApplyError("");
+    setApplySummary("");
+    setPipelineResult(null);
+    if (resetCaseVerification) {
+      setTestCases((current) =>
+        current.map((testCase) => ({
+          ...testCase,
+          verificationStatus: "idle",
+          verificationNote: "",
+        }))
+      );
+    }
+  }
+
   function resetSession() {
-    setMessages(getInitialMessages(displayName, readOnly));
+    const nextCases = createInitialTestCases(displayName, readOnly);
+    setTestCases(nextCases);
+    setActiveTestCaseId(nextCases[0]?.id || "");
     setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
+    setEditingMessageId(null);
+    setEditingDraft("");
+    setApplyBusy(false);
+    clearPromptUpdateState();
+  }
+
+  function resetActiveTestCase() {
+    const fallbackId = activeTestCase?.id;
+    if (!fallbackId) return;
+
+    updateActiveTestCase((testCase) => ({
+      ...testCase,
+      messages: getInitialMessages(
+        displayName,
+        testCase.studentProfile,
+        testCase.script,
+        readOnly
+      ),
+      visualizationState: null,
+      passed: false,
+      verificationStatus: "idle",
+      verificationNote: "",
+    }));
+    setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
+    setEditingMessageId(null);
+    setEditingDraft("");
+    clearPromptUpdateState();
+  }
+
+  function addTestCase() {
+    const nextIndex = testCases.length + 1;
+    const studentProfile = buildStudentProfileForCase(nextIndex - 1);
+    const nextCase = createTestCaseSet(studentProfile.label, displayName, readOnly, studentProfile, {
+      purposeLabel: "Custom case",
+      scenarioSummary: "An extra student simulation added by the teacher.",
+      round1User: "Can you help me get started?",
+      round1Assistant: "Absolutely. Let's start with one manageable step.",
+      round2User: "I think I partly get it, but I still need support.",
+      round2Assistant: "Let's slow it down and test one idea at a time.",
+      round3User: "Can I try one final response on my own?",
+    });
+    setTestCases((current) => [...current, nextCase]);
+    setActiveTestCaseId(nextCase.id);
+    setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
+    setEditingMessageId(null);
+    setEditingDraft("");
+    clearPromptUpdateState();
+  }
+
+  function deleteTestCase(testCaseId: string) {
+    if (testCases.length <= 1) return;
+
+    setTestCases((current) => current.filter((testCase) => testCase.id !== testCaseId));
+    if (activeTestCaseId === testCaseId) {
+      const fallback = testCases.find((testCase) => testCase.id !== testCaseId);
+      setActiveTestCaseId(fallback?.id || "");
+    }
+    setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
+    setEditingMessageId(null);
+    setEditingDraft("");
+    clearPromptUpdateState();
+  }
+
+  function selectTestCase(testCaseId: string) {
+    setActiveTestCaseId(testCaseId);
+    setInput("");
+    setAttachedFileName("");
+    setAttachedFileText("");
+    setEditingMessageId(null);
+    setEditingDraft("");
+    setApplyError("");
+    setApplySummary("");
+    setPipelineResult(null);
+  }
+
+  function toggleActiveTestCasePassed() {
+    if (!activeTestCase) return;
+    updateTestCaseById(activeTestCase.id, (testCase) => ({
+      ...testCase,
+      passed: !testCase.passed,
+    }));
+  }
+
+  function startEditingMessage(message: ChatMessage) {
+    setEditingMessageId(message.id);
+    setEditingDraft(message.content);
+    setApplyError("");
+  }
+
+  function cancelEditingMessage() {
+    setEditingMessageId(null);
+    setEditingDraft("");
+  }
+
+  async function saveEditedMessage(messageId: string) {
+    const nextContent = editingDraft.trim();
+    if (!nextContent || !activeTestCase) return;
+
+    const targetIndex = activeTestCase.messages.findIndex((message) => message.id === messageId);
+    if (targetIndex < 0) return;
+
+    const targetMessage = activeTestCase.messages[targetIndex];
+    if (targetMessage.role === "assistant") {
+      updateActiveTestCase((testCase) => ({
+        ...testCase,
+        messages: testCase.messages.map((message) =>
+          message.id === messageId ? { ...message, content: nextContent } : message
+        ),
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
+      cancelEditingMessage();
+      clearPromptUpdateState(true);
+      return;
+    }
+
+    const currentPrompt = promptMarkdown.trim() || getAssistantSystemPrompt(appId);
+    const truncatedMessages = activeTestCase.messages
+      .slice(0, targetIndex + 1)
+      .map((message, index) =>
+        index === targetIndex ? { ...message, content: nextContent } : message
+      );
+
+    updateTestCaseById(activeTestCase.id, (testCase) => ({
+      ...testCase,
+      messages: truncatedMessages,
+      visualizationState: null,
+      verificationStatus: "idle",
+      verificationNote: "",
+    }));
+    cancelEditingMessage();
+    clearPromptUpdateState(true);
+    setBusy(true);
+
+    try {
+      const reply = await requestPreviewReply({
+        system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
+        messages: truncatedMessages,
+        visualizationState: null,
+      });
+
+      updateTestCaseById(activeTestCase.id, (testCase) => ({
+        ...testCase,
+        messages: [...truncatedMessages, createMessage("assistant", reply)],
+        visualizationState: null,
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
+      setApplySummary("Removed the old follow-up conversation and regenerated the next reply.");
+    } catch (error: any) {
+      updateTestCaseById(activeTestCase.id, (testCase) => ({
+        ...testCase,
+        messages: [
+          ...truncatedMessages,
+          createMessage("assistant", `Sorry—something went wrong: ${error?.message || error}`),
+        ],
+        visualizationState: null,
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
+      setApplyError(error?.message || "Failed to regenerate the follow-up conversation.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -3839,6 +4449,22 @@ export default function AssistantPanel({
   useEffect(() => {
     resetSession();
   }, [appId, appName, appVersion, readOnly]);
+
+  useEffect(() => {
+    if (!testCases.length) return;
+    if (activeTestCaseId && testCases.some((testCase) => testCase.id === activeTestCaseId)) {
+      return;
+    }
+    setActiveTestCaseId(testCases[0].id);
+  }, [activeTestCaseId, testCases]);
+
+  useEffect(() => {
+    onTestCaseStatusChange?.({
+      totalCount: testCases.length,
+      passedCount: passedCaseCount,
+      allPassed: testCases.length > 0 && passedCaseCount === testCases.length,
+    });
+  }, [onTestCaseStatusChange, passedCaseCount, testCases]);
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -3862,12 +4488,21 @@ export default function AssistantPanel({
     if (typeof window === "undefined") return;
 
     const syncPrompt = () => {
-      setPromptMarkdown(localStorage.getItem("instruction-doc-md") || "");
+      setPromptMarkdown(readStoredPrompt(appId));
     };
 
     const onPromptUpdate = (event: Event) => {
-      const customEvent = event as CustomEvent<{ markdown?: string }>;
-      setPromptMarkdown(customEvent.detail?.markdown || "");
+      const customEvent = event as CustomEvent<{
+        appId?: string;
+        markdown?: string;
+        applyToAllTestCases?: boolean;
+      }>;
+      if (customEvent.detail?.appId && customEvent.detail.appId !== appId) return;
+      const nextPrompt = customEvent.detail?.markdown || "";
+      setPromptMarkdown(nextPrompt);
+      if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim()) {
+        void refreshAllTestCases(nextPrompt);
+      }
     };
 
     syncPrompt();
@@ -3878,25 +4513,34 @@ export default function AssistantPanel({
       window.removeEventListener("instruction-doc-updated", onPromptUpdate);
       window.removeEventListener("focus", syncPrompt);
     };
-  }, [promptOverride, readOnly]);
+  }, [appId, promptOverride, readOnly, testCases]);
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
     const text = attachedFileText
       ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
       : baseText;
-    if (!text || busy) return;
+    if (!text || busy || applyBusy || !activeTestCase) return;
+    const currentTestCaseId = activeTestCase.id;
+    const currentVisualizationState = activeTestCase.visualizationState;
 
     const nextMessages = [
       ...messages,
-      { role: "user", content: text } as ChatMessage,
+      createMessage("user", text),
     ];
 
     setComposerError("");
+    clearPromptUpdateState(true);
+    cancelEditingMessage();
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
-    setMessages(nextMessages);
+    updateTestCaseById(currentTestCaseId, (testCase) => ({
+      ...testCase,
+      messages: nextMessages,
+      verificationStatus: "idle",
+      verificationNote: "",
+    }));
     setBusy(true);
 
     try {
@@ -3907,9 +4551,9 @@ export default function AssistantPanel({
         },
         body: JSON.stringify({
           appId,
-          system: getAssistantSystemPrompt(),
+          system: buildCaseSpecificPrompt(getAssistantSystemPrompt(appId), activeStudentProfile),
           messages: nextMessages,
-          visualizationState,
+          visualizationState: currentVisualizationState,
         }),
       });
 
@@ -3927,22 +4571,26 @@ export default function AssistantPanel({
 
       const reply = isJSON ? body?.reply ?? "" : String(body);
 
-      setMessages((current) => [
-        ...current,
-        { role: "assistant", content: reply },
-      ]);
+      updateTestCaseById(currentTestCaseId, (testCase) => ({
+        ...testCase,
+        messages: [...testCase.messages, createMessage("assistant", reply)],
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
 
       if (isJSON && body?.provider && body?.model) {
         setModelLabel(`${body.provider} · ${body.model}`);
       }
     } catch (e: any) {
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          content: `Sorry—something went wrong: ${e?.message || e}`,
-        },
-      ]);
+      updateTestCaseById(currentTestCaseId, (testCase) => ({
+        ...testCase,
+        messages: [
+          ...testCase.messages,
+          createMessage("assistant", `Sorry—something went wrong: ${e?.message || e}`),
+        ],
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
     } finally {
       setBusy(false);
     }
@@ -3992,7 +4640,139 @@ export default function AssistantPanel({
     recognition.start();
   }
 
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function runPromptUpdatePipeline() {
+    if (!editedMessageCount || busy || applyBusy || !activeTestCase) return;
+
+    const currentPrompt = promptMarkdown.trim() || getAssistantSystemPrompt(appId);
+    if (!currentPrompt.trim()) {
+      setApplyError("The current prompt is empty, so there is nothing to update yet.");
+      return;
+    }
+
+    setApplyBusy(true);
+    setApplyError("");
+    setApplySummary("");
+
+    try {
+      const res = await fetch("/api/prompt-builder/chat-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appId,
+          currentPrompt,
+          originalMessages: messages.map(({ id, role, originalContent }) => ({
+            id,
+            role,
+            content: originalContent,
+          })),
+          editedMessages: messages.map(({ id, role, content }) => ({
+            id,
+            role,
+            content,
+          })),
+          verificationCases: testCases.map((testCase) => ({
+            id: testCase.id,
+            name: testCase.name,
+            studentProfile: testCase.studentProfile,
+            messages: testCase.messages.map(({ id, role, content }) => ({
+              id,
+              role,
+              content,
+            })),
+          })),
+          activeCaseId: activeTestCase.id,
+          activeCaseName: activeTestCase.name,
+          activeCaseStudentProfile: activeStudentProfile,
+        }),
+      });
+
+      const body = await res.json();
+      if (!res.ok) {
+        throw new Error(body?.error || "Failed to run the prompt update pipeline.");
+      }
+
+      const result: PromptUpdateResult = {
+        diffAnalysis: body?.diffAnalysis || {
+          teacherIntent: "",
+          keyDifferences: [],
+          desiredBehaviors: [],
+          guardrailsToKeep: [],
+          successCriteria: [],
+        },
+        promptPlan: body?.promptPlan || {
+          targetSections: [],
+          rewriteInstructions: [],
+          preserveSections: [],
+          rationale: "",
+        },
+        candidatePrompt: body?.candidatePrompt || "",
+        changedBlocks: Array.isArray(body?.changedBlocks) ? body.changedBlocks : [],
+        verification: {
+          currentCase: body?.verification?.currentCase || null,
+          otherCaseChecks: Array.isArray(body?.verification?.otherCaseChecks)
+            ? body.verification.otherCaseChecks
+            : [],
+          regressions: Array.isArray(body?.verification?.regressions)
+            ? body.verification.regressions
+            : [],
+          summary: body?.verification?.summary || "",
+          shouldApply: Boolean(body?.verification?.shouldApply),
+        },
+      };
+
+      if (!result.candidatePrompt.trim()) {
+        throw new Error("The prompt update pipeline did not return a candidate prompt.");
+      }
+
+      setPipelineResult(result);
+      setTestCases((current) =>
+        current.map((testCase) => {
+          const match =
+            (result.verification.currentCase &&
+              result.verification.currentCase.testCaseId === testCase.id &&
+              result.verification.currentCase) ||
+            result.verification.otherCaseChecks.find((check) => check.testCaseId === testCase.id);
+
+          return {
+            ...testCase,
+            verificationStatus: match?.status || "idle",
+            verificationNote: match?.note || "",
+          };
+        })
+      );
+      setApplySummary(
+        result.verification.summary || "Pipeline finished. Review the candidate prompt before applying it."
+      );
+    } catch (error: any) {
+      setApplyError(error?.message || "Failed to run the prompt update pipeline.");
+    } finally {
+      setApplyBusy(false);
+    }
+  }
+
+  function applyVerifiedPrompt() {
+    if (!pipelineResult?.candidatePrompt.trim()) return;
+    if (!pipelineResult.verification.shouldApply) {
+      setApplyError("Verification found issues. Review the warnings before applying this prompt.");
+      return;
+    }
+
+    const detail: PromptFeedbackEventDetail = {
+      updatedPrompt: pipelineResult.candidatePrompt,
+      changedBlocks: pipelineResult.changedBlocks,
+      summary: pipelineResult.verification.summary || "Applied verified prompt.",
+    };
+
+    window.dispatchEvent(
+      new CustomEvent<PromptFeedbackEventDetail>("prompt-feedback-applied", {
+        detail,
+      })
+    );
+    setApplyError("");
+    setApplySummary(detail.summary || "Applied verified prompt.");
+  }
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -4008,7 +4788,125 @@ export default function AssistantPanel({
   }
 
   return (
-    <aside className="flex h-full flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)]">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      {!readOnly && (
+        <div className="mb-3 overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700">
+                  Testcase
+                </div>
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {testCases.length}
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  {passedCaseCount} passed
+                </span>
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                  {verifiedCaseCount} verified
+                </span>
+                {(warningCaseCount > 0 || failedCaseCount > 0) && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                    {warningCaseCount + failedCaseCount} needs review
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Separate chat runs for different teaching test scenarios. Verification badges update
+                after the prompt pipeline runs.
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 px-4 py-3">
+            {testCases.map((testCase, index) => {
+              const active = testCase.id === activeTestCase?.id;
+              return (
+                <div
+                  key={testCase.id}
+                  className={[
+                    "min-w-[112px] rounded-xl border px-3 py-2 text-left transition",
+                    testCase.passed
+                      ? active
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm"
+                        : "border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50"
+                      : active
+                        ? "border-rose-300 bg-rose-50 text-rose-700 shadow-sm"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectTestCase(testCase.id)}
+                      disabled={busy || applyBusy}
+                      className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Case {index + 1}
+                      </div>
+                      <div
+                        className={[
+                          "mt-1 text-sm font-medium",
+                          testCase.passed
+                            ? "text-emerald-700"
+                            : active
+                              ? "text-rose-700"
+                              : "text-slate-700",
+                        ].join(" ")}
+                      >
+                        {testCase.name}
+                      </div>
+                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        {testCase.purposeLabel}
+                      </div>
+                      {testCase.studentProfile && (
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          {testCase.studentProfile.gradeLevel} · {testCase.studentProfile.knowledgeLevel.split(";")[0]}
+                        </div>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteTestCase(testCase.id)}
+                      disabled={busy || applyBusy || testCases.length <= 1}
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
+                      aria-label={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
+                    >
+                      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
+                        <path
+                          d="M6.2 6.2a.75.75 0 011.06 0L10 8.94l2.74-2.74a.75.75 0 111.06 1.06L11.06 10l2.74 2.74a.75.75 0 11-1.06 1.06L10 11.06l-2.74 2.74a.75.75 0 11-1.06-1.06L8.94 10 6.2 7.26a.75.75 0 010-1.06z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={addTestCase}
+              disabled={busy || applyBusy}
+              className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Add a new test case"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                New case
+              </div>
+              <div className="mt-1 text-sm font-medium text-slate-700">
+                Add test case
+              </div>
+              <div className="mt-1 text-[11px] font-medium text-slate-400">
+                Create another scenario
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <aside className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)]">
       <div className="flex items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-3">
         <div className="min-w-0 flex items-center gap-2">
           <Icon
@@ -4026,16 +4924,23 @@ export default function AssistantPanel({
               <span className="text-xs text-slate-500 truncate">{modelLabel}</span>
             </div>
             <h3 className="mt-2 font-semibold truncate">{displayName}</h3>
-            <div className="text-xs text-slate-500 truncate">
-              {readOnly
-                ? "Read-only preview of the shared project's final prompt."
-                : "Runs the current middle-editor prompt as this app's system prompt."}
-            </div>
           </div>
         </div>
 
         {!readOnly && (
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              className={[
+                "rounded-xl px-3 py-1 text-xs font-medium transition",
+                activeTestCase?.passed
+                  ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+              ].join(" ")}
+              onClick={toggleActiveTestCasePassed}
+              type="button"
+            >
+              {activeTestCase?.passed ? "Passed" : "Mark pass"}
+            </button>
             <button
               className="rounded-xl p-1.5 hover:bg-white/70"
               title="Refresh"
@@ -4046,13 +4951,6 @@ export default function AssistantPanel({
             >
               <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
             </button>
-            <button
-              className="rounded-xl bg-white/80 px-3 py-1 text-xs hover:bg-white"
-              onClick={resetSession}
-              type="button"
-            >
-              New session
-            </button>
           </div>
         )}
       </div>
@@ -4060,7 +4958,7 @@ export default function AssistantPanel({
       <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600">
         {readOnly
           ? "Inspect how the shared project's final prompt would appear in the preview panel."
-          : "Test how the current prompt behaves with a real user message."}
+          : "Test the current prompt, edit the bubbles, run the four-stage pipeline, then manually apply the verified prompt."}
       </div>
 
       <div
@@ -4068,8 +4966,29 @@ export default function AssistantPanel({
         className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4"
       >
         <div className="text-[12px] text-slate-500">
-          Preview session {new Date().toLocaleDateString()} · {displayName}
+          {activeTestCase?.name || "Preview"} · {new Date().toLocaleDateString()} · {displayName}
         </div>
+        {!readOnly && activeStudentProfile && (
+          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm text-slate-700">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">
+              Simulated student
+            </div>
+            <div className="mt-1 font-medium text-slate-800">
+              {activeStudentProfile.label}
+            </div>
+            <div className="mt-1 text-xs leading-5 text-slate-600">
+              Case type: {activeTestCase?.purposeLabel || "Custom case"}
+              <br />
+              Scenario: {activeTestCase?.scenarioSummary || "Custom student simulation"}
+              <br />
+              Grade level: {activeStudentProfile.gradeLevel}
+              <br />
+              Knowledge level: {activeStudentProfile.knowledgeLevel}
+              <br />
+              Personality: {activeStudentProfile.personality}
+            </div>
+          </div>
+        )}
 
         {visualizationMode && visualizationMode !== "spacing-testing" && (
           <div
@@ -4102,15 +5021,24 @@ export default function AssistantPanel({
                 mode={visualizationMode}
                 latestUserMessage={latestUserMessage}
                 assistantTurnCount={assistantTurnCount}
-                onStateChange={setVisualizationState}
+                onStateChange={(nextState) =>
+                  updateActiveTestCase((testCase) => ({
+                    ...testCase,
+                    visualizationState: nextState,
+                  }))
+                }
               />
             </div>
           </div>
         )}
 
-        {messages.map((message, index) => (
+        {messages.map((message) => {
+          const isEditing = editingMessageId === message.id;
+          const isEdited = messageHasEdits(message);
+
+          return (
           <div
-            key={index}
+            key={message.id}
             className={[
               "space-y-2",
               message.role === "assistant" ? "mr-8" : "ml-8",
@@ -4136,6 +5064,11 @@ export default function AssistantPanel({
               <div className="text-xs font-medium text-slate-500">
                 {message.role === "assistant" ? `${displayName} preview` : "Test user"}
               </div>
+              {isEdited && (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  Edited
+                </span>
+              )}
               {message.role === "user" && (
                 <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-200 bg-sky-100 text-sm">
                   🙂 
@@ -4145,16 +5078,64 @@ export default function AssistantPanel({
 
             <div
               className={[
-                "whitespace-pre-wrap rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
+                "rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
                 message.role === "assistant"
                   ? "border-rose-200 bg-white text-slate-800"
                   : "border-sky-200 bg-sky-100/90 text-sky-950",
               ].join(" ")}
             >
-              {message.content}
+              {isEditing ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={editingDraft}
+                    onChange={(event) => setEditingDraft(event.target.value)}
+                    className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[15px] leading-7 text-slate-800 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300"
+                    disabled={busy || applyBusy}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-slate-500">
+                      Save this edited bubble, then run the prompt pipeline to update only the final prompt.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelEditingMessage}
+                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void saveEditedMessage(message.id)}
+                        disabled={!editingDraft.trim()}
+                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {!readOnly && (
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => startEditingMessage(message)}
+                        disabled={busy || applyBusy}
+                        className="rounded-xl border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Edit bubble
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {visualizationMode === "spacing-testing" && (
           <div className="space-y-2">
@@ -4171,7 +5152,12 @@ export default function AssistantPanel({
               latestUserMessage={latestUserMessage}
               assistantTurnCount={assistantTurnCount}
               embedded={true}
-              onStateChange={setVisualizationState}
+              onStateChange={(nextState) =>
+                updateActiveTestCase((testCase) => ({
+                  ...testCase,
+                  visualizationState: nextState,
+                }))
+              }
             />
           </div>
         )}
@@ -4185,12 +5171,116 @@ export default function AssistantPanel({
 
       {!readOnly && (
         <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4">
+        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-amber-900">
+                Prompt update pipeline
+              </div>
+              <p className="mt-1 text-xs leading-5 text-amber-800">
+                Stage 1 compares original vs edited chat, Stage 2 locates prompt changes, Stage 3
+                rewrites a candidate prompt, and Stage 4 verifies the current case plus the other
+                test cases before you manually apply it.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runPromptUpdatePipeline()}
+                disabled={!editedMessageCount || busy || applyBusy || Boolean(editingMessageId)}
+                className="rounded-2xl bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {applyBusy
+                  ? "Running pipeline..."
+                  : `Run pipeline${editedMessageCount ? ` (${editedMessageCount})` : ""}`}
+              </button>
+              <button
+                type="button"
+                onClick={applyVerifiedPrompt}
+                disabled={
+                  !pipelineResult?.candidatePrompt ||
+                  !pipelineResult?.verification.shouldApply ||
+                  busy ||
+                  applyBusy ||
+                  Boolean(editingMessageId)
+                }
+                className="rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Apply verified prompt
+              </button>
+            </div>
+          </div>
+          {pipelineResult && (
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Stage 1 · Diff agent
+                </div>
+                <div className="mt-1 text-sm font-medium text-slate-800">
+                  {pipelineResult.diffAnalysis.teacherIntent || "Behavior shift identified from the edited chat."}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {(pipelineResult.diffAnalysis.desiredBehaviors[0] ||
+                    pipelineResult.diffAnalysis.keyDifferences[0] ||
+                    "The pipeline inferred what the teacher wants the agent to do differently.")}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Stage 2 · Locator agent
+                </div>
+                <div className="mt-1 text-sm font-medium text-slate-800">
+                  {(pipelineResult.promptPlan.targetSections.slice(0, 2).join(", ") || "Whole prompt").trim()}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {(pipelineResult.promptPlan.rewriteInstructions[0] ||
+                    pipelineResult.promptPlan.rationale ||
+                    "The pipeline mapped the requested behavior change to the prompt sections that should move.")}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Stage 3 · Rewrite agent
+                </div>
+                <div className="mt-1 text-sm font-medium text-slate-800">
+                  Candidate prompt ready
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {pipelineResult.changedBlocks.length
+                    ? `Changed ${pipelineResult.changedBlocks.length} block${pipelineResult.changedBlocks.length > 1 ? "s" : ""}.`
+                    : "The candidate prompt rewrites the affected behavior."}{" "}
+                  Applying it updates only the final prompt editor.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Stage 4 · Verification agent
+                </div>
+                <div className="mt-1 text-sm font-medium text-slate-800">
+                  {pipelineResult.verification.currentCase
+                    ? `${pipelineResult.verification.currentCase.status.toUpperCase()} · ${pipelineResult.verification.currentCase.score}/100`
+                    : "Current case not verified"}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {pipelineResult.verification.summary}
+                </p>
+              </div>
+            </div>
+          )}
+          {applySummary && <p className="mt-2 text-xs text-emerald-700">{applySummary}</p>}
+          {applyError && <p className="mt-2 text-xs text-red-600">{applyError}</p>}
+          {editingMessageId && (
+            <p className="mt-2 text-xs text-slate-600">
+              Save or cancel the current bubble edit before running the prompt pipeline.
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           <button
             className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
             title="Upload a file"
             type="button"
-            disabled={busy}
+            disabled={busy || applyBusy}
             onClick={() => fileInputRef.current?.click()}
           >
             <span aria-hidden="true">📃</span>
@@ -4204,7 +5294,7 @@ export default function AssistantPanel({
             ].join(" ")}
             title={listening ? "Stop voice input" : "Start voice input"}
             type="button"
-            disabled={busy}
+            disabled={busy || applyBusy}
             onClick={toggleVoiceInput}
           >
             <span aria-hidden="true">🎙️</span>
@@ -4219,12 +5309,12 @@ export default function AssistantPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            disabled={busy}
+            disabled={busy || applyBusy}
           />
           <button
             className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
             onClick={() => void send()}
-            disabled={busy}
+            disabled={busy || applyBusy}
             type="button"
           >
             Send
@@ -4270,6 +5360,27 @@ export default function AssistantPanel({
           onClick={() => setVisualFullscreen(false)}
         />
       )}
-    </aside>
+      {batchRunProgress && !readOnly && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+          <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 animate-spin" aria-hidden="true">
+                <path
+                  d="M12 4a8 8 0 018 8h-2a6 6 0 10-6 6v2a8 8 0 010-16z"
+                  fill="currentColor"
+                />
+              </svg>
+            </div>
+            <div className="text-sm font-semibold text-slate-900">
+              {batchRunProgress.title}
+            </div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">
+              {batchRunProgress.detail}
+            </div>
+          </div>
+        </div>
+      )}
+      </aside>
+    </div>
   );
 }

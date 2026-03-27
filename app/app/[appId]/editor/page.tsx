@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import EditorChrome from "@/components/editor/EditorChrome";
 import LeftChat from "@/components/editor/LeftChat";
 import InstructionDoc from "@/components/editor/InstructionDoc";
@@ -13,6 +13,7 @@ import {
   getModelLabel,
   normalizeVariability,
 } from "@/lib/app-store/model-selection";
+import { readStoredPrompt } from "@/lib/prompt-storage/client";
 
 export default function EditorPage({
   params,
@@ -33,6 +34,11 @@ export default function EditorPage({
   const [publishUrl, setPublishUrl] = useState("");
   const [publishError, setPublishError] = useState("");
   const [isPublished, setIsPublished] = useState(false);
+  const [testCaseStatus, setTestCaseStatus] = useState({
+    totalCount: 0,
+    passedCount: 0,
+    allPassed: false,
+  });
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
@@ -48,10 +54,13 @@ export default function EditorPage({
   const [forkedFromProjectName, setForkedFromProjectName] = useState("");
   const [forkedFromAuthorName, setForkedFromAuthorName] = useState("");
   const [forkedFromProjectShareSlug, setForkedFromProjectShareSlug] = useState("");
+  const [editorPaneWidth, setEditorPaneWidth] = useState(62);
+  const [isResizingPanels, setIsResizingPanels] = useState(false);
+  const splitPaneRef = useRef<HTMLDivElement>(null);
 
   const gridCols = assistantOpen
-    ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_1.6fr_1.05fr]"
-    : "grid-cols-1 xl:grid-cols-[88px_1.7fr_1.05fr]";
+    ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_minmax(0,1fr)]"
+    : "grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]";
 
   useEffect(() => {
     async function loadApp() {
@@ -87,13 +96,24 @@ export default function EditorPage({
   }, [appId, appVersion]);
 
   async function handlePublish() {
+    if (!testCaseStatus.allPassed) {
+      setPublishUrl("");
+      setPublishError(
+        testCaseStatus.totalCount > 0
+          ? `Mark all test cases as pass before publishing. ${testCaseStatus.passedCount} of ${testCaseStatus.totalCount} passed so far.`
+          : "Add and pass at least one test case before publishing."
+      );
+      setPublishOpen(true);
+      return;
+    }
+
     setPublishBusy(true);
     setPublishError("");
 
     try {
       const systemPrompt =
         typeof window !== "undefined"
-          ? localStorage.getItem("instruction-doc-md") || ""
+          ? readStoredPrompt(appId)
           : "";
 
       const res = await fetch(`/api/apps/${appId}`, {
@@ -192,6 +212,32 @@ export default function EditorPage({
     });
   }
 
+  useEffect(() => {
+    if (!isResizingPanels) return;
+
+    function handlePointerMove(event: PointerEvent) {
+      const container = splitPaneRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const nextWidth = ((event.clientX - rect.left) / rect.width) * 100;
+      const clampedWidth = Math.min(75, Math.max(35, nextWidth));
+      setEditorPaneWidth(clampedWidth);
+    }
+
+    function handlePointerUp() {
+      setIsResizingPanels(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [isResizingPanels]);
+
   return (
     <EditorChrome
       appName={appName}
@@ -241,19 +287,54 @@ export default function EditorPage({
           </div>
         )}
 
-        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <InstructionDoc />
+        <section className="flex h-full min-h-0 overflow-hidden bg-white">
+          <div
+            ref={splitPaneRef}
+            className={[
+              "flex h-full min-h-0 w-full overflow-hidden",
+              isResizingPanels ? "select-none cursor-col-resize" : "",
+            ].join(" ")}
+          >
+            <div
+              className="min-h-0 shrink-0 overflow-hidden"
+              style={{ width: `${editorPaneWidth}%` }}
+            >
+              <InstructionDoc />
+            </div>
+            <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white">
+              <div
+                className={[
+                  "h-full w-px bg-slate-200 transition",
+                  isResizingPanels ? "bg-sky-400" : "group-hover:bg-slate-300",
+                ].join(" ")}
+              />
+              <button
+                type="button"
+                aria-label="Resize editor and test cases panels"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setIsResizingPanels(true);
+                }}
+                className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+              >
+                <span
+                  className={[
+                    "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
+                    isResizingPanels ? "bg-sky-400/80" : "bg-slate-200/0 group-hover:bg-slate-200",
+                  ].join(" ")}
+                />
+              </button>
+            </div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+              <AssistantPanel
+                appId={appId}
+                appName={appName}
+                appVersion={appVersion}
+                onTestCaseStatusChange={setTestCaseStatus}
+              />
+            </div>
           </div>
         </section>
-
-        <div className="h-full min-h-0 overflow-hidden bg-white">
-          <AssistantPanel
-            appId={appId}
-            appName={appName}
-            appVersion={appVersion}
-          />
-        </div>
       </div>
 
       <AppSettingsDialog
