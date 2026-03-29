@@ -1,4 +1,5 @@
 import Icon from "@/components/common/Icon";
+import ThemeToggle from "@/components/theme/ThemeToggle";
 
 export default function EditorChrome({
   appName,
@@ -24,24 +25,29 @@ export default function EditorChrome({
   return (
     <div className="flex min-h-screen flex-col overflow-hidden">
       {/* Sticky header spans full width */}
-      <header className="border-b bg-white h-16 sticky top-0 z-10">
-        <div className="h-full w-full page-pad flex items-center justify-between">
+      <header className="sticky top-0 z-10 h-16 border-b border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex h-full w-full items-center justify-between page-pad">
           <div className="flex items-center gap-3">
-            <a href="/" className="p-2 rounded hover:bg-slate-100" aria-label="Back">
+            <a
+              href="/"
+              className="rounded p-2 text-slate-900 hover:bg-slate-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              aria-label="Back"
+            >
               <Icon d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
             </a>
-            <h1 className="text-lg font-semibold">{appName}</h1>
+            <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">{appName}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="px-2 py-1 rounded bg-slate-100 text-sm">
+            <div className="hidden items-center gap-2 sm:flex">
+              <span className="rounded bg-slate-100 px-2 py-1 text-sm text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                 {modelLabel || "Loading model..."}
               </span>
-              <span className="text-slate-400">with</span>
-              <span className="px-2 py-1 rounded bg-slate-100 text-sm">
+              <span className="text-slate-400 dark:text-zinc-500">with</span>
+              <span className="rounded bg-slate-100 px-2 py-1 text-sm text-slate-800 dark:bg-zinc-800 dark:text-zinc-200">
                 {variabilityLabel || "70% variability"}
               </span>
             </div>
+            <ThemeToggle />
             {onPublish && (
               <button
                 className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
@@ -54,7 +60,7 @@ export default function EditorChrome({
             )}
             {onShare && (
               <button
-                className="rounded-lg border border-slate-300 bg-white px-3 h-9 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 onClick={onShare}
                 disabled={shareBusy || shareDisabled}
                 type="button"

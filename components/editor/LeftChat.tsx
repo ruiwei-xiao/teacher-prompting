@@ -159,23 +159,23 @@ export default function LeftChat({
   }
 
   return (
-    <section className="h-full bg-white flex flex-col">
+    <section className="flex h-full flex-col bg-white dark:bg-zinc-900">
       {/* Header */}
-      <div className="border-b bg-sky-50/70 px-6 py-4">
+      <div className="border-b border-slate-200 bg-sky-50/70 px-6 py-4 dark:border-zinc-700 dark:bg-sky-950/40">
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-sky-700">
+          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-sky-700 dark:bg-sky-900/60 dark:text-sky-200">
             Assistant Bot
           </span>
-          <span className="text-xs text-slate-500">{modelLabel}</span>
+          <span className="text-xs text-slate-500 dark:text-zinc-400">{modelLabel}</span>
         </div>
-        <h2 className="mt-2 text-base font-semibold text-slate-900">
+        <h2 className="mt-2 text-base font-semibold text-slate-900 dark:text-zinc-100">
           Pedagogical Agent Builder
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
           Ask for prompt feedback, iteration ideas, and follow-up questions about
           your app design.
         </p>
-        <div className="mt-2 text-xs text-slate-500">
+        <div className="mt-2 text-xs text-slate-500 dark:text-zinc-500">
           Session {new Date().toLocaleDateString()}
         </div>
       </div>
@@ -188,28 +188,28 @@ export default function LeftChat({
       >
         {messages.map((m, i) => (
           <div key={i}>
-            <div className="text-xs mb-1 text-slate-400">
+            <div className="mb-1 text-xs text-slate-400 dark:text-zinc-500">
               {m.role === "user" ? "You" : "Pedagogical Agent Builder"}
             </div>
 
-            <div className="rounded-xl border bg-white px-3 py-2 whitespace-pre-wrap">
+            <div className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100">
               {m.content}
             </div>
           </div>
         ))}
 
         {busy && (
-          <div className="text-slate-500 text-sm">
+          <div className="text-sm text-slate-500 dark:text-zinc-400">
             Thinking…
           </div>
         )}
       </div>
 
       {/* Composer */}
-      <div className="px-6 pb-6 pt-4 border-t">
+      <div className="border-t border-slate-200 px-6 pb-6 pt-4 dark:border-zinc-700">
         <div className="flex gap-2">
           <input
-            className="flex-1 h-11 rounded-lg border px-3"
+            className="h-11 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-slate-900 placeholder:text-slate-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             placeholder="Ask the assistant to critique or improve your prompt"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -226,7 +226,7 @@ export default function LeftChat({
           </button>
         </div>
 
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-500 dark:text-zinc-500">
           This bot helps you iterate on the prompt and can ask you clarifying
           questions.
         </p>

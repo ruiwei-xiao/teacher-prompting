@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { PromptBuilderState } from '@/lib/app-store/types';
 import {
@@ -8,10 +8,7 @@ import {
   readStoredPrompt,
   saveStoredPrompt,
 } from '@/lib/prompt-storage/client';
-import {
-  buildStudentProfilesPromptSection,
-  ensurePromptHasStudentProfiles,
-} from '@/lib/test-case-students';
+import { stripTestCaseStudentsFromPrompt } from '@/lib/test-case-students';
 
 type PromptFeedbackChangedBlock = {
   heading: string;
@@ -21,6 +18,11 @@ type PromptFeedbackEventDetail = {
   updatedPrompt?: string;
   changedBlocks?: PromptFeedbackChangedBlock[];
   summary?: string;
+};
+
+type PromptDiffLine = {
+  kind: 'added' | 'removed' | 'unchanged';
+  text: string;
 };
 
 type PromptUpdateBroadcastOptions = {
@@ -121,6 +123,85 @@ function buildPlainPromptFromBuilder(state?: Partial<PromptBuilderState> | null)
   ].join('\n\n');
 }
 
+function buildPromptDiff(beforePrompt: string, afterPrompt: string): PromptDiffLine[] {
+  const beforeLines = normalizeText(beforePrompt).split('\n');
+  const afterLines = normalizeText(afterPrompt).split('\n');
+  const dp = Array.from({ length: beforeLines.length + 1 }, () =>
+    Array(afterLines.length + 1).fill(0)
+  );
+
+  for (let i = beforeLines.length - 1; i >= 0; i -= 1) {
+    for (let j = afterLines.length - 1; j >= 0; j -= 1) {
+      dp[i][j] =
+        beforeLines[i] === afterLines[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const diff: PromptDiffLine[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < beforeLines.length && j < afterLines.length) {
+    if (beforeLines[i] === afterLines[j]) {
+      diff.push({ kind: 'unchanged', text: beforeLines[i] });
+      i += 1;
+      j += 1;
+      continue;
+    }
+
+    if (dp[i + 1][j] >= dp[i][j + 1]) {
+      diff.push({ kind: 'removed', text: beforeLines[i] });
+      i += 1;
+    } else {
+      diff.push({ kind: 'added', text: afterLines[j] });
+      j += 1;
+    }
+  }
+
+  while (i < beforeLines.length) {
+    diff.push({ kind: 'removed', text: beforeLines[i] });
+    i += 1;
+  }
+
+  while (j < afterLines.length) {
+    diff.push({ kind: 'added', text: afterLines[j] });
+    j += 1;
+  }
+
+  const changedIndexes = diff
+    .map((line, index) => (line.kind === 'unchanged' ? -1 : index))
+    .filter((index) => index >= 0);
+  if (!changedIndexes.length) return [];
+
+  const visible = new Set<number>();
+  changedIndexes.forEach((index) => {
+    for (
+      let cursor = Math.max(0, index - 1);
+      cursor <= Math.min(diff.length - 1, index + 1);
+      cursor += 1
+    ) {
+      visible.add(cursor);
+    }
+  });
+
+  const compact: PromptDiffLine[] = [];
+  for (let index = 0; index < diff.length; index += 1) {
+    if (visible.has(index)) {
+      compact.push(diff[index]);
+      continue;
+    }
+
+    const previous = compact[compact.length - 1];
+    if (!previous || previous.text !== '...') {
+      compact.push({ kind: 'unchanged', text: '...' });
+    }
+  }
+
+  return compact;
+}
+
 const DEFAULT_PROMPT = [
   'Background',
   'You are an expert in ________.',
@@ -137,8 +218,6 @@ const DEFAULT_PROMPT = [
   'Be inclusive in your examples and explanations, consider multiple perspectives, and avoid stereotypes.',
   'Provide clear and concise responses.',
   'If off-topic, prompt users to return to the main subject.',
-  '',
-  buildStudentProfilesPromptSection(),
 ].join('\n');
 
 export default function InstructionDoc({
@@ -158,6 +237,10 @@ export default function InstructionDoc({
   const [hydrated, setHydrated] = useState(false);
   const [highlightPrompt, setHighlightPrompt] = useState(false);
   const [applyConfirmation, setApplyConfirmation] = useState(false);
+  const [diffPreviewLines, setDiffPreviewLines] = useState<PromptDiffLine[]>([]);
+  const [diffSummary, setDiffSummary] = useState('');
+  const valueRef = useRef<string>(DEFAULT_PROMPT);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const promptHint = useMemo(
     () =>
@@ -170,6 +253,7 @@ export default function InstructionDoc({
   const applyPrompt = useCallback(
     (nextPrompt: string) => {
       const normalized = normalizeText(nextPrompt);
+      valueRef.current = normalized;
       setValue(normalized);
       if (!readOnly) {
         savePromptText(normalized, appId);
@@ -184,10 +268,12 @@ export default function InstructionDoc({
 
     async function hydratePrompt() {
       if (readOnly) {
-        const nextPrompt =
+        const raw =
           initialPrompt?.trim() ||
           buildPlainPromptFromBuilder(initialBuilderState) ||
           DEFAULT_PROMPT;
+        const nextPrompt =
+          stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
         if (!cancelled) {
           setValue(normalizeText(nextPrompt));
           setHydrated(true);
@@ -197,7 +283,8 @@ export default function InstructionDoc({
 
       const storedPrompt = readStoredPrompt(appId);
       if (storedPrompt.trim()) {
-        const nextPrompt = ensurePromptHasStudentProfiles(storedPrompt);
+        const nextPrompt =
+          stripTestCaseStudentsFromPrompt(storedPrompt).trim() || DEFAULT_PROMPT;
         if (!cancelled) {
           applyPrompt(nextPrompt);
           setHydrated(true);
@@ -210,11 +297,11 @@ export default function InstructionDoc({
           const res = await fetch(`/api/apps/${appId}`);
           const body = await res.json();
           if (!cancelled && res.ok && body?.app) {
-            const nextPrompt = ensurePromptHasStudentProfiles(
+            const raw =
               body.app.systemPrompt?.trim() ||
               buildPlainPromptFromBuilder(body.app.builderState || initialBuilderState) ||
-              DEFAULT_PROMPT
-            );
+              DEFAULT_PROMPT;
+            const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
             applyPrompt(nextPrompt);
             setHydrated(true);
             return;
@@ -224,9 +311,8 @@ export default function InstructionDoc({
 
       const legacyBuilder = readLegacyBuilderState(appId) as Partial<PromptBuilderState> | null;
       if (legacyBuilder) {
-        const nextPrompt = ensurePromptHasStudentProfiles(
-          buildPlainPromptFromBuilder(legacyBuilder) || DEFAULT_PROMPT
-        );
+        const raw = buildPlainPromptFromBuilder(legacyBuilder) || DEFAULT_PROMPT;
+        const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
         if (!cancelled) {
           applyPrompt(nextPrompt);
           setHydrated(true);
@@ -235,7 +321,7 @@ export default function InstructionDoc({
       }
 
       if (!cancelled) {
-        applyPrompt(ensurePromptHasStudentProfiles(DEFAULT_PROMPT));
+        applyPrompt(DEFAULT_PROMPT);
         setHydrated(true);
       }
     }
@@ -255,6 +341,8 @@ export default function InstructionDoc({
       const updatedPrompt = customEvent.detail?.updatedPrompt?.trim();
       if (!updatedPrompt) return;
 
+      setDiffPreviewLines(buildPromptDiff(valueRef.current, updatedPrompt));
+      setDiffSummary(customEvent.detail?.summary || '');
       setHighlightPrompt(true);
       applyPrompt(updatedPrompt);
     };
@@ -276,6 +364,14 @@ export default function InstructionDoc({
     const timer = window.setTimeout(() => setApplyConfirmation(false), 1800);
     return () => window.clearTimeout(timer);
   }, [applyConfirmation]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || readOnly) return;
+
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.max(320, textarea.scrollHeight)}px`;
+  }, [readOnly, value, diffPreviewLines.length]);
 
   const applyCurrentPrompt = useCallback(() => {
     const normalized = normalizeText(value);
@@ -303,19 +399,19 @@ export default function InstructionDoc({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="shrink-0 border-b bg-slate-50/70 px-4 py-3">
+      <div className="shrink-0 border-b border-slate-200 bg-slate-50/70 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
         <div className="mb-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-200">
               Final Prompt
             </span>
-            <span className="text-sm text-slate-600">{promptHint}</span>
+            <span className="text-sm text-slate-600 dark:text-zinc-300">{promptHint}</span>
           </div>
           {!readOnly && (
             <button
               type="button"
               onClick={applyCurrentPrompt}
-              className="shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100"
+              className="shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
             >
               {applyConfirmation ? 'Applied' : 'Apply current prompt'}
             </button>
@@ -327,29 +423,68 @@ export default function InstructionDoc({
         <div
           className={[
             'h-full overflow-auto px-6 pb-6 pt-4 transition',
-            highlightPrompt ? 'bg-amber-50/60' : 'bg-white',
+            highlightPrompt
+              ? 'bg-amber-50/60 dark:bg-amber-950/25'
+              : 'bg-white dark:bg-zinc-900',
           ].join(' ')}
         >
           {readOnly ? (
-            <div className="whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-800">
+            <div className="whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
               {value}
             </div>
           ) : (
-            <textarea
-              value={value}
-              onChange={(event) => {
-                const nextValue = event.target.value;
-                setValue(nextValue);
-                savePromptText(nextValue, appId);
-              }}
+            <div
               className={[
-                'min-h-full w-full resize-none rounded-2xl border px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition',
+                'overflow-hidden rounded-2xl border transition',
                 highlightPrompt
-                  ? 'border-amber-300 bg-amber-50/60 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.18)]'
-                  : 'border-slate-200 bg-white focus:border-sky-300',
+                  ? 'border-amber-300 bg-amber-50/60 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.18)] dark:border-amber-800 dark:bg-amber-950/30'
+                  : 'border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900',
               ].join(' ')}
-              spellCheck={false}
-            />
+            >
+              {!!diffPreviewLines.length && (
+                <div className="border-b border-slate-200 bg-white/60 dark:border-zinc-800 dark:bg-zinc-900/90">
+                  <div className="max-h-56 overflow-auto font-mono text-[12px] leading-6">
+                    {diffPreviewLines.map((line, index) => (
+                      <div
+                        key={`${line.kind}-${index}-${line.text}`}
+                        className={[
+                          'flex gap-3 px-4 py-0.5',
+                          line.kind === 'added'
+                            ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200'
+                            : line.kind === 'removed'
+                              ? 'bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200'
+                              : 'text-slate-500 dark:text-zinc-400',
+                        ].join(' ')}
+                      >
+                        <span className="w-4 shrink-0 text-center">
+                          {line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '}
+                        </span>
+                        <span className="min-w-0 whitespace-pre-wrap break-words">{line.text || ' '}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {diffSummary && (
+                    <div className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-300">
+                      {diffSummary}
+                    </div>
+                  )}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={value}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  valueRef.current = nextValue;
+                  setValue(nextValue);
+                  setDiffPreviewLines([]);
+                  setDiffSummary('');
+                  savePromptText(nextValue, appId);
+                }}
+                className="w-full resize-none bg-transparent px-4 py-4 text-sm leading-7 text-slate-800 outline-none dark:text-zinc-100 dark:placeholder:text-zinc-400"
+                spellCheck={false}
+              />
+            </div>
           )}
         </div>
       </div>

@@ -178,8 +178,8 @@ export default function AppGrid() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900">My bots</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-zinc-100">My bots</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
             {loading
               ? "Loading your bots..."
               : apps.length
@@ -191,7 +191,7 @@ export default function AppGrid() {
         <button
           type="button"
           onClick={() => router.push("/create")}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50"
+          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700"
         >
           Create new bot
         </button>
@@ -221,9 +221,9 @@ export default function AppGrid() {
           ))}
         </div>
       ) : (
-        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900">No bots yet</h3>
-          <p className="mt-2 text-sm text-slate-600">
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-none">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">No bots yet</h3>
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
             Create your first bot to start designing prompts, previewing
             behavior, and publishing a chatbot.
           </p>

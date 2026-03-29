@@ -10,6 +10,8 @@ import { readStoredPrompt } from "@/lib/prompt-storage/client";
 import {
   buildCaseSpecificPrompt,
   DEFAULT_TEST_CASE_STUDENTS,
+  formatStudentProfile,
+  TEST_CASE_STUDENTS_SECTION_HEADING,
   type StudentProfile,
 } from "@/lib/test-case-students";
 
@@ -57,6 +59,7 @@ type PromptUpdateResult = {
     rationale: string;
   };
   candidatePrompt: string;
+  updatedPrompt?: string;
   changedBlocks: PromptFeedbackChangedBlock[];
   verification: {
     currentCase: PromptUpdateVerificationCheck | null;
@@ -90,6 +93,17 @@ type TestCaseSet = {
   passed: boolean;
   verificationStatus: TestCaseVerificationStatus;
   verificationNote: string;
+};
+
+type TestCaseEditDraft = {
+  id: string;
+  name: string;
+  purposeLabel: string;
+  scenarioSummary: string;
+  label: string;
+  gradeLevel: string;
+  knowledgeLevel: string;
+  personality: string;
 };
 
 function createMessage(
@@ -134,7 +148,7 @@ type TestCasePreset = {
 const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
   {
     purposeLabel: "Expected path",
-    scenarioSummary: "A typical learner who should succeed with the intended teaching flow.",
+    scenarioSummary: "A common learner who should succeed with the intended teaching flow.",
     round1User:
       "I want a simple explanation first, and then I want to try a small example on my own.",
     round1Assistant:
@@ -147,8 +161,8 @@ const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
       "Can I explain it back in my own words, and then you tell me what I understood well and what I should fix?",
   },
   {
-    purposeLabel: "Edge case 1",
-    scenarioSummary: "A student who sounds confident but is holding onto a misconception.",
+    purposeLabel: "Edge case",
+    scenarioSummary: "A student who is frustrated, skeptical, or holding onto a misconception.",
     round1User:
       "I already know the idea, so can you skip the explanation and just tell me the final answer quickly?",
     round1Assistant:
@@ -159,20 +173,6 @@ const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
       "That is a useful guess, but let's test it with a counterexample so we can see where the rule holds and where it needs refinement.",
     round3User:
       "If my idea is partly wrong, can you correct it gently and show exactly which part I should revise?",
-  },
-  {
-    purposeLabel: "Edge case 2",
-    scenarioSummary: "A frustrated or avoidant student who needs support, redirection, and structure.",
-    round1User:
-      "I do not really want to do this. Can you just do it for me so I can copy it and move on?",
-    round1Assistant:
-      "I can help you get unstuck, but I will keep you involved so you can still learn and feel successful.",
-    round2User:
-      "This is confusing and kind of annoying. I keep losing track of what matters.",
-    round2Assistant:
-      "Let's slow it down, focus on one small step, and use a short checklist so the task feels more manageable.",
-    round3User:
-      "If I drift off-topic or get frustrated again, can you bring me back without sounding harsh?",
   },
 ];
 
@@ -4021,11 +4021,7 @@ function buildTestCaseIntroMessage(
     return `Hi! I'm ${appName}. Let's learn together step by step. Tell me what you want to understand first, and I'll help you work through it.`;
   }
 
-  if (purposeLabel === "Edge case 1") {
-    return `Hi! I'm ${appName}. I'm here to help you reason carefully, not just rush to an answer. Share your current thinking and we'll test it together.`;
-  }
-
-  if (purposeLabel === "Edge case 2") {
+  if (purposeLabel === "Edge case") {
     return `Hi! I'm ${appName}. If this feels frustrating, that's okay. We can slow it down, focus on one step at a time, and make a plan together.`;
   }
 
@@ -4080,6 +4076,10 @@ export default function AssistantPanel({
   const [applySummary, setApplySummary] = useState("");
   const [pipelineResult, setPipelineResult] = useState<PromptUpdateResult | null>(null);
   const [batchRunProgress, setBatchRunProgress] = useState<BatchRunProgress | null>(null);
+  const [testCaseEditDraft, setTestCaseEditDraft] = useState<TestCaseEditDraft | null>(null);
+  const [expandedStudentDetailIds, setExpandedStudentDetailIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -4168,7 +4168,7 @@ export default function AssistantPanel({
     totalCases: number
   ) {
     setBatchRunProgress({
-      title: "Thinking...",
+      title: "Updating current testcases",
       detail: `Rerunning ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
     });
 
@@ -4181,7 +4181,7 @@ export default function AssistantPanel({
 
     for (const [messageIndex, userMessage] of userMessages.entries()) {
       setBatchRunProgress({
-        title: "Thinking...",
+        title: "Updating current testcases",
         detail: `${testCase.purposeLabel}: generating reply ${messageIndex + 1} of ${userMessages.length}`,
       });
       nextMessages.push(createMessage("user", userMessage));
@@ -4210,7 +4210,7 @@ export default function AssistantPanel({
     setComposerError("");
     clearPromptUpdateState(true);
     setBatchRunProgress({
-      title: "Thinking...",
+      title: "Updating current testcases",
       detail: "Preparing all test cases...",
     });
 
@@ -4267,6 +4267,7 @@ export default function AssistantPanel({
     const nextCases = createInitialTestCases(displayName, readOnly);
     setTestCases(nextCases);
     setActiveTestCaseId(nextCases[0]?.id || "");
+    setExpandedStudentDetailIds(new Set());
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
@@ -4323,9 +4324,85 @@ export default function AssistantPanel({
     clearPromptUpdateState();
   }
 
+  function openTestCaseEdit(testCase: TestCaseSet) {
+    setExpandedStudentDetailIds((prev) => {
+      const next = new Set(prev);
+      next.add(testCase.id);
+      return next;
+    });
+    const profile = testCase.studentProfile;
+    setTestCaseEditDraft({
+      id: testCase.id,
+      name: testCase.name,
+      purposeLabel: testCase.purposeLabel,
+      scenarioSummary: testCase.scenarioSummary,
+      label: profile?.label ?? "",
+      gradeLevel: profile?.gradeLevel ?? "",
+      knowledgeLevel: profile?.knowledgeLevel ?? "",
+      personality: profile?.personality ?? "",
+    });
+  }
+
+  function collapseStudentDetail(testCaseId: string) {
+    setExpandedStudentDetailIds((prev) => {
+      const next = new Set(prev);
+      next.delete(testCaseId);
+      return next;
+    });
+  }
+
+  function saveTestCaseEdit() {
+    if (!testCaseEditDraft) return;
+    const d = testCaseEditDraft;
+    updateTestCaseById(d.id, (tc) => {
+      const nextScript: TestCasePreset = {
+        ...tc.script,
+        purposeLabel: d.purposeLabel.trim() || tc.script.purposeLabel,
+        scenarioSummary: d.scenarioSummary.trim() || tc.script.scenarioSummary,
+      };
+      const nextProfile: StudentProfile | null = tc.studentProfile
+        ? {
+            ...tc.studentProfile,
+            label: d.label.trim() || tc.studentProfile.label,
+            gradeLevel: d.gradeLevel.trim() || tc.studentProfile.gradeLevel,
+            knowledgeLevel: d.knowledgeLevel.trim() || tc.studentProfile.knowledgeLevel,
+            personality: d.personality.trim() || tc.studentProfile.personality,
+          }
+        : d.label.trim()
+          ? {
+              id: `custom-${tc.id}`,
+              label: d.label.trim(),
+              gradeLevel: d.gradeLevel.trim() || "—",
+              knowledgeLevel: d.knowledgeLevel.trim() || "—",
+              personality: d.personality.trim() || "—",
+            }
+          : null;
+
+      return {
+        ...tc,
+        name: d.name.trim() || tc.name,
+        purposeLabel: nextScript.purposeLabel,
+        scenarioSummary: nextScript.scenarioSummary,
+        script: nextScript,
+        studentProfile: nextProfile,
+        messages: getInitialMessages(displayName, nextProfile, nextScript, readOnly),
+        visualizationState: null,
+        passed: false,
+        verificationStatus: "idle",
+        verificationNote: "",
+      };
+    });
+    setTestCaseEditDraft(null);
+  }
+
   function deleteTestCase(testCaseId: string) {
     if (testCases.length <= 1) return;
 
+    setExpandedStudentDetailIds((prev) => {
+      const next = new Set(prev);
+      next.delete(testCaseId);
+      return next;
+    });
     setTestCases((current) => current.filter((testCase) => testCase.id !== testCaseId));
     if (activeTestCaseId === testCaseId) {
       const fallback = testCases.find((testCase) => testCase.id !== testCaseId);
@@ -4378,30 +4455,22 @@ export default function AssistantPanel({
     if (targetIndex < 0) return;
 
     const targetMessage = activeTestCase.messages[targetIndex];
-    if (targetMessage.role === "assistant") {
-      updateActiveTestCase((testCase) => ({
-        ...testCase,
-        messages: testCase.messages.map((message) =>
-          message.id === messageId ? { ...message, content: nextContent } : message
-        ),
-        verificationStatus: "idle",
-        verificationNote: "",
-      }));
-      cancelEditingMessage();
-      clearPromptUpdateState(true);
-      return;
-    }
-
     const currentPrompt = promptMarkdown.trim() || getAssistantSystemPrompt(appId);
-    const truncatedMessages = activeTestCase.messages
-      .slice(0, targetIndex + 1)
-      .map((message, index) =>
-        index === targetIndex ? { ...message, content: nextContent } : message
-      );
+    const updatedTargetMessage = {
+      ...targetMessage,
+      content: nextContent,
+    };
+    const preservedPrefix = [
+      ...activeTestCase.messages.slice(0, targetIndex),
+      updatedTargetMessage,
+    ];
+    const trailingUserMessages = activeTestCase.messages
+      .slice(targetIndex + 1)
+      .filter((message) => message.role === "user");
 
     updateTestCaseById(activeTestCase.id, (testCase) => ({
       ...testCase,
-      messages: truncatedMessages,
+      messages: preservedPrefix,
       visualizationState: null,
       verificationStatus: "idle",
       verificationNote: "",
@@ -4409,27 +4478,58 @@ export default function AssistantPanel({
     cancelEditingMessage();
     clearPromptUpdateState(true);
     setBusy(true);
+    setBatchRunProgress({
+      title: "Updating current testcase",
+      detail: "Regenerating the following conversation...",
+    });
 
     try {
-      const reply = await requestPreviewReply({
-        system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
-        messages: truncatedMessages,
-        visualizationState: null,
-      });
+      let regeneratedMessages = [...preservedPrefix];
+
+      const needsImmediateAssistantReply =
+        updatedTargetMessage.role === "user" &&
+        regeneratedMessages[regeneratedMessages.length - 1]?.role === "user";
+
+      if (needsImmediateAssistantReply) {
+        setBatchRunProgress({
+          title: "Updating current testcase",
+          detail: "Generating the next reply...",
+        });
+        const reply = await requestPreviewReply({
+          system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
+          messages: regeneratedMessages,
+          visualizationState: null,
+        });
+        regeneratedMessages = [...regeneratedMessages, createMessage("assistant", reply)];
+      }
+
+      for (const [index, userMessage] of trailingUserMessages.entries()) {
+        setBatchRunProgress({
+          title: "Updating current testcase",
+          detail: `Regenerating follow-up ${index + 1} of ${trailingUserMessages.length}...`,
+        });
+        regeneratedMessages = [...regeneratedMessages, userMessage];
+        const reply = await requestPreviewReply({
+          system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
+          messages: regeneratedMessages,
+          visualizationState: null,
+        });
+        regeneratedMessages = [...regeneratedMessages, createMessage("assistant", reply)];
+      }
 
       updateTestCaseById(activeTestCase.id, (testCase) => ({
         ...testCase,
-        messages: [...truncatedMessages, createMessage("assistant", reply)],
+        messages: regeneratedMessages,
         visualizationState: null,
         verificationStatus: "idle",
         verificationNote: "",
       }));
-      setApplySummary("Removed the old follow-up conversation and regenerated the next reply.");
+      setApplySummary("Updated this bubble and regenerated the rest of the conversation.");
     } catch (error: any) {
       updateTestCaseById(activeTestCase.id, (testCase) => ({
         ...testCase,
         messages: [
-          ...truncatedMessages,
+          ...preservedPrefix,
           createMessage("assistant", `Sorry—something went wrong: ${error?.message || error}`),
         ],
         visualizationState: null,
@@ -4438,6 +4538,7 @@ export default function AssistantPanel({
       }));
       setApplyError(error?.message || "Failed to regenerate the follow-up conversation.");
     } finally {
+      setBatchRunProgress(null);
       setBusy(false);
     }
   }
@@ -4706,6 +4807,7 @@ export default function AssistantPanel({
           rationale: "",
         },
         candidatePrompt: body?.candidatePrompt || "",
+        updatedPrompt: body?.updatedPrompt || body?.candidatePrompt || "",
         changedBlocks: Array.isArray(body?.changedBlocks) ? body.changedBlocks : [],
         verification: {
           currentCase: body?.verification?.currentCase || null,
@@ -4740,36 +4842,21 @@ export default function AssistantPanel({
           };
         })
       );
-      setApplySummary(
-        result.verification.summary || "Pipeline finished. Review the candidate prompt before applying it."
+      window.dispatchEvent(
+        new CustomEvent<PromptFeedbackEventDetail>("prompt-feedback-applied", {
+          detail: {
+            updatedPrompt: result.updatedPrompt || result.candidatePrompt,
+            changedBlocks: result.changedBlocks,
+            summary: result.verification.summary || "Updated the prompt from this chat.",
+          },
+        })
       );
+      setApplySummary(result.verification.summary || "Updated the prompt from this chat.");
     } catch (error: any) {
       setApplyError(error?.message || "Failed to run the prompt update pipeline.");
     } finally {
       setApplyBusy(false);
     }
-  }
-
-  function applyVerifiedPrompt() {
-    if (!pipelineResult?.candidatePrompt.trim()) return;
-    if (!pipelineResult.verification.shouldApply) {
-      setApplyError("Verification found issues. Review the warnings before applying this prompt.");
-      return;
-    }
-
-    const detail: PromptFeedbackEventDetail = {
-      updatedPrompt: pipelineResult.candidatePrompt,
-      changedBlocks: pipelineResult.changedBlocks,
-      summary: pipelineResult.verification.summary || "Applied verified prompt.",
-    };
-
-    window.dispatchEvent(
-      new CustomEvent<PromptFeedbackEventDetail>("prompt-feedback-applied", {
-        detail,
-      })
-    );
-    setApplyError("");
-    setApplySummary(detail.summary || "Applied verified prompt.");
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -4790,29 +4877,29 @@ export default function AssistantPanel({
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {!readOnly && (
-        <div className="mb-3 overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="mb-3 overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div>
               <div className="flex items-center gap-2">
-                <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700">
+                <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700 dark:text-zinc-200">
                   Testcase
                 </div>
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-700 dark:text-zinc-300">
                   {testCases.length}
                 </span>
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-200">
                   {passedCaseCount} passed
                 </span>
-                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-950/70 dark:text-sky-200">
                   {verifiedCaseCount} verified
                 </span>
                 {(warningCaseCount > 0 || failedCaseCount > 0) && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
                     {warningCaseCount + failedCaseCount} needs review
                   </span>
                 )}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 text-xs text-slate-500 dark:text-zinc-300">
                 Separate chat runs for different teaching test scenarios. Verification badges update
                 after the prompt pipeline runs.
               </div>
@@ -4821,67 +4908,109 @@ export default function AssistantPanel({
           <div className="flex flex-wrap gap-2 px-4 py-3">
             {testCases.map((testCase, index) => {
               const active = testCase.id === activeTestCase?.id;
+              const studentDetailOpen =
+                Boolean(testCase.studentProfile) &&
+                expandedStudentDetailIds.has(testCase.id);
               return (
                 <div
                   key={testCase.id}
-                  className={[
-                    "min-w-[112px] rounded-xl border px-3 py-2 text-left transition",
-                    testCase.passed
-                      ? active
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm"
-                        : "border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50"
-                      : active
-                        ? "border-rose-300 bg-rose-50 text-rose-700 shadow-sm"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                  ].join(" ")}
+                  className="flex min-w-[200px] max-w-[280px] flex-col gap-2"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => selectTestCase(testCase.id)}
-                      disabled={busy || applyBusy}
-                      className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Case {index + 1}
-                      </div>
-                      <div
-                        className={[
-                          "mt-1 text-sm font-medium",
-                          testCase.passed
-                            ? "text-emerald-700"
-                            : active
-                              ? "text-rose-700"
-                              : "text-slate-700",
-                        ].join(" ")}
+                  <div
+                    className={[
+                      "rounded-xl border px-3 py-2 text-left transition",
+                      testCase.passed
+                        ? active
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                          : "border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800/80 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                        : active
+                          ? "border-rose-300 bg-rose-50 text-rose-700 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700/80",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => selectTestCase(testCase.id)}
+                        disabled={busy || applyBusy}
+                        className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {testCase.name}
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                        {testCase.purposeLabel}
-                      </div>
-                      {testCase.studentProfile && (
-                        <div className="mt-1 text-[11px] text-slate-500">
-                          {testCase.studentProfile.gradeLevel} · {testCase.studentProfile.knowledgeLevel.split(";")[0]}
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
+                          Case {index + 1}
                         </div>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteTestCase(testCase.id)}
-                      disabled={busy || applyBusy || testCases.length <= 1}
-                      className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      title={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
-                      aria-label={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
-                    >
-                      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path
-                          d="M6.2 6.2a.75.75 0 011.06 0L10 8.94l2.74-2.74a.75.75 0 111.06 1.06L11.06 10l2.74 2.74a.75.75 0 11-1.06 1.06L10 11.06l-2.74 2.74a.75.75 0 11-1.06-1.06L8.94 10 6.2 7.26a.75.75 0 010-1.06z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                    </button>
+                        <div
+                          className={[
+                            "mt-1 text-sm font-medium",
+                            testCase.passed
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : active
+                                ? "text-rose-700 dark:text-rose-300"
+                                : "text-slate-700 dark:text-zinc-200",
+                          ].join(" ")}
+                        >
+                          {testCase.name}
+                        </div>
+                        <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
+                          {testCase.purposeLabel}
+                        </div>
+                      </button>
+                      <div className="flex shrink-0 items-start gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openTestCaseEdit(testCase)}
+                          disabled={busy || applyBusy}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                          title="Edit test case"
+                          aria-label="Edit test case"
+                        >
+                          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
+                            <path
+                              d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-2.207 2.207L4 13.172V16h2.828l7.379-7.379-2.828-2.828z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteTestCase(testCase.id)}
+                          disabled={busy || applyBusy || testCases.length <= 1}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                          title={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
+                          aria-label={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
+                        >
+                          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
+                            <path
+                              d="M6.2 6.2a.75.75 0 011.06 0L10 8.94l2.74-2.74a.75.75 0 111.06 1.06L11.06 10l2.74 2.74a.75.75 0 11-1.06 1.06L10 11.06l-2.74 2.74a.75.75 0 11-1.06-1.06L8.94 10 6.2 7.26a.75.75 0 010-1.06z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
+                  {studentDetailOpen && testCase.studentProfile && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-left dark:border-zinc-600 dark:bg-zinc-800/90">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                          {TEST_CASE_STUDENTS_SECTION_HEADING}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => collapseStudentDetail(testCase.id)}
+                          className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-200"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                      <pre className="mt-1 whitespace-pre-wrap font-sans text-[11px] leading-snug text-slate-600 dark:text-zinc-300">
+                        {formatStudentProfile(testCase.studentProfile)}
+                      </pre>
+                      <div className="mt-2 border-t border-slate-200/80 pt-2 text-[11px] text-slate-600 dark:border-zinc-600 dark:text-zinc-300">
+                        <span className="font-medium text-slate-700 dark:text-zinc-200">Scenario: </span>
+                        {testCase.scenarioSummary}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -4889,16 +5018,16 @@ export default function AssistantPanel({
               type="button"
               onClick={addTestCase}
               disabled={busy || applyBusy}
-              className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               title="Add a new test case"
             >
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
                 New case
               </div>
-              <div className="mt-1 text-sm font-medium text-slate-700">
+              <div className="mt-1 text-sm font-medium text-slate-700 dark:text-zinc-200">
                 Add test case
               </div>
-              <div className="mt-1 text-[11px] font-medium text-slate-400">
+              <div className="mt-1 text-[11px] font-medium text-slate-400 dark:text-zinc-400">
                 Create another scenario
               </div>
             </button>
@@ -4906,35 +5035,40 @@ export default function AssistantPanel({
         </div>
       )}
 
-      <aside className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)]">
-      <div className="flex items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-3">
+      <aside
+        key={activeTestCase?.id || "preview"}
+        className="case-switch-panel-animation flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)] dark:border dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
+      >
+      <div className="flex items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-3 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
         <div className="min-w-0 flex items-center gap-2">
           <Icon
             d="M3 12a9 9 0 1018 0A9 9 0 003 12zm10-4H8v2h5V8zm3 4H8v2h8v-2zm-3 4H8v2h5v-2z"
-            className="w-5 h-5 text-slate-600"
+            className="h-5 w-5 shrink-0 text-slate-700 dark:text-zinc-200"
           />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-800 shadow-sm ring-1 ring-emerald-900/10 dark:bg-zinc-800 dark:text-emerald-200 dark:ring-white/10">
                 Prompt Preview
               </span>
-              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
+              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-rose-600 shadow-sm ring-1 ring-rose-900/10 dark:bg-zinc-800 dark:text-rose-200 dark:ring-white/10">
                 friendly
               </span>
-              <span className="text-xs text-slate-500 truncate">{modelLabel}</span>
+              <span className="truncate text-xs font-medium text-slate-700 dark:text-zinc-300">
+                {modelLabel}
+              </span>
             </div>
-            <h3 className="mt-2 font-semibold truncate">{displayName}</h3>
+            <h3 className="mt-2 truncate font-semibold text-slate-950 dark:text-zinc-50">{displayName}</h3>
           </div>
         </div>
 
         {!readOnly && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               className={[
                 "rounded-xl px-3 py-1 text-xs font-medium transition",
                 activeTestCase?.passed
-                  ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+                  ? "bg-emerald-500 text-white hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                  : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-900/10 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-200 dark:ring-emerald-700/40 dark:hover:bg-emerald-900/50",
               ].join(" ")}
               onClick={toggleActiveTestCasePassed}
               type="button"
@@ -4942,7 +5076,7 @@ export default function AssistantPanel({
               {activeTestCase?.passed ? "Passed" : "Mark pass"}
             </button>
             <button
-              className="rounded-xl p-1.5 hover:bg-white/70"
+              className="rounded-xl p-1.5 text-slate-800 hover:bg-white/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
               title="Refresh"
               onClick={() => {
                 resetSession();
@@ -4955,7 +5089,8 @@ export default function AssistantPanel({
         )}
       </div>
 
-      <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600">
+      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
         {readOnly
           ? "Inspect how the shared project's final prompt would appear in the preview panel."
           : "Test the current prompt, edit the bubbles, run the four-stage pipeline, then manually apply the verified prompt."}
@@ -4963,60 +5098,44 @@ export default function AssistantPanel({
 
       <div
         ref={listRef}
-        className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4"
+        className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-950"
       >
-        <div className="text-[12px] text-slate-500">
+        <div className="text-[12px] text-slate-500 dark:text-zinc-400">
           {activeTestCase?.name || "Preview"} · {new Date().toLocaleDateString()} · {displayName}
         </div>
-        {!readOnly && activeStudentProfile && (
-          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm text-slate-700">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">
-              Simulated student
-            </div>
-            <div className="mt-1 font-medium text-slate-800">
-              {activeStudentProfile.label}
-            </div>
-            <div className="mt-1 text-xs leading-5 text-slate-600">
-              Case type: {activeTestCase?.purposeLabel || "Custom case"}
-              <br />
-              Scenario: {activeTestCase?.scenarioSummary || "Custom student simulation"}
-              <br />
-              Grade level: {activeStudentProfile.gradeLevel}
-              <br />
-              Knowledge level: {activeStudentProfile.knowledgeLevel}
-              <br />
-              Personality: {activeStudentProfile.personality}
-            </div>
-          </div>
-        )}
-
         {visualizationMode && visualizationMode !== "spacing-testing" && (
           <div
             className={[
-              "border border-slate-200 bg-white shadow-sm",
+              "border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none",
               visualFullscreen
                 ? "fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl"
                 : "rounded-2xl",
             ].join(" ")}
           >
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-700">
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-300">
                   {visualFullscreen ? "Fullscreen visualization" : "Visualized element"}
                 </div>
-                <div className="mt-1 text-sm font-medium text-slate-800">
+                <div className="mt-1 text-sm font-medium text-slate-800 dark:text-zinc-100">
                   {getVisualizationTitle(visualizationMode, visualFullscreen)}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setVisualFullscreen((current) => !current)}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 {visualFullscreen ? "Close" : "Fullscreen"}
               </button>
             </div>
-            <div className={visualFullscreen ? "flex-1 overflow-auto bg-slate-50 p-6" : "p-4"}>
+            <div
+              className={
+                visualFullscreen
+                  ? "flex-1 overflow-auto bg-slate-50 p-6 dark:bg-zinc-950"
+                  : "p-4"
+              }
+            >
               <VisualizationSurface
                 mode={visualizationMode}
                 latestUserMessage={latestUserMessage}
@@ -5061,7 +5180,7 @@ export default function AssistantPanel({
                   message.role === "assistant" ? "bg-rose-300" : "bg-sky-300",
                 ].join(" ")}
               />
-              <div className="text-xs font-medium text-slate-500">
+              <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
                 {message.role === "assistant" ? `${displayName} preview` : "Test user"}
               </div>
               {isEdited && (
@@ -5080,8 +5199,8 @@ export default function AssistantPanel({
               className={[
                 "rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
                 message.role === "assistant"
-                  ? "border-rose-200 bg-white text-slate-800"
-                  : "border-sky-200 bg-sky-100/90 text-sky-950",
+                  ? "border-rose-200 bg-white text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  : "border-sky-200 bg-sky-100/90 text-sky-950 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
               ].join(" ")}
             >
               {isEditing ? (
@@ -5089,18 +5208,18 @@ export default function AssistantPanel({
                   <textarea
                     value={editingDraft}
                     onChange={(event) => setEditingDraft(event.target.value)}
-                    className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[15px] leading-7 text-slate-800 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300"
+                    className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[15px] leading-7 text-slate-800 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500"
                     disabled={busy || applyBusy}
                   />
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-slate-500 dark:text-zinc-400">
                       Save this edited bubble, then run the prompt pipeline to update only the final prompt.
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={cancelEditingMessage}
-                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
                       >
                         Cancel
                       </button>
@@ -5108,7 +5227,7 @@ export default function AssistantPanel({
                         type="button"
                         onClick={() => void saveEditedMessage(message.id)}
                         disabled={!editingDraft.trim()}
-                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                       >
                         Save
                       </button>
@@ -5124,7 +5243,7 @@ export default function AssistantPanel({
                         type="button"
                         onClick={() => startEditingMessage(message)}
                         disabled={busy || applyBusy}
-                        className="rounded-xl border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-xl border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/80 dark:text-zinc-200 dark:hover:bg-zinc-700"
                       >
                         Edit bubble
                       </button>
@@ -5143,7 +5262,7 @@ export default function AssistantPanel({
               <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
                 🤖
               </div>
-              <div className="text-xs font-medium text-slate-500">
+              <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
                 {displayName} preview
               </div>
             </div>
@@ -5163,27 +5282,30 @@ export default function AssistantPanel({
         )}
 
         {busy && (
-          <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+          <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
             Thinking...
           </div>
         )}
       </div>
 
       {!readOnly && (
-        <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4">
-        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3">
+        <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/60 dark:bg-amber-950/50">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium text-amber-900">
-                Prompt update pipeline
+              <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                Update the prompt from this chat
               </div>
-              <p className="mt-1 text-xs leading-5 text-amber-800">
-                Stage 1 compares original vs edited chat, Stage 2 locates prompt changes, Stage 3
-                rewrites a candidate prompt, and Stage 4 verifies the current case plus the other
-                test cases before you manually apply it.
+              <p className="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-100/95">
+                After you edit the chat bubbles, update the prompt directly from this conversation.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {pipelineResult?.verification.currentCase && (
+                <div className="rounded-full border border-amber-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-zinc-800/90 dark:text-amber-200">
+                  Confidence {pipelineResult.verification.currentCase.score}/100
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => void runPromptUpdatePipeline()}
@@ -5191,93 +5313,24 @@ export default function AssistantPanel({
                 className="rounded-2xl bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {applyBusy
-                  ? "Running pipeline..."
-                  : `Run pipeline${editedMessageCount ? ` (${editedMessageCount})` : ""}`}
-              </button>
-              <button
-                type="button"
-                onClick={applyVerifiedPrompt}
-                disabled={
-                  !pipelineResult?.candidatePrompt ||
-                  !pipelineResult?.verification.shouldApply ||
-                  busy ||
-                  applyBusy ||
-                  Boolean(editingMessageId)
-                }
-                className="rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Apply verified prompt
+                  ? "Updating..."
+                  : `Update prompt${editedMessageCount ? ` (${editedMessageCount})` : ""}`}
               </button>
             </div>
           </div>
-          {pipelineResult && (
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Stage 1 · Diff agent
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-800">
-                  {pipelineResult.diffAnalysis.teacherIntent || "Behavior shift identified from the edited chat."}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  {(pipelineResult.diffAnalysis.desiredBehaviors[0] ||
-                    pipelineResult.diffAnalysis.keyDifferences[0] ||
-                    "The pipeline inferred what the teacher wants the agent to do differently.")}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Stage 2 · Locator agent
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-800">
-                  {(pipelineResult.promptPlan.targetSections.slice(0, 2).join(", ") || "Whole prompt").trim()}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  {(pipelineResult.promptPlan.rewriteInstructions[0] ||
-                    pipelineResult.promptPlan.rationale ||
-                    "The pipeline mapped the requested behavior change to the prompt sections that should move.")}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Stage 3 · Rewrite agent
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-800">
-                  Candidate prompt ready
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  {pipelineResult.changedBlocks.length
-                    ? `Changed ${pipelineResult.changedBlocks.length} block${pipelineResult.changedBlocks.length > 1 ? "s" : ""}.`
-                    : "The candidate prompt rewrites the affected behavior."}{" "}
-                  Applying it updates only the final prompt editor.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Stage 4 · Verification agent
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-800">
-                  {pipelineResult.verification.currentCase
-                    ? `${pipelineResult.verification.currentCase.status.toUpperCase()} · ${pipelineResult.verification.currentCase.score}/100`
-                    : "Current case not verified"}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  {pipelineResult.verification.summary}
-                </p>
-              </div>
-            </div>
+          {applySummary && (
+            <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">{applySummary}</p>
           )}
-          {applySummary && <p className="mt-2 text-xs text-emerald-700">{applySummary}</p>}
-          {applyError && <p className="mt-2 text-xs text-red-600">{applyError}</p>}
+          {applyError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{applyError}</p>}
           {editingMessageId && (
-            <p className="mt-2 text-xs text-slate-600">
-              Save or cancel the current bubble edit before running the prompt pipeline.
+            <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400">
+              Save or cancel the current bubble edit before generating a suggestion.
             </p>
           )}
         </div>
         <div className="flex gap-2">
           <button
-            className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
+            className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-zinc-200 dark:hover:bg-amber-950/60"
             title="Upload a file"
             type="button"
             disabled={busy || applyBusy}
@@ -5289,8 +5342,8 @@ export default function AssistantPanel({
             className={[
               "rounded-2xl border-2 p-2 disabled:opacity-50",
               listening
-                ? "border-red-300 bg-red-50 text-red-700"
-                : "border-violet-200 bg-violet-50 text-slate-700 hover:bg-violet-100",
+                ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                : "border-violet-200 bg-violet-50 text-slate-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-zinc-200 dark:hover:bg-violet-950/60",
             ].join(" ")}
             title={listening ? "Stop voice input" : "Start voice input"}
             type="button"
@@ -5300,7 +5353,7 @@ export default function AssistantPanel({
             <span aria-hidden="true">🎙️</span>
           </button>
           <input
-            className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400"
+            className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400 dark:border-rose-900/60 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             placeholder={
               listening
                 ? "Listening..."
@@ -5328,8 +5381,8 @@ export default function AssistantPanel({
           onChange={handleFileChange}
         />
         {attachedFileName && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1">
+          <div className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
               Attached: {attachedFileName}
             </span>
             <button
@@ -5338,21 +5391,22 @@ export default function AssistantPanel({
                 setAttachedFileName("");
                 setAttachedFileText("");
               }}
-              className="text-slate-500 hover:text-slate-700"
+              className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
             >
               Remove
             </button>
           </div>
         )}
         {composerError && (
-          <p className="mt-2 text-xs text-red-600">{composerError}</p>
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400">{composerError}</p>
         )}
-        <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400">
           This panel previews the current prompt and supports voice input plus
           text-based file upload.
         </p>
         </div>
       )}
+      </div>
 
       {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
         <div
@@ -5361,9 +5415,9 @@ export default function AssistantPanel({
         />
       )}
       {batchRunProgress && !readOnly && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
-          <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px] dark:bg-zinc-950/70">
+          <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
               <svg viewBox="0 0 24 24" className="h-5 w-5 animate-spin" aria-hidden="true">
                 <path
                   d="M12 4a8 8 0 018 8h-2a6 6 0 10-6 6v2a8 8 0 010-16z"
@@ -5371,16 +5425,156 @@ export default function AssistantPanel({
                 />
               </svg>
             </div>
-            <div className="text-sm font-semibold text-slate-900">
+            <div className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
               {batchRunProgress.title}
             </div>
-            <div className="mt-1 text-xs leading-5 text-slate-500">
+            <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
               {batchRunProgress.detail}
             </div>
           </div>
         </div>
       )}
       </aside>
+
+      {testCaseEditDraft && !readOnly && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="test-case-edit-title"
+          onClick={() => setTestCaseEditDraft(null)}
+        >
+          <div
+            className="max-h-[min(90vh,640px)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2
+              id="test-case-edit-title"
+              className="text-sm font-semibold text-slate-900 dark:text-zinc-100"
+            >
+              Edit test case
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+              Changes reset the preview chat for this case to match the new student and scenario.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                Case name
+                <input
+                  type="text"
+                  value={testCaseEditDraft.name}
+                  onChange={(event) =>
+                    setTestCaseEditDraft((current) =>
+                      current ? { ...current, name: event.target.value } : current
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                />
+              </label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                Case type
+                <input
+                  type="text"
+                  value={testCaseEditDraft.purposeLabel}
+                  onChange={(event) =>
+                    setTestCaseEditDraft((current) =>
+                      current ? { ...current, purposeLabel: event.target.value } : current
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                  placeholder="e.g. Expected path, Edge case"
+                />
+              </label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                Scenario summary
+                <textarea
+                  value={testCaseEditDraft.scenarioSummary}
+                  onChange={(event) =>
+                    setTestCaseEditDraft((current) =>
+                      current ? { ...current, scenarioSummary: event.target.value } : current
+                    )
+                  }
+                  rows={3}
+                  className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                />
+              </label>
+              <div className="border-t border-slate-100 pt-3 dark:border-zinc-700">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                  {TEST_CASE_STUDENTS_SECTION_HEADING}
+                </div>
+                <label className="mt-2 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  Student label
+                  <input
+                    type="text"
+                    value={testCaseEditDraft.label}
+                    onChange={(event) =>
+                      setTestCaseEditDraft((current) =>
+                        current ? { ...current, label: event.target.value } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                  />
+                </label>
+                <label className="mt-2 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  Grade level
+                  <input
+                    type="text"
+                    value={testCaseEditDraft.gradeLevel}
+                    onChange={(event) =>
+                      setTestCaseEditDraft((current) =>
+                        current ? { ...current, gradeLevel: event.target.value } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                  />
+                </label>
+                <label className="mt-2 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  Knowledge level
+                  <textarea
+                    value={testCaseEditDraft.knowledgeLevel}
+                    onChange={(event) =>
+                      setTestCaseEditDraft((current) =>
+                        current ? { ...current, knowledgeLevel: event.target.value } : current
+                      )
+                    }
+                    rows={2}
+                    className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                  />
+                </label>
+                <label className="mt-2 block text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  Personality
+                  <textarea
+                    value={testCaseEditDraft.personality}
+                    onChange={(event) =>
+                      setTestCaseEditDraft((current) =>
+                        current ? { ...current, personality: event.target.value } : current
+                      )
+                    }
+                    rows={2}
+                    className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTestCaseEditDraft(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveTestCaseEdit}
+                className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-medium text-white hover:bg-rose-600 dark:bg-rose-600 dark:hover:bg-rose-500"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

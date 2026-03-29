@@ -254,7 +254,7 @@ export default function EditorPage({
       publishBusy={publishBusy}
     >
       {forkedFromProjectName && (
-        <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+        <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-100">
           Forked from{" "}
           <span className="font-semibold">{forkedFromProjectName}</span>
           {forkedFromAuthorName ? ` by ${forkedFromAuthorName}` : ""}.
@@ -271,8 +271,10 @@ export default function EditorPage({
           )}
         </div>
       )}
-      <div className={`grid h-full min-h-0 overflow-hidden ${gridCols} gap-0 divide-x divide-slate-200`}>
-        <div className="h-full min-h-0 overflow-hidden bg-white">
+      <div
+        className={`grid h-full min-h-0 overflow-hidden ${gridCols} gap-0 divide-x divide-slate-200 dark:divide-zinc-800/90`}
+      >
+        <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
           <RightRail
             assistantOpen={assistantOpen}
             settingsOpen={settingsOpen}
@@ -282,12 +284,12 @@ export default function EditorPage({
         </div>
 
         {assistantOpen && (
-          <div className="h-full min-h-0 overflow-hidden bg-white">
+          <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
             <LeftChat appId={appId} appVersion={appVersion} />
           </div>
         )}
 
-        <section className="flex h-full min-h-0 overflow-hidden bg-white">
+        <section className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-950">
           <div
             ref={splitPaneRef}
             className={[
@@ -301,11 +303,11 @@ export default function EditorPage({
             >
               <InstructionDoc />
             </div>
-            <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white">
+            <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
               <div
                 className={[
-                  "h-full w-px bg-slate-200 transition",
-                  isResizingPanels ? "bg-sky-400" : "group-hover:bg-slate-300",
+                  "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
+                  isResizingPanels ? "bg-sky-400 dark:bg-sky-500" : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
                 ].join(" ")}
               />
               <button
@@ -320,12 +322,14 @@ export default function EditorPage({
                 <span
                   className={[
                     "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
-                    isResizingPanels ? "bg-sky-400/80" : "bg-slate-200/0 group-hover:bg-slate-200",
+                    isResizingPanels
+                      ? "bg-sky-400/80 dark:bg-sky-500/80"
+                      : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
                   ].join(" ")}
                 />
               </button>
             </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
               <AssistantPanel
                 appId={appId}
                 appName={appName}

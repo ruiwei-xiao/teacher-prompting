@@ -10,23 +10,16 @@ export const DEFAULT_TEST_CASE_STUDENTS: StudentProfile[] = [
   {
     id: "student-1",
     label: "Student 1",
-    gradeLevel: "Grade 6",
-    knowledgeLevel: "Beginner; needs concrete examples and frequent checks for understanding.",
-    personality: "Careful and a little shy. Answers briefly unless the teacher gives reassurance.",
+    gradeLevel: "Grade 8",
+    knowledgeLevel: "Mainstream learner; has partial background knowledge and benefits from clear examples and guided practice.",
+    personality: "Curious and cooperative. Will usually follow the intended learning flow and respond to scaffolding.",
   },
   {
     id: "student-2",
     label: "Student 2",
-    gradeLevel: "Grade 8",
-    knowledgeLevel: "Intermediate; knows some core ideas but makes partial or overconfident explanations.",
-    personality: "Curious and talkative. Likes to guess first and think out loud.",
-  },
-  {
-    id: "student-3",
-    label: "Student 3",
     gradeLevel: "Grade 10",
-    knowledgeLevel: "Mixed understanding; can handle harder tasks but has a few persistent misconceptions.",
-    personality: "Independent and slightly skeptical. Responds well to challenge and reflection prompts.",
+    knowledgeLevel: "Mixed understanding; can tackle tougher concepts but has some misconceptions and may resist support.",
+    personality: "Independent and slightly skeptical. More likely to challenge the bot, rush, or show frustration.",
   },
 ];
 
@@ -41,32 +34,13 @@ export function formatStudentProfile(profile: StudentProfile) {
   ].join("\n");
 }
 
-export function buildStudentProfilesPromptSection() {
-  return [
-    TEST_CASE_STUDENTS_SECTION_HEADING,
-    ...DEFAULT_TEST_CASE_STUDENTS.flatMap((profile, index) => [
-      `${index + 1}. ${profile.label}`,
-      `Grade level: ${profile.gradeLevel}`,
-      `Knowledge level: ${profile.knowledgeLevel}`,
-      `Personality: ${profile.personality}`,
-      "",
-    ]),
-  ]
-    .join("\n")
-    .trim();
-}
-
-export function ensurePromptHasStudentProfiles(prompt: string) {
+/** Removes the legacy global "Default Test Case Students" block from stored prompts. */
+export function stripTestCaseStudentsFromPrompt(prompt: string) {
   const trimmed = prompt.trim();
-  if (!trimmed) {
-    return buildStudentProfilesPromptSection();
-  }
-
-  if (trimmed.includes(TEST_CASE_STUDENTS_SECTION_HEADING)) {
-    return trimmed;
-  }
-
-  return `${trimmed}\n\n${buildStudentProfilesPromptSection()}`;
+  const marker = TEST_CASE_STUDENTS_SECTION_HEADING;
+  const idx = trimmed.indexOf(marker);
+  if (idx === -1) return trimmed;
+  return trimmed.slice(0, idx).replace(/\s+$/u, "");
 }
 
 export function buildCaseSpecificPrompt(basePrompt: string, profile?: StudentProfile | null) {

@@ -55,21 +55,27 @@ export default function CreateAppForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium mb-1">App Name</label>
+        <label className="mb-1 block text-sm font-medium text-slate-900 dark:text-zinc-200">
+          App Name
+        </label>
         <input
-          className="w-full h-11 rounded-lg border border-slate-300 bg-white px-3"
+          className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-slate-900 placeholder:text-slate-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="My awesome app"
         />
-        <p className="mt-1 text-xs text-slate-500">You can change this later if needed.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
+          You can change this later if needed.
+        </p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">App Description</label>
+        <label className="mb-1 block text-sm font-medium text-slate-900 dark:text-zinc-200">
+          App Description
+        </label>
         <textarea
           rows={4}
-          className="w-full rounded-lg border border-slate-300 bg-white p-3"
+          className="w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 placeholder:text-slate-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           placeholder="What does your app do?"
@@ -77,7 +83,7 @@ export default function CreateAppForm({
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
       )}

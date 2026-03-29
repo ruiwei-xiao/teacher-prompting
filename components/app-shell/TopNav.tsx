@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
+import ThemeToggle from "@/components/theme/ThemeToggle";
 
 type SessionUser = {
   name?: string | null;
@@ -26,35 +27,41 @@ export default function TopNav() {
   }, []);
 
   return (
-    <header className="sticky top-0 z-10 border-b bg-white/70 backdrop-blur">
-      <div className="mx-auto max-w-7xl h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+    <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/70 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          <span className="text-xl font-black tracking-tight text-sky-600">Pedagogical Agent Builder</span>
-          <span className="hidden sm:inline text-sm text-slate-500">
+          <span className="text-xl font-black tracking-tight text-sky-600 dark:text-sky-400">
+            Pedagogical Agent Builder
+          </span>
+          <span className="hidden text-sm text-slate-500 sm:inline dark:text-zinc-400">
             My bots
           </span>
         </div>
 
         {user ? (
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-sm text-slate-600">
+            <span className="hidden text-sm text-slate-600 sm:inline dark:text-zinc-300">
               {user.name || user.email}
             </span>
             <button
               type="button"
               onClick={() => void signOut({ callbackUrl: "/" })}
-              className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50"
+              className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               Sign out
             </button>
+            <ThemeToggle />
           </div>
         ) : (
-          <a
-            href="/"
-            className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Sign in
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href="/"
+              className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Sign in
+            </a>
+            <ThemeToggle />
+          </div>
         )}
       </div>
     </header>

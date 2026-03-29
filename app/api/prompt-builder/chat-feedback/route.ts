@@ -232,6 +232,41 @@ function getChangedBlocks(currentPrompt: string, updatedPrompt: string): Changed
   return changed.length ? changed : [{ heading: WHOLE_PROMPT_BLOCK }];
 }
 
+function mergePromptSections(currentPrompt: string, candidatePrompt: string) {
+  const currentSections = parsePromptSections(currentPrompt);
+  const candidateSections = parsePromptSections(candidatePrompt);
+
+  if (!currentSections.length || !candidateSections.length) {
+    return normalizeNewlines(candidatePrompt);
+  }
+
+  const merged: string[] = [];
+  const limit = Math.max(currentSections.length, candidateSections.length);
+
+  for (let index = 0; index < limit; index += 1) {
+    const currentBody = currentSections[index]?.body || "";
+    const candidateBody = candidateSections[index]?.body || "";
+
+    if (!candidateBody && currentBody) {
+      merged.push(currentBody);
+      continue;
+    }
+
+    if (!currentBody && candidateBody) {
+      merged.push(candidateBody);
+      continue;
+    }
+
+    merged.push(
+      normalizeNewlines(currentBody) === normalizeNewlines(candidateBody)
+        ? currentBody
+        : candidateBody
+    );
+  }
+
+  return normalizeNewlines(merged.filter(Boolean).join("\n\n"));
+}
+
 function previewText(value: string, limit = 400) {
   const normalized = normalizeNewlines(value);
   if (normalized.length <= limit) {
@@ -751,13 +786,14 @@ export async function POST(req: NextRequest) {
       promptPlan,
     });
 
-    const changedBlocks = getChangedBlocks(currentPrompt, candidatePrompt);
+    const updatedPrompt = mergePromptSections(currentPrompt, candidatePrompt);
+    const changedBlocks = getChangedBlocks(currentPrompt, updatedPrompt);
 
     const verification = await verifyPrompt({
       apiKey: app.apiKey,
       provider: app.provider,
       model: app.model,
-      candidatePrompt,
+      candidatePrompt: updatedPrompt,
       originalMessages,
       editedMessages,
       verificationCases,
@@ -770,6 +806,7 @@ export async function POST(req: NextRequest) {
       diffAnalysis,
       promptPlan,
       candidatePrompt,
+      updatedPrompt,
       changedBlocks,
       verification,
     });
