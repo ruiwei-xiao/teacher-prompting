@@ -298,7 +298,7 @@ export default function EditorPage({
             ].join(" ")}
           >
             <div
-              className="min-h-0 shrink-0 overflow-hidden"
+              className="h-full min-h-0 shrink-0 overflow-hidden"
               style={{ width: `${editorPaneWidth}%` }}
             >
               <InstructionDoc />

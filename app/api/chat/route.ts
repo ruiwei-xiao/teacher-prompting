@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getAppById } from "@/lib/app-store/store";
-import { sendChat } from "@/lib/ai/providers";
+import { sendChat, type ChatMsg } from "@/lib/ai/providers";
 import { normalizeVariability } from "@/lib/app-store/model-selection";
 
 export const runtime = "nodejs";
-
-type ChatMsg = { role: "user" | "assistant" | "system"; content: string };
 
 type VisualizationState =
   | {
@@ -265,7 +263,7 @@ export async function POST(req: NextRequest) {
     const { appId, system, messages, visualizationState } = (await req.json()) as {
       appId?: string;
       system?: string;
-      messages?: { role: "user" | "assistant"; content: string }[];
+      messages?: { role: "user" | "assistant"; content: string; imageUrl?: string }[];
       visualizationState?: VisualizationState;
     };
 
@@ -304,6 +302,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const rawMessages = messages ?? [];
+    const hasImageAttachment = rawMessages.some(
+      (m) => m.role === "user" && typeof m.imageUrl === "string" && m.imageUrl.trim()
+    );
+    if (hasImageAttachment && app.provider !== "openai") {
+      return NextResponse.json(
+        {
+          error:
+            "Image attachments are only supported for bots that use OpenAI (e.g. GPT-4o mini).",
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedMessages: ChatMsg[] = rawMessages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : "",
+      ...(m.role === "user" &&
+      typeof m.imageUrl === "string" &&
+      m.imageUrl.trim().startsWith("data:image/")
+        ? { imageUrl: m.imageUrl.trim() }
+        : {}),
+    }));
+
     const visualizationContext = buildVisualizationContext(visualizationState);
     const effectiveSystem = [system?.trim() ? system : app.systemPrompt, visualizationContext]
       .filter(Boolean)
@@ -315,7 +337,7 @@ export async function POST(req: NextRequest) {
       apiKey: app.apiKey,
       system: effectiveSystem,
       variability: normalizeVariability(app.variability),
-      messages: (messages ?? []) as ChatMsg[],
+      messages: normalizedMessages,
     });
 
     return NextResponse.json({

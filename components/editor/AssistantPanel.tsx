@@ -3,10 +3,12 @@
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildFileAttachmentText,
+  CHAT_ATTACHMENT_ACCEPT,
   getSpeechRecognitionConstructor,
-  TEXT_FILE_INPUT_ACCEPT,
+  readImageDataUrl,
 } from "@/lib/chat-input/client";
 import { readStoredPrompt } from "@/lib/prompt-storage/client";
+import ChatMessageBody from "@/components/chat/ChatMessageBody";
 import {
   buildCaseSpecificPrompt,
   DEFAULT_TEST_CASE_STUDENTS,
@@ -20,6 +22,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   originalContent: string;
+  imageUrl?: string;
 };
 
 type PromptFeedbackChangedBlock = {
@@ -81,6 +84,10 @@ type BatchRunProgress = {
   detail: string;
 };
 
+type TestCaseWarmStart = "scripted" | "teacher";
+/** When warmStart is teacher: configure-first opens Edit for student/scenario; scratch starts with greeting only. */
+type TeacherEntryMode = "configure" | "scratch";
+
 type TestCaseSet = {
   id: string;
   name: string;
@@ -93,6 +100,8 @@ type TestCaseSet = {
   passed: boolean;
   verificationStatus: TestCaseVerificationStatus;
   verificationNote: string;
+  warmStart: TestCaseWarmStart;
+  teacherEntry?: TeacherEntryMode;
 };
 
 type TestCaseEditDraft = {
@@ -109,7 +118,8 @@ type TestCaseEditDraft = {
 function createMessage(
   role: ChatMessage["role"],
   content: string,
-  originalContent = content
+  originalContent = content,
+  imageUrl?: string
 ): ChatMessage {
   return {
     id:
@@ -119,7 +129,16 @@ function createMessage(
     role,
     content,
     originalContent,
+    ...(imageUrl ? { imageUrl } : {}),
   };
+}
+
+/** Strip leading provider from labels like "openai · gpt-4o-mini". */
+function modelNameWithoutProvider(modelLabel: string): string {
+  const sep = " · ";
+  if (!modelLabel.includes(sep)) return modelLabel;
+  const rest = modelLabel.split(sep).slice(1).join(sep).trim();
+  return rest || modelLabel;
 }
 
 function messageHasEdits(message: ChatMessage) {
@@ -176,22 +195,66 @@ const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
   },
 ];
 
+function buildTestCaseIntroMessage(appName: string, preset?: TestCasePreset) {
+  const purposeLabel = preset?.purposeLabel || "Custom case";
+  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
+
+  if (purposeLabel === "Expected path") {
+    return `Hi! I'm ${appName}. Let's learn together step by step. Tell me what you want to understand first, and I'll help you work through it.`;
+  }
+
+  if (purposeLabel === "Edge case") {
+    return `Hi! I'm ${appName}. If this feels frustrating, that's okay. We can slow it down, focus on one step at a time, and make a plan together.`;
+  }
+
+  return `Hi! I'm ${appName}. ${scenarioSummary}`;
+}
+
+function getTeacherConfigureFirstMessages(appName: string): ChatMessage[] {
+  return [
+    createMessage(
+      "assistant",
+      `Hi! I'm ${appName}. Use **Edit** on this test case card to describe the simulated student and scenario. When you're ready, type or speak below—we won't pre-fill a scripted conversation for you.`
+    ),
+  ];
+}
+
+function getTeacherScratchStartMessages(appName: string, preset: TestCasePreset): ChatMessage[] {
+  return [createMessage("assistant", buildTestCaseIntroMessage(appName, preset))];
+}
+
+function getTeacherLedContextSeedMessages(
+  appName: string,
+  studentProfile: StudentProfile | null,
+  preset: TestCasePreset,
+  readOnly: boolean
+): ChatMessage[] {
+  if (readOnly) return getInitialMessages(appName, studentProfile, preset, true);
+  const studentLabel = studentProfile?.label || "Student";
+  const gradeLevel = studentProfile?.gradeLevel || "middle school";
+  const personality = studentProfile?.personality || "thoughtful and curious";
+  const knowledgeLevel = studentProfile?.knowledgeLevel || "still building core understanding";
+  const purposeLabel = preset.purposeLabel || "Custom case";
+  const scenarioSummary = preset.scenarioSummary || "A custom student simulation.";
+  return [
+    createMessage(
+      "assistant",
+      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}\n\nContinue the conversation below when you're ready.`
+    ),
+  ];
+}
+
 function createTestCaseSet(
   name: string,
   appName: string,
   readOnly = false,
   studentProfile: StudentProfile | null = null,
-  preset?: TestCasePreset
+  preset?: TestCasePreset,
+  options?: { warmStart?: TestCaseWarmStart; teacherEntry?: TeacherEntryMode }
 ): TestCaseSet {
-  return {
-    id:
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    name,
-    purposeLabel: preset?.purposeLabel || "Custom case",
-    scenarioSummary: preset?.scenarioSummary || "A custom student simulation for this prompt.",
-    script: preset || {
+  const warmStart = options?.warmStart ?? "scripted";
+  const resolvedPreset =
+    preset || {
       purposeLabel: "Custom case",
       scenarioSummary: "A custom student simulation for this prompt.",
       round1User: "Can you help me get started?",
@@ -199,13 +262,38 @@ function createTestCaseSet(
       round2User: "I think I partly get it, but I still need support.",
       round2Assistant: "Let's slow it down and test one idea at a time.",
       round3User: "Can I try one final response on my own?",
-    },
+    };
+
+  let messages: ChatMessage[];
+  if (readOnly) {
+    messages = getInitialMessages(appName, studentProfile, preset, true);
+  } else if (warmStart === "teacher") {
+    const entry = options?.teacherEntry ?? "scratch";
+    messages =
+      entry === "configure"
+        ? getTeacherConfigureFirstMessages(appName)
+        : getTeacherScratchStartMessages(appName, resolvedPreset);
+  } else {
+    messages = getInitialMessages(appName, studentProfile, preset, false);
+  }
+
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name,
+    purposeLabel: resolvedPreset.purposeLabel,
+    scenarioSummary: resolvedPreset.scenarioSummary,
+    script: resolvedPreset,
     studentProfile,
-    messages: getInitialMessages(appName, studentProfile, preset, readOnly),
+    messages,
     visualizationState: null,
     passed: false,
     verificationStatus: "idle",
     verificationNote: "",
+    warmStart,
+    ...(warmStart === "teacher" ? { teacherEntry: options?.teacherEntry ?? "scratch" } : {}),
   };
 }
 
@@ -4010,24 +4098,6 @@ function getInitialMessages(
   ];
 }
 
-function buildTestCaseIntroMessage(
-  appName: string,
-  preset?: TestCasePreset
-) {
-  const purposeLabel = preset?.purposeLabel || "Custom case";
-  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
-
-  if (purposeLabel === "Expected path") {
-    return `Hi! I'm ${appName}. Let's learn together step by step. Tell me what you want to understand first, and I'll help you work through it.`;
-  }
-
-  if (purposeLabel === "Edge case") {
-    return `Hi! I'm ${appName}. If this feels frustrating, that's okay. We can slow it down, focus on one step at a time, and make a plan together.`;
-  }
-
-  return `Hi! I'm ${appName}. ${scenarioSummary}`;
-}
-
 function buildTestCaseUserMessages(
   preset?: TestCasePreset
 ) {
@@ -4066,6 +4136,8 @@ export default function AssistantPanel({
   const [composerError, setComposerError] = useState("");
   const [attachedFileName, setAttachedFileName] = useState("");
   const [attachedFileText, setAttachedFileText] = useState("");
+  const [attachedImageName, setAttachedImageName] = useState("");
+  const [attachedImageUrl, setAttachedImageUrl] = useState("");
   const [modelLabel, setModelLabel] = useState("Loading model...");
   const [promptMarkdown, setPromptMarkdown] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
@@ -4080,6 +4152,7 @@ export default function AssistantPanel({
   const [expandedStudentDetailIds, setExpandedStudentDetailIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [addTestCaseChoiceOpen, setAddTestCaseChoiceOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -4137,7 +4210,11 @@ export default function AssistantPanel({
       body: JSON.stringify({
         appId,
         system: args.system,
-        messages: args.messages.map(({ role, content }) => ({ role, content })),
+        messages: args.messages.map(({ role, content, imageUrl }) => ({
+          role,
+          content,
+          ...(imageUrl ? { imageUrl } : {}),
+        })),
         visualizationState: args.visualizationState,
       }),
     });
@@ -4167,6 +4244,20 @@ export default function AssistantPanel({
     testCaseIndex: number,
     totalCases: number
   ) {
+    if (testCase.warmStart === "teacher") {
+      setBatchRunProgress({
+        title: "Updating current testcases",
+        detail: `Skipping scripted replay for ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
+      });
+      return {
+        ...testCase,
+        visualizationState: null,
+        passed: false,
+        verificationStatus: "idle" as const,
+        verificationNote: "",
+      };
+    }
+
     setBatchRunProgress({
       title: "Updating current testcases",
       detail: `Rerunning ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
@@ -4271,6 +4362,8 @@ export default function AssistantPanel({
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setEditingMessageId(null);
     setEditingDraft("");
     setApplyBusy(false);
@@ -4283,12 +4376,17 @@ export default function AssistantPanel({
 
     updateActiveTestCase((testCase) => ({
       ...testCase,
-      messages: getInitialMessages(
-        displayName,
-        testCase.studentProfile,
-        testCase.script,
-        readOnly
-      ),
+      messages:
+        testCase.warmStart === "teacher"
+          ? testCase.teacherEntry === "configure"
+            ? getTeacherConfigureFirstMessages(displayName)
+            : getTeacherScratchStartMessages(displayName, testCase.script)
+          : getInitialMessages(
+              displayName,
+              testCase.studentProfile,
+              testCase.script,
+              readOnly
+            ),
       visualizationState: null,
       passed: false,
       verificationStatus: "idle",
@@ -4297,15 +4395,17 @@ export default function AssistantPanel({
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setEditingMessageId(null);
     setEditingDraft("");
     clearPromptUpdateState();
   }
 
-  function addTestCase() {
+  function confirmAddTestCase(entry: TeacherEntryMode) {
     const nextIndex = testCases.length + 1;
     const studentProfile = buildStudentProfileForCase(nextIndex - 1);
-    const nextCase = createTestCaseSet(studentProfile.label, displayName, readOnly, studentProfile, {
+    const preset: TestCasePreset = {
       purposeLabel: "Custom case",
       scenarioSummary: "An extra student simulation added by the teacher.",
       round1User: "Can you help me get started?",
@@ -4313,15 +4413,29 @@ export default function AssistantPanel({
       round2User: "I think I partly get it, but I still need support.",
       round2Assistant: "Let's slow it down and test one idea at a time.",
       round3User: "Can I try one final response on my own?",
-    });
+    };
+    const nextCase = createTestCaseSet(
+      studentProfile.label,
+      displayName,
+      readOnly,
+      studentProfile,
+      preset,
+      { warmStart: "teacher", teacherEntry: entry }
+    );
     setTestCases((current) => [...current, nextCase]);
     setActiveTestCaseId(nextCase.id);
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setEditingMessageId(null);
     setEditingDraft("");
     clearPromptUpdateState();
+    setAddTestCaseChoiceOpen(false);
+    if (entry === "configure") {
+      openTestCaseEdit(nextCase);
+    }
   }
 
   function openTestCaseEdit(testCase: TestCaseSet) {
@@ -4385,7 +4499,10 @@ export default function AssistantPanel({
         scenarioSummary: nextScript.scenarioSummary,
         script: nextScript,
         studentProfile: nextProfile,
-        messages: getInitialMessages(displayName, nextProfile, nextScript, readOnly),
+        messages:
+          tc.warmStart === "teacher"
+            ? getTeacherLedContextSeedMessages(displayName, nextProfile, nextScript, readOnly)
+            : getInitialMessages(displayName, nextProfile, nextScript, readOnly),
         visualizationState: null,
         passed: false,
         verificationStatus: "idle",
@@ -4411,6 +4528,8 @@ export default function AssistantPanel({
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setEditingMessageId(null);
     setEditingDraft("");
     clearPromptUpdateState();
@@ -4421,6 +4540,8 @@ export default function AssistantPanel({
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setEditingMessageId(null);
     setEditingDraft("");
     setApplyError("");
@@ -4618,16 +4739,21 @@ export default function AssistantPanel({
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
-    const text = attachedFileText
-      ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
-      : baseText;
-    if (!text || busy || applyBusy || !activeTestCase) return;
+    const text =
+      attachedFileText && !attachedImageUrl
+        ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
+        : baseText;
+    const userContent =
+      text.trim() || (attachedImageUrl ? "(See attached image.)" : "");
+    if ((!userContent.trim() && !attachedImageUrl) || busy || applyBusy || !activeTestCase) {
+      return;
+    }
     const currentTestCaseId = activeTestCase.id;
     const currentVisualizationState = activeTestCase.visualizationState;
 
     const nextMessages = [
       ...messages,
-      createMessage("user", text),
+      createMessage("user", userContent, userContent, attachedImageUrl || undefined),
     ];
 
     setComposerError("");
@@ -4636,6 +4762,8 @@ export default function AssistantPanel({
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     updateTestCaseById(currentTestCaseId, (testCase) => ({
       ...testCase,
       messages: nextMessages,
@@ -4865,9 +4993,19 @@ export default function AssistantPanel({
     if (!file) return;
 
     try {
-      const attachmentText = await buildFileAttachmentText(file);
-      setAttachedFileName(file.name);
-      setAttachedFileText(attachmentText);
+      if (file.type.startsWith("image/")) {
+        const dataUrl = await readImageDataUrl(file);
+        setAttachedImageName(file.name);
+        setAttachedImageUrl(dataUrl);
+        setAttachedFileName("");
+        setAttachedFileText("");
+      } else {
+        const attachmentText = await buildFileAttachmentText(file);
+        setAttachedFileName(file.name);
+        setAttachedFileText(attachmentText);
+        setAttachedImageName("");
+        setAttachedImageUrl("");
+      }
       setComposerError("");
     } catch (error: any) {
       setComposerError(error?.message || "Could not read that file.");
@@ -4876,8 +5014,12 @@ export default function AssistantPanel({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <aside
+        key={activeTestCase?.id || "preview"}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)] dark:border dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
+      >
       {!readOnly && (
-        <div className="mb-3 overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none">
+        <div className="shrink-0 overflow-hidden bg-white dark:bg-zinc-950">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div>
               <div className="flex items-center gap-2">
@@ -4899,13 +5041,9 @@ export default function AssistantPanel({
                   </span>
                 )}
               </div>
-              <div className="mt-1 text-xs text-slate-500 dark:text-zinc-300">
-                Separate chat runs for different teaching test scenarios. Verification badges update
-                after the prompt pipeline runs.
-              </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 px-4 py-3">
+          <div className="flex flex-wrap gap-2 px-4 py-2.5">
             {testCases.map((testCase, index) => {
               const active = testCase.id === activeTestCase?.id;
               const studentDetailOpen =
@@ -5016,7 +5154,7 @@ export default function AssistantPanel({
             })}
             <button
               type="button"
-              onClick={addTestCase}
+              onClick={() => setAddTestCaseChoiceOpen(true)}
               disabled={busy || applyBusy}
               className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               title="Add a new test case"
@@ -5027,38 +5165,19 @@ export default function AssistantPanel({
               <div className="mt-1 text-sm font-medium text-slate-700 dark:text-zinc-200">
                 Add test case
               </div>
-              <div className="mt-1 text-[11px] font-medium text-slate-400 dark:text-zinc-400">
-                Create another scenario
-              </div>
             </button>
           </div>
         </div>
       )}
-
-      <aside
-        key={activeTestCase?.id || "preview"}
-        className="case-switch-panel-animation flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)] dark:border dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
-      >
-      <div className="flex items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-3 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
-        <div className="min-w-0 flex items-center gap-2">
-          <Icon
-            d="M3 12a9 9 0 1018 0A9 9 0 003 12zm10-4H8v2h5V8zm3 4H8v2h8v-2zm-3 4H8v2h5v-2z"
-            className="h-5 w-5 shrink-0 text-slate-700 dark:text-zinc-200"
-          />
-          <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-800 shadow-sm ring-1 ring-emerald-900/10 dark:bg-zinc-800 dark:text-emerald-200 dark:ring-white/10">
-                Prompt Preview
-              </span>
-              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-rose-600 shadow-sm ring-1 ring-rose-900/10 dark:bg-zinc-800 dark:text-rose-200 dark:ring-white/10">
-                friendly
-              </span>
-              <span className="truncate text-xs font-medium text-slate-700 dark:text-zinc-300">
-                {modelLabel}
-              </span>
-            </div>
-            <h3 className="mt-2 truncate font-semibold text-slate-950 dark:text-zinc-50">{displayName}</h3>
-          </div>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-2.5 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-base font-semibold text-slate-950 dark:text-zinc-50">
+            {displayName}
+            <span className="font-medium text-slate-600 dark:text-zinc-400">
+              {" "}
+              · {modelNameWithoutProvider(modelLabel)}
+            </span>
+          </h3>
         </div>
 
         {!readOnly && (
@@ -5090,18 +5209,16 @@ export default function AssistantPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-rose-100 bg-white/80 px-4 py-3 text-sm text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-        {readOnly
-          ? "Inspect how the shared project's final prompt would appear in the preview panel."
-          : "Test the current prompt, edit the bubbles, run the four-stage pipeline, then manually apply the verified prompt."}
+      <div className="border-b border-rose-100 bg-white/80 px-4 py-2 text-[11px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        {readOnly ? "Read-only shared preview." : "Chat · edit bubbles · update prompt."}
       </div>
 
       <div
         ref={listRef}
         className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-950"
       >
-        <div className="text-[12px] text-slate-500 dark:text-zinc-400">
-          {activeTestCase?.name || "Preview"} · {new Date().toLocaleDateString()} · {displayName}
+        <div className="text-[11px] text-slate-400 dark:text-zinc-500">
+          {activeTestCase?.name || "Preview"} · {displayName}
         </div>
         {visualizationMode && visualizationMode !== "spacing-testing" && (
           <div
@@ -5206,8 +5323,8 @@ export default function AssistantPanel({
                     disabled={busy || applyBusy}
                   />
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-slate-500 dark:text-zinc-400">
-                      Save this edited bubble, then run the prompt pipeline to update only the final prompt.
+                    <div className="text-[11px] text-slate-500 dark:text-zinc-400">
+                      Save, then use Update prompt below.
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -5230,7 +5347,17 @@ export default function AssistantPanel({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.role === "user" && message.imageUrl ? (
+                    <img
+                      src={message.imageUrl}
+                      alt="Attached"
+                      className="max-h-48 max-w-full rounded-xl border border-sky-300/80 object-contain dark:border-sky-700/60"
+                    />
+                  ) : null}
+                  <ChatMessageBody
+                    content={message.content}
+                    className="text-[15px] leading-7 text-slate-800 dark:text-zinc-100"
+                  />
                   {!readOnly && (
                     <div className="flex items-center justify-end">
                       <button
@@ -5288,10 +5415,10 @@ export default function AssistantPanel({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                Update the prompt from this chat
+                Update prompt
               </div>
-              <p className="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-100/95">
-                After you edit the chat bubbles, update the prompt directly from this conversation.
+              <p className="mt-0.5 text-[11px] text-amber-800/95 dark:text-amber-100/90">
+                From edited bubbles.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -5317,15 +5444,15 @@ export default function AssistantPanel({
           )}
           {applyError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{applyError}</p>}
           {editingMessageId && (
-            <p className="mt-2 text-xs text-slate-600 dark:text-zinc-400">
-              Save or cancel the current bubble edit before generating a suggestion.
+            <p className="mt-2 text-[11px] text-slate-600 dark:text-zinc-400">
+              Finish bubble edit first.
             </p>
           )}
         </div>
         <div className="flex gap-2">
           <button
             className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-zinc-200 dark:hover:bg-amber-950/60"
-            title="Upload a file"
+            title="Upload file or image"
             type="button"
             disabled={busy || applyBusy}
             onClick={() => fileInputRef.current?.click()}
@@ -5348,11 +5475,7 @@ export default function AssistantPanel({
           </button>
           <input
             className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400 dark:border-rose-900/60 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            placeholder={
-              listening
-                ? "Listening..."
-                : "Send a test message, use voice, or upload a file"
-            }
+            placeholder={listening ? "Listening…" : "Message, voice, file, or image"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
@@ -5371,7 +5494,7 @@ export default function AssistantPanel({
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept={TEXT_FILE_INPUT_ACCEPT}
+          accept={CHAT_ATTACHMENT_ACCEPT}
           onChange={handleFileChange}
         />
         {attachedFileName && (
@@ -5391,13 +5514,31 @@ export default function AssistantPanel({
             </button>
           </div>
         )}
+        {attachedImageName && attachedImageUrl && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+              Image: {attachedImageName}
+            </span>
+            <img
+              src={attachedImageUrl}
+              alt=""
+              className="h-14 w-14 rounded-lg border border-slate-200 object-cover dark:border-zinc-600"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setAttachedImageName("");
+                setAttachedImageUrl("");
+              }}
+              className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
+              Remove
+            </button>
+          </div>
+        )}
         {composerError && (
           <p className="mt-2 text-xs text-red-600 dark:text-red-400">{composerError}</p>
         )}
-            <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400">
-          This panel previews the current prompt and supports voice input plus
-          text-based file upload.
-        </p>
         </div>
       )}
       </div>
@@ -5430,6 +5571,68 @@ export default function AssistantPanel({
       )}
       </aside>
 
+      {addTestCaseChoiceOpen && !readOnly && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-test-case-choice-title"
+          onClick={() => setAddTestCaseChoiceOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2
+              id="add-test-case-choice-title"
+              className="text-sm font-semibold text-slate-900 dark:text-zinc-100"
+            >
+              New test case
+            </h2>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">
+              No auto-filled script—pick a start.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => confirmAddTestCase("configure")}
+                disabled={busy || applyBusy}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              >
+                <div className="font-semibold text-slate-900 dark:text-zinc-100">
+                  Simulated student first
+                </div>
+                <div className="mt-1 text-[11px] font-normal text-slate-600 dark:text-zinc-400">
+                  Edit student & scenario first.
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmAddTestCase("scratch")}
+                disabled={busy || applyBusy}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              >
+                <div className="font-semibold text-slate-900 dark:text-zinc-100">
+                  From scratch
+                </div>
+                <div className="mt-1 text-[11px] font-normal text-slate-600 dark:text-zinc-400">
+                  Greeting only; you type turns.
+                </div>
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAddTestCaseChoiceOpen(false)}
+                className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {testCaseEditDraft && !readOnly && (
         <div
           className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
@@ -5448,8 +5651,8 @@ export default function AssistantPanel({
             >
               Edit test case
             </h2>
-            <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-              Changes reset the preview chat for this case to match the new student and scenario.
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">
+              Saving refreshes this case&apos;s preview chat.
             </p>
             <div className="mt-4 space-y-3">
               <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">

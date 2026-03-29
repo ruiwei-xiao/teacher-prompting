@@ -27,6 +27,26 @@ export const TEXT_FILE_INPUT_ACCEPT = [
   ".xml",
 ].join(",");
 
+/** Text + images for learner chat (preview & published). */
+export const CHAT_ATTACHMENT_ACCEPT = [TEXT_FILE_INPUT_ACCEPT, "image/*"].join(",");
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+export async function readImageDataUrl(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Please choose an image file.");
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error("Image must be about 4MB or smaller.");
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read that image."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function isSupportedTextFile(file: File) {
   const lowerName = file.name.toLowerCase();
   return (

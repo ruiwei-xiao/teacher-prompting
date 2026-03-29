@@ -7,19 +7,22 @@ import {
   type VisualizationState,
   VisualizationSurface,
 } from "@/components/editor/AssistantPanel";
+import ChatMessageBody from "@/components/chat/ChatMessageBody";
 import {
   buildFileAttachmentText,
+  CHAT_ATTACHMENT_ACCEPT,
   getSpeechRecognitionConstructor,
-  TEXT_FILE_INPUT_ACCEPT,
+  readImageDataUrl,
 } from "@/lib/chat-input/client";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  imageUrl?: string;
 };
 
 function getWelcomeMessage(appName: string) {
-  return `Hi! I'm ${appName}. We can learn step by step together.\n\nYou can type, speak, or attach a file to get started.`;
+  return `Hi! I'm ${appName}. We can learn step by step together.\n\nYou can type, speak, attach a text file, or upload an image (when this bot uses OpenAI).`;
 }
 
 export default function PublishedChatbot({
@@ -43,6 +46,8 @@ export default function PublishedChatbot({
   const [composerError, setComposerError] = useState("");
   const [attachedFileName, setAttachedFileName] = useState("");
   const [attachedFileText, setAttachedFileText] = useState("");
+  const [attachedImageName, setAttachedImageName] = useState("");
+  const [attachedImageUrl, setAttachedImageUrl] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
   const [visualizationState, setVisualizationState] =
     useState<VisualizationState | null>(null);
@@ -73,21 +78,29 @@ export default function PublishedChatbot({
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
-    const text = attachedFileText
-      ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
-      : baseText;
-    if (!text || busy) return;
+    const text =
+      attachedFileText && !attachedImageUrl
+        ? [baseText, attachedFileText].filter(Boolean).join("\n\n")
+        : baseText;
+    const userContent =
+      text.trim() || (attachedImageUrl ? "(See attached image.)" : "");
+    if ((!userContent.trim() && !attachedImageUrl) || busy) return;
 
-    const nextMessages = [
-      ...messages,
-      { role: "user", content: text } as ChatMessage,
-    ];
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: userContent,
+      ...(attachedImageUrl ? { imageUrl: attachedImageUrl } : {}),
+    };
+
+    const nextMessages = [...messages, userMessage];
 
     setMessages(nextMessages);
     setComposerError("");
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
+    setAttachedImageName("");
+    setAttachedImageUrl("");
     setBusy(true);
 
     try {
@@ -173,9 +186,19 @@ export default function PublishedChatbot({
     if (!file) return;
 
     try {
-      const attachmentText = await buildFileAttachmentText(file);
-      setAttachedFileName(file.name);
-      setAttachedFileText(attachmentText);
+      if (file.type.startsWith("image/")) {
+        const dataUrl = await readImageDataUrl(file);
+        setAttachedImageName(file.name);
+        setAttachedImageUrl(dataUrl);
+        setAttachedFileName("");
+        setAttachedFileText("");
+      } else {
+        const attachmentText = await buildFileAttachmentText(file);
+        setAttachedFileName(file.name);
+        setAttachedFileText(attachmentText);
+        setAttachedImageName("");
+        setAttachedImageUrl("");
+      }
       setComposerError("");
     } catch (error: any) {
       setComposerError(error?.message || "Could not read that file.");
@@ -266,13 +289,20 @@ export default function PublishedChatbot({
                 )}
                 <div
                   className={[
-                    "max-w-[85%] whitespace-pre-wrap rounded-[1.5rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
+                    "max-w-[85%] space-y-2 rounded-[1.5rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
                     message.role === "user"
                       ? "border-sky-200 bg-sky-100/90 text-sky-950"
                       : "border-rose-200 bg-white text-slate-800",
                   ].join(" ")}
                 >
-                  {message.content}
+                  {message.role === "user" && message.imageUrl ? (
+                    <img
+                      src={message.imageUrl}
+                      alt="Your attachment"
+                      className="max-h-48 max-w-full rounded-xl border border-sky-300/80 object-contain"
+                    />
+                  ) : null}
+                  <ChatMessageBody content={message.content} />
                 </div>
                 {message.role === "user" && (
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-sky-200 bg-sky-100 text-sm">
@@ -317,8 +347,8 @@ export default function PublishedChatbot({
               onClick={() => fileInputRef.current?.click()}
               disabled={busy}
               className="h-11 rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
-              title="Upload a file"
-              aria-label="Upload a file"
+              title="Upload file or image"
+              aria-label="Upload file or image"
             >
               <span aria-hidden="true">📃</span>
             </button>
@@ -340,7 +370,7 @@ export default function PublishedChatbot({
             <input
               className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400"
               placeholder={
-                listening ? "Listening..." : "Type a message, use voice, or upload a file"
+                listening ? "Listening..." : "Message, voice, file, or image"
               }
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -360,7 +390,7 @@ export default function PublishedChatbot({
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept={TEXT_FILE_INPUT_ACCEPT}
+            accept={CHAT_ATTACHMENT_ACCEPT}
             onChange={handleFileChange}
           />
           {attachedFileName && (
@@ -380,11 +410,33 @@ export default function PublishedChatbot({
               </button>
             </div>
           )}
+          {attachedImageName && attachedImageUrl && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1">
+                Image: {attachedImageName}
+              </span>
+              <img
+                src={attachedImageUrl}
+                alt=""
+                className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachedImageName("");
+                  setAttachedImageUrl("");
+                }}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                Remove
+              </button>
+            </div>
+          )}
           {composerError && (
             <p className="mt-2 text-xs text-red-600">{composerError}</p>
           )}
           <p className="mt-2 text-xs text-slate-500">
-            Students can type, use voice input, or upload a text-based file.
+            Text files, images (OpenAI bots), and voice are supported.
           </p>
         </div>
       </div>

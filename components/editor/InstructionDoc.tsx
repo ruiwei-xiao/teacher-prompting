@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 import { useParams } from 'next/navigation';
 import type { PromptBuilderState } from '@/lib/app-store/types';
 import {
@@ -9,6 +17,11 @@ import {
   saveStoredPrompt,
 } from '@/lib/prompt-storage/client';
 import { stripTestCaseStudentsFromPrompt } from '@/lib/test-case-students';
+import {
+  buildFileAttachmentText,
+  TEXT_FILE_INPUT_ACCEPT,
+} from '@/lib/chat-input/client';
+import { TEACHING_AGENT_TEMPLATES } from '@/lib/prompt-builder/teaching-agent-templates';
 
 type PromptFeedbackChangedBlock = {
   heading: string;
@@ -202,6 +215,70 @@ function buildPromptDiff(beforePrompt: string, afterPrompt: string): PromptDiffL
   return compact;
 }
 
+function ToolbarIconFrame({
+  children,
+  compact,
+}: {
+  children: ReactNode;
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <div className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F3E078] dark:bg-amber-200/90">
+        <span className="text-slate-900 dark:text-zinc-900 [&>svg]:h-[18px] [&>svg]:w-[18px]">
+          {children}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-2.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#F3E078] dark:bg-amber-200/90">
+      <span className="text-slate-900 dark:text-zinc-900">{children}</span>
+    </div>
+  );
+}
+
+function IconBranchTemplate() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-[22px] w-[22px]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="5.5" r="2.5" fill="currentColor" stroke="none" />
+      <path d="M12 8v4M12 12H8.5M12 12h3.5" />
+      <path d="M8.5 12v2.5a2 2 0 0 0 2 2M15.5 12v2.5a2 2 0 0 1-2 2" />
+      <circle cx="8" cy="19" r="2" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="19" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconAttachmentFile() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-[22px] w-[22px]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="9" y1="15" x2="15" y2="15" />
+      <line x1="9" y1="11" x2="13" y2="11" />
+    </svg>
+  );
+}
+
 const DEFAULT_PROMPT = [
   'Background',
   'You are an expert in ________.',
@@ -241,12 +318,50 @@ export default function InstructionDoc({
   const [diffSummary, setDiffSummary] = useState('');
   const valueRef = useRef<string>(DEFAULT_PROMPT);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachError, setAttachError] = useState('');
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [promptDropActive, setPromptDropActive] = useState(false);
+  const promptDropZoneRef = useRef<HTMLDivElement | null>(null);
+
+  const insertIntoPrompt = useCallback(
+    (insertion: string) => {
+      if (readOnly || !insertion) return;
+      setAttachError('');
+      const ta = textareaRef.current;
+      const cur = valueRef.current;
+      if (!ta) {
+        const spacer = cur.trim() ? '\n\n' : '';
+        const next = `${cur}${spacer}${insertion}`;
+        valueRef.current = next;
+        setValue(next);
+        setDiffPreviewLines([]);
+        setDiffSummary('');
+        savePromptText(next, appId);
+        return;
+      }
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const next = cur.slice(0, start) + insertion + cur.slice(end);
+      valueRef.current = next;
+      setValue(next);
+      setDiffPreviewLines([]);
+      setDiffSummary('');
+      savePromptText(next, appId);
+      const caret = start + insertion.length;
+      queueMicrotask(() => {
+        ta.focus();
+        ta.setSelectionRange(caret, caret);
+      });
+    },
+    [appId, readOnly]
+  );
 
   const promptHint = useMemo(
     () =>
       readOnly
         ? 'Read-only shared project view.'
-        : 'Edit the final prompt directly. This is the only prompt authoring surface in the center column.',
+        : 'Edit the final prompt.',
     [readOnly]
   );
 
@@ -366,12 +481,13 @@ export default function InstructionDoc({
   }, [applyConfirmation]);
 
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || readOnly) return;
-
-    textarea.style.height = '0px';
-    textarea.style.height = `${Math.max(320, textarea.scrollHeight)}px`;
-  }, [readOnly, value, diffPreviewLines.length]);
+    if (!templateModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTemplateModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [templateModalOpen]);
 
   const applyCurrentPrompt = useCallback(() => {
     const normalized = normalizeText(value);
@@ -379,6 +495,61 @@ export default function InstructionDoc({
     setHighlightPrompt(true);
     setApplyConfirmation(true);
   }, [appId, value]);
+
+  const onTeacherAttachFiles = useCallback(
+    async (files: FileList | null) => {
+      if (readOnly || !files?.length) return;
+      const list = Array.from(files);
+      const input = fileInputRef.current;
+      if (input) input.value = '';
+      setAttachError('');
+      try {
+        for (const file of list) {
+          const block = await buildFileAttachmentText(file);
+          const wrapped = `\n\n### Reference (attached: ${file.name})\n\n${block}\n`;
+          insertIntoPrompt(wrapped);
+        }
+      } catch (err) {
+        setAttachError(err instanceof Error ? err.message : 'Could not read that file.');
+      }
+    },
+    [insertIntoPrompt, readOnly]
+  );
+
+  const { promptFileDragProps, promptFileDropRelayProps } = useMemo(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer.types).includes('Files');
+
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setPromptDropActive(false);
+      void onTeacherAttachFiles(e.dataTransfer.files);
+    };
+
+    return {
+      promptFileDragProps: {
+        onDragEnter: (e: DragEvent) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setPromptDropActive(true);
+        },
+        onDragLeave: (e: DragEvent) => {
+          const related = e.relatedTarget as Node | null;
+          if (related && promptDropZoneRef.current?.contains(related)) return;
+          setPromptDropActive(false);
+        },
+        onDragOver,
+        onDrop,
+      },
+      promptFileDropRelayProps: { onDragOver, onDrop },
+    };
+  }, [onTeacherAttachFiles]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -419,23 +590,23 @@ export default function InstructionDoc({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           className={[
-            'h-full overflow-auto px-6 pb-6 pt-4 transition',
+            'flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-4 pt-4 transition',
             highlightPrompt
               ? 'bg-amber-50/60 dark:bg-amber-950/25'
               : 'bg-white dark:bg-zinc-900',
           ].join(' ')}
         >
           {readOnly ? (
-            <div className="whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+            <div className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
               {value}
             </div>
           ) : (
             <div
               className={[
-                'overflow-hidden rounded-2xl border transition',
+                'flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border transition',
                 highlightPrompt
                   ? 'border-amber-300 bg-amber-50/60 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.18)] dark:border-amber-800 dark:bg-amber-950/30'
                   : 'border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900',
@@ -470,24 +641,154 @@ export default function InstructionDoc({
                   )}
                 </div>
               )}
-              <textarea
-                ref={textareaRef}
-                value={value}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  valueRef.current = nextValue;
-                  setValue(nextValue);
-                  setDiffPreviewLines([]);
-                  setDiffSummary('');
-                  savePromptText(nextValue, appId);
-                }}
-                className="w-full resize-none bg-transparent px-4 py-4 text-sm leading-7 text-slate-800 outline-none dark:text-zinc-100 dark:placeholder:text-zinc-400"
-                spellCheck={false}
-              />
+              <div
+                ref={promptDropZoneRef}
+                className={[
+                  'flex min-h-0 flex-1 flex-col transition',
+                  promptDropActive
+                    ? 'ring-2 ring-inset ring-emerald-500/40 bg-emerald-50/25 dark:bg-emerald-950/25 dark:ring-emerald-400/35'
+                    : '',
+                ].join(' ')}
+                {...promptFileDragProps}
+              >
+                <textarea
+                  ref={textareaRef}
+                  value={value}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    valueRef.current = nextValue;
+                    setValue(nextValue);
+                    setDiffPreviewLines([]);
+                    setDiffSummary('');
+                    savePromptText(nextValue, appId);
+                  }}
+                  className="min-h-0 w-full flex-1 resize-none overflow-y-auto bg-transparent px-4 py-3 text-sm leading-7 text-slate-800 outline-none dark:text-zinc-100 dark:placeholder:text-zinc-400"
+                  spellCheck={false}
+                  {...promptFileDragProps}
+                />
+                <div
+                  className="shrink-0 border-t border-slate-200 bg-slate-50/90 dark:border-zinc-800 dark:bg-zinc-950/80"
+                  {...promptFileDragProps}
+                >
+                  <div className="flex flex-wrap gap-2 px-2.5 py-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept={TEXT_FILE_INPUT_ACCEPT}
+                      multiple
+                      onChange={(event) => void onTeacherAttachFiles(event.target.files)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex min-w-[120px] max-w-full flex-1 flex-col rounded-xl border border-slate-200/95 bg-white p-2.5 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:max-w-[168px] sm:flex-none"
+                      {...promptFileDropRelayProps}
+                    >
+                      <ToolbarIconFrame compact>
+                        <IconAttachmentFile />
+                      </ToolbarIconFrame>
+                      <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
+                        Attachment
+                      </span>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-400">
+                        Add text files into your prompt.
+                      </p>
+                      <span className="mt-1.5 text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
+                        Reference
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTemplateModalOpen(true)}
+                      className="flex min-w-[120px] max-w-full flex-1 flex-col rounded-xl border border-slate-200/95 bg-white p-2.5 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:max-w-[168px] sm:flex-none"
+                      {...promptFileDropRelayProps}
+                    >
+                      <ToolbarIconFrame compact>
+                        <IconBranchTemplate />
+                      </ToolbarIconFrame>
+                      <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
+                        Template
+                      </span>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-400">
+                        Open the gallery and pick a teaching pattern.
+                      </p>
+                      <span className="mt-1.5 text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
+                        Agent
+                      </span>
+                    </button>
+                  </div>
+                  {attachError ? (
+                    <p className="border-t border-slate-200 px-3 py-2 text-xs text-rose-600 dark:border-zinc-800 dark:text-rose-400">
+                      {attachError}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {templateModalOpen && !readOnly ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/55"
+          role="presentation"
+          onClick={() => setTemplateModalOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="template-picker-title"
+            className="flex max-h-[min(560px,85vh)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-zinc-800">
+              <h2
+                id="template-picker-title"
+                className="text-lg font-semibold text-slate-900 dark:text-zinc-50"
+              >
+                Choose a template
+              </h2>
+              <button
+                type="button"
+                onClick={() => setTemplateModalOpen(false)}
+                className="shrink-0 rounded-lg px-2.5 py-1 text-sm text-slate-500 transition hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {TEACHING_AGENT_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      insertIntoPrompt(t.body);
+                      setTemplateModalOpen(false);
+                    }}
+                    className="flex flex-col rounded-2xl border border-slate-200/95 bg-white p-3.5 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
+                  >
+                    <ToolbarIconFrame>
+                      <IconBranchTemplate />
+                    </ToolbarIconFrame>
+                    <span className="text-sm font-semibold text-slate-900 dark:text-zinc-50">
+                      {t.label}
+                    </span>
+                    <p className="mt-1 text-xs leading-snug text-slate-500 dark:text-zinc-400">
+                      {t.description}
+                    </p>
+                    <span className="mt-2.5 text-[11px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
+                      Template
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

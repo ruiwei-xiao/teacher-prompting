@@ -10,6 +10,7 @@ type FeedbackMessage = {
   id?: string;
   role?: "user" | "assistant";
   content?: string;
+  imageUrl?: string;
 };
 
 type VerificationCaseInput = {
@@ -107,7 +108,11 @@ function formatTranscript(messages: FeedbackMessage[]) {
     .map((message, index) => {
       const role = message.role === "assistant" ? "Assistant" : "User";
       const content = normalizeNewlines(message.content || "") || "(empty)";
-      return `${index + 1}. ${role}: ${content}`;
+      const img =
+        message.role === "user" && message.imageUrl?.trim()
+          ? " [includes attached image]"
+          : "";
+      return `${index + 1}. ${role}: ${content}${img}`;
     })
     .join("\n");
 }

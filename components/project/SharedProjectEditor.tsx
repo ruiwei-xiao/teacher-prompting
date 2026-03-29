@@ -96,7 +96,7 @@ export default function SharedProjectEditor({
         )}
 
         <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
             <InstructionDoc
               appId={app.id}
               readOnly={true}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ChatMessageBody from "@/components/chat/ChatMessageBody";
 import { readStoredPrompt } from "@/lib/prompt-storage/client";
 
 type ChatMessage = {
@@ -192,8 +193,8 @@ export default function LeftChat({
               {m.role === "user" ? "You" : "Pedagogical Agent Builder"}
             </div>
 
-            <div className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100">
-              {m.content}
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100">
+              <ChatMessageBody content={m.content} />
             </div>
           </div>
         ))}
