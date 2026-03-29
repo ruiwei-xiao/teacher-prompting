@@ -5174,12 +5174,6 @@ export default function AssistantPanel({
                   🤖
                 </div>
               )}
-              <div
-                className={[
-                  "h-5 w-5 rounded-full",
-                  message.role === "assistant" ? "bg-rose-300" : "bg-sky-300",
-                ].join(" ")}
-              />
               <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
                 {message.role === "assistant" ? `${displayName} preview` : "Test user"}
               </div>
