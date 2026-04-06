@@ -1,6 +1,14 @@
 "use client";
 
-import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   buildFileAttachmentText,
   CHAT_ATTACHMENT_ACCEPT,
@@ -96,12 +104,16 @@ type TestCaseSet = {
   script: TestCasePreset;
   studentProfile: StudentProfile | null;
   messages: ChatMessage[];
+  /** Learner lines used for scripted replay / refresh (from model-generated dialogue). */
+  simulatedUserTurns?: string[];
   visualizationState: VisualizationState | null;
   passed: boolean;
   verificationStatus: TestCaseVerificationStatus;
   verificationNote: string;
   warmStart: TestCaseWarmStart;
   teacherEntry?: TeacherEntryMode;
+  /** After "Simulated student first", set until first save—then we auto-generate 5-turn dialogue. */
+  autoDialoguePending?: boolean;
 };
 
 type TestCaseEditDraft = {
@@ -250,7 +262,11 @@ function createTestCaseSet(
   readOnly = false,
   studentProfile: StudentProfile | null = null,
   preset?: TestCasePreset,
-  options?: { warmStart?: TestCaseWarmStart; teacherEntry?: TeacherEntryMode }
+  options?: {
+    warmStart?: TestCaseWarmStart;
+    teacherEntry?: TeacherEntryMode;
+    autoDialoguePending?: boolean;
+  }
 ): TestCaseSet {
   const warmStart = options?.warmStart ?? "scripted";
   const resolvedPreset =
@@ -274,7 +290,7 @@ function createTestCaseSet(
         ? getTeacherConfigureFirstMessages(appName)
         : getTeacherScratchStartMessages(appName, resolvedPreset);
   } else {
-    messages = getInitialMessages(appName, studentProfile, preset, false);
+    messages = [];
   }
 
   return {
@@ -294,6 +310,7 @@ function createTestCaseSet(
     verificationNote: "",
     warmStart,
     ...(warmStart === "teacher" ? { teacherEntry: options?.teacherEntry ?? "scratch" } : {}),
+    ...(options?.autoDialoguePending ? { autoDialoguePending: true } : {}),
   };
 }
 
@@ -405,20 +422,25 @@ function Icon({
   );
 }
 
-function getAssistantSystemPrompt(appId?: string) {
+const ASSISTANT_PANEL_DEFAULT_SYSTEM_PROMPT = [
+  "You are a helpful teaching assistant.",
+  "Follow the teacher's learning goals, stay supportive, and adapt to the learner's level.",
+].join("\n");
+
+function resolveAssistantSystemPrompt(args: {
+  promptMarkdown: string;
+  appId: string;
+  serverSystemPrompt: string;
+}) {
+  const md = args.promptMarkdown.trim();
+  if (md) return md;
   if (typeof window !== "undefined") {
-    const fromEditor = readStoredPrompt(appId);
-    if (fromEditor.trim()) return fromEditor;
+    const fromStorage = readStoredPrompt(args.appId).trim();
+    if (fromStorage) return fromStorage;
   }
-
-  return `I’m a python beginner having trouble with debugging.
-The coding problem, my code, and output are as follows:[problem description]
-[current code]
-[current output]
-
-Can you act as an intro-level programming tutor and generate a minimal-code example of a different problem that uses a for loop to iterate over indices?
-
-Don’t give me the solution to the problem.`;
+  const server = args.serverSystemPrompt.trim();
+  if (server) return server;
+  return ASSISTANT_PANEL_DEFAULT_SYSTEM_PROMPT;
 }
 
 export function detectVisualizationMode(prompt: string) {
@@ -4140,6 +4162,7 @@ export default function AssistantPanel({
   const [attachedImageUrl, setAttachedImageUrl] = useState("");
   const [modelLabel, setModelLabel] = useState("Loading model...");
   const [promptMarkdown, setPromptMarkdown] = useState("");
+  const [serverSystemPrompt, setServerSystemPrompt] = useState("");
   const [visualFullscreen, setVisualFullscreen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
@@ -4148,6 +4171,8 @@ export default function AssistantPanel({
   const [applySummary, setApplySummary] = useState("");
   const [pipelineResult, setPipelineResult] = useState<PromptUpdateResult | null>(null);
   const [batchRunProgress, setBatchRunProgress] = useState<BatchRunProgress | null>(null);
+  /** Full-panel overlay (same UI as batch run); separate from batch so clears do not race. */
+  const [dialogueGenProgress, setDialogueGenProgress] = useState<BatchRunProgress | null>(null);
   const [testCaseEditDraft, setTestCaseEditDraft] = useState<TestCaseEditDraft | null>(null);
   const [expandedStudentDetailIds, setExpandedStudentDetailIds] = useState<Set<string>>(
     () => new Set()
@@ -4156,6 +4181,11 @@ export default function AssistantPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const testCasesRef = useRef<TestCaseSet[]>([]);
+  const dialogueGenDoneKeyRef = useRef<string | null>(null);
+  const dialogueGenInFlightKeyRef = useRef<string | null>(null);
+  /** Only reset session when appId/readOnly actually change (not on mount). Survives React Strict Mode double-invoked effects. */
+  const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -4175,10 +4205,162 @@ export default function AssistantPanel({
     .find((message) => message.role === "user")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
   const editedMessageCount = messages.filter(messageHasEdits).length;
+  const panelBlockingProgress = batchRunProgress ?? dialogueGenProgress;
+
+  useEffect(() => {
+    testCasesRef.current = testCases;
+  }, [testCases]);
+
+  const fetchAndApplyScriptedDialogues = useCallback(
+    async (scripted: TestCaseSet[]) => {
+      const basePrompt = resolveAssistantSystemPrompt({
+        promptMarkdown,
+        appId,
+        serverSystemPrompt,
+      }).trim();
+      if (!basePrompt) {
+        throw new Error("Add a Final Prompt before generating test-case dialogue.");
+      }
+      if (!scripted.length) return;
+
+      const detail =
+        scripted.length === 1
+          ? `Generating 5-turn preview for ${scripted[0].purposeLabel}…`
+          : `Generating 5-turn previews for ${scripted.length} test cases…`;
+      setDialogueGenProgress({
+        title: "Updating current testcases",
+        detail,
+      });
+
+      try {
+        const res = await fetch("/api/test-cases/generate-dialogue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appId,
+            systemPrompt: basePrompt,
+            rounds: 5,
+            cases: scripted.map((tc) => ({
+              caseId: tc.id,
+              profile: tc.studentProfile!,
+              scenarioSummary: tc.scenarioSummary,
+              purposeLabel: tc.purposeLabel,
+            })),
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            typeof body.error === "string" ? body.error : "Dialogue generation failed"
+          );
+        }
+        const results = Array.isArray(body.results) ? body.results : [];
+        type RawMsg = { role: string; content: string };
+        type ResultRow = { caseId: string; messages: RawMsg[] };
+        const byId = new Map<string, RawMsg[]>(
+          (results as ResultRow[])
+            .filter((r) => r?.caseId && Array.isArray(r.messages))
+            .map((r) => [r.caseId, r.messages])
+        );
+
+        setTestCases((current) =>
+          current.map((tc) => {
+            if (tc.warmStart !== "scripted") return tc;
+            const raw = byId.get(tc.id);
+            if (!raw?.length) return tc;
+            const msgs = raw.map((m) =>
+              createMessage(
+                m.role === "user" ? "user" : "assistant",
+                typeof m.content === "string" ? m.content : ""
+              )
+            );
+            const userTurns = msgs.filter((m) => m.role === "user").map((m) => m.content);
+            return { ...tc, messages: msgs, simulatedUserTurns: userTurns };
+          })
+        );
+      } finally {
+        setDialogueGenProgress(null);
+      }
+    },
+    [appId, promptMarkdown, serverSystemPrompt]
+  );
+
+  useEffect(() => {
+    if (readOnly) return;
+
+    const basePrompt = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    }).trim();
+    if (!basePrompt) return;
+
+    const hashPrompt = (s: string) => {
+      let h = 0;
+      for (let i = 0; i < Math.min(s.length, 2000); i += 1) {
+        h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+      }
+      return String(h);
+    };
+    const key = `${appId}|${appVersion ?? 0}|${hashPrompt(basePrompt)}`;
+
+    if (dialogueGenDoneKeyRef.current === key) return;
+    if (dialogueGenInFlightKeyRef.current === key) return;
+
+    dialogueGenInFlightKeyRef.current = key;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const scripted = testCasesRef.current.filter((tc) => tc.warmStart === "scripted");
+        if (!scripted.length) {
+          dialogueGenDoneKeyRef.current = key;
+          return;
+        }
+        await fetchAndApplyScriptedDialogues(scripted);
+        if (!cancelled) {
+          dialogueGenDoneKeyRef.current = key;
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setTestCases((current) =>
+          current.map((tc) => {
+            if (tc.warmStart !== "scripted") return tc;
+            const awaitingPreview = tc.messages.length === 0;
+            if (!awaitingPreview) return tc;
+            return {
+              ...tc,
+              messages: [
+                createMessage(
+                  "assistant",
+                  `Could not generate simulated dialogue (${err instanceof Error ? err.message : String(err)}). Check your API key or try **Reset session**.`
+                ),
+              ],
+            };
+          })
+        );
+        dialogueGenDoneKeyRef.current = key;
+      } finally {
+        dialogueGenInFlightKeyRef.current = null;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    appId,
+    appVersion,
+    readOnly,
+    promptMarkdown,
+    serverSystemPrompt,
+    fetchAndApplyScriptedDialogues,
+  ]);
 
   async function loadApp() {
     if (readOnly) {
       setModelLabel(modelLabelOverride || "Shared project preview");
+      setServerSystemPrompt("");
       return;
     }
 
@@ -4188,12 +4370,22 @@ export default function AssistantPanel({
 
       if (res.ok && body?.app) {
         setModelLabel(`${body.app.provider} · ${body.app.model}`);
+        setServerSystemPrompt(
+          (typeof body.app.systemPrompt === "string"
+            ? body.app.systemPrompt.trim()
+            : "") ||
+            (typeof body.app.description === "string"
+              ? body.app.description.trim()
+              : "")
+        );
         return;
       }
 
       setModelLabel("Unknown model");
+      setServerSystemPrompt("");
     } catch {
       setModelLabel("Unknown model");
+      setServerSystemPrompt("");
     }
   }
 
@@ -4263,17 +4455,16 @@ export default function AssistantPanel({
       detail: `Rerunning ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
     });
 
-    const introMessage = createMessage(
-      "assistant",
-      buildTestCaseIntroMessage(displayName, testCase.script)
-    );
-    const userMessages = buildTestCaseUserMessages(testCase.script);
-    const nextMessages: ChatMessage[] = [introMessage];
+    const userTurns =
+      testCase.simulatedUserTurns && testCase.simulatedUserTurns.length > 0
+        ? testCase.simulatedUserTurns
+        : buildTestCaseUserMessages(testCase.script);
+    const nextMessages: ChatMessage[] = [];
 
-    for (const [messageIndex, userMessage] of userMessages.entries()) {
+    for (const [messageIndex, userMessage] of userTurns.entries()) {
       setBatchRunProgress({
         title: "Updating current testcases",
-        detail: `${testCase.purposeLabel}: generating reply ${messageIndex + 1} of ${userMessages.length}`,
+        detail: `${testCase.purposeLabel}: generating reply ${messageIndex + 1} of ${userTurns.length}`,
       });
       nextMessages.push(createMessage("user", userMessage));
       const reply = await requestPreviewReply({
@@ -4287,6 +4478,7 @@ export default function AssistantPanel({
     return {
       ...testCase,
       messages: nextMessages,
+      simulatedUserTurns: userTurns,
       visualizationState: null,
       passed: false,
       verificationStatus: "idle" as const,
@@ -4355,6 +4547,8 @@ export default function AssistantPanel({
   }
 
   function resetSession() {
+    dialogueGenDoneKeyRef.current = null;
+    dialogueGenInFlightKeyRef.current = null;
     const nextCases = createInitialTestCases(displayName, readOnly);
     setTestCases(nextCases);
     setActiveTestCaseId(nextCases[0]?.id || "");
@@ -4371,22 +4565,53 @@ export default function AssistantPanel({
   }
 
   function resetActiveTestCase() {
-    const fallbackId = activeTestCase?.id;
-    if (!fallbackId) return;
+    const tc = activeTestCase;
+    if (!tc) return;
+
+    if (tc.warmStart === "scripted") {
+      updateActiveTestCase(() => ({
+        ...tc,
+        messages: [],
+        simulatedUserTurns: undefined,
+        visualizationState: null,
+        passed: false,
+        verificationStatus: "idle",
+        verificationNote: "",
+      }));
+      void fetchAndApplyScriptedDialogues([tc]).catch((err) => {
+        setTestCases((prev) =>
+          prev.map((row) =>
+            row.id === tc.id
+              ? {
+                  ...row,
+                  messages: [
+                    createMessage(
+                      "assistant",
+                      `Could not regenerate: ${err instanceof Error ? err.message : String(err)}`
+                    ),
+                  ],
+                }
+              : row
+          )
+        );
+      });
+      setInput("");
+      setAttachedFileName("");
+      setAttachedFileText("");
+      setAttachedImageName("");
+      setAttachedImageUrl("");
+      setEditingMessageId(null);
+      setEditingDraft("");
+      clearPromptUpdateState();
+      return;
+    }
 
     updateActiveTestCase((testCase) => ({
       ...testCase,
       messages:
-        testCase.warmStart === "teacher"
-          ? testCase.teacherEntry === "configure"
-            ? getTeacherConfigureFirstMessages(displayName)
-            : getTeacherScratchStartMessages(displayName, testCase.script)
-          : getInitialMessages(
-              displayName,
-              testCase.studentProfile,
-              testCase.script,
-              readOnly
-            ),
+        testCase.teacherEntry === "configure"
+          ? getTeacherConfigureFirstMessages(displayName)
+          : getTeacherScratchStartMessages(displayName, testCase.script),
       visualizationState: null,
       passed: false,
       verificationStatus: "idle",
@@ -4420,7 +4645,11 @@ export default function AssistantPanel({
       readOnly,
       studentProfile,
       preset,
-      { warmStart: "teacher", teacherEntry: entry }
+      {
+        warmStart: "teacher",
+        teacherEntry: entry,
+        ...(entry === "configure" ? { autoDialoguePending: true } : {}),
+      }
     );
     setTestCases((current) => [...current, nextCase]);
     setActiveTestCaseId(nextCase.id);
@@ -4468,48 +4697,111 @@ export default function AssistantPanel({
   function saveTestCaseEdit() {
     if (!testCaseEditDraft) return;
     const d = testCaseEditDraft;
-    updateTestCaseById(d.id, (tc) => {
-      const nextScript: TestCasePreset = {
-        ...tc.script,
-        purposeLabel: d.purposeLabel.trim() || tc.script.purposeLabel,
-        scenarioSummary: d.scenarioSummary.trim() || tc.script.scenarioSummary,
-      };
-      const nextProfile: StudentProfile | null = tc.studentProfile
-        ? {
-            ...tc.studentProfile,
-            label: d.label.trim() || tc.studentProfile.label,
-            gradeLevel: d.gradeLevel.trim() || tc.studentProfile.gradeLevel,
-            knowledgeLevel: d.knowledgeLevel.trim() || tc.studentProfile.knowledgeLevel,
-            personality: d.personality.trim() || tc.studentProfile.personality,
-          }
-        : d.label.trim()
-          ? {
-              id: `custom-${tc.id}`,
-              label: d.label.trim(),
-              gradeLevel: d.gradeLevel.trim() || "—",
-              knowledgeLevel: d.knowledgeLevel.trim() || "—",
-              personality: d.personality.trim() || "—",
-            }
-          : null;
+    const target = testCases.find((t) => t.id === d.id);
+    if (!target) {
+      setTestCaseEditDraft(null);
+      return;
+    }
 
-      return {
-        ...tc,
-        name: d.name.trim() || tc.name,
-        purposeLabel: nextScript.purposeLabel,
-        scenarioSummary: nextScript.scenarioSummary,
-        script: nextScript,
-        studentProfile: nextProfile,
-        messages:
-          tc.warmStart === "teacher"
-            ? getTeacherLedContextSeedMessages(displayName, nextProfile, nextScript, readOnly)
-            : getInitialMessages(displayName, nextProfile, nextScript, readOnly),
-        visualizationState: null,
-        passed: false,
-        verificationStatus: "idle",
-        verificationNote: "",
-      };
-    });
+    const nextScript: TestCasePreset = {
+      ...target.script,
+      purposeLabel: d.purposeLabel.trim() || target.script.purposeLabel,
+      scenarioSummary: d.scenarioSummary.trim() || target.script.scenarioSummary,
+    };
+    const nextProfile: StudentProfile | null = target.studentProfile
+      ? {
+          ...target.studentProfile,
+          label: d.label.trim() || target.studentProfile.label,
+          gradeLevel: d.gradeLevel.trim() || target.studentProfile.gradeLevel,
+          knowledgeLevel: d.knowledgeLevel.trim() || target.studentProfile.knowledgeLevel,
+          personality: d.personality.trim() || target.studentProfile.personality,
+        }
+      : d.label.trim()
+        ? {
+            id: `custom-${target.id}`,
+            label: d.label.trim(),
+            gradeLevel: d.gradeLevel.trim() || "—",
+            knowledgeLevel: d.knowledgeLevel.trim() || "—",
+            personality: d.personality.trim() || "—",
+          }
+        : null;
+
+    const pendingConfigureGen =
+      Boolean(target.autoDialoguePending && target.teacherEntry === "configure");
+
+    const scriptedReady: TestCaseSet | null = pendingConfigureGen
+      ? {
+          ...target,
+          name: d.name.trim() || target.name,
+          purposeLabel: nextScript.purposeLabel,
+          scenarioSummary: nextScript.scenarioSummary,
+          script: nextScript,
+          studentProfile: nextProfile,
+          warmStart: "scripted",
+          teacherEntry: undefined,
+          autoDialoguePending: false,
+          messages: [],
+          simulatedUserTurns: undefined,
+          visualizationState: null,
+          passed: false,
+          verificationStatus: "idle",
+          verificationNote: "",
+        }
+      : null;
+
+    setTestCases((current) =>
+      current.map((tc) => {
+        if (tc.id !== d.id) return tc;
+
+        const base = {
+          ...tc,
+          name: d.name.trim() || tc.name,
+          purposeLabel: nextScript.purposeLabel,
+          scenarioSummary: nextScript.scenarioSummary,
+          script: nextScript,
+          studentProfile: nextProfile,
+          visualizationState: null,
+          passed: false,
+          verificationStatus: "idle" as const,
+          verificationNote: "",
+        };
+
+        if (scriptedReady && tc.autoDialoguePending && tc.teacherEntry === "configure") {
+          return scriptedReady;
+        }
+
+        return {
+          ...base,
+          messages:
+            tc.warmStart === "teacher"
+              ? getTeacherLedContextSeedMessages(displayName, nextProfile, nextScript, readOnly)
+              : tc.warmStart === "scripted"
+                ? tc.messages
+                : getInitialMessages(displayName, nextProfile, nextScript, readOnly),
+        };
+      })
+    );
+
     setTestCaseEditDraft(null);
+    if (scriptedReady) {
+      void fetchAndApplyScriptedDialogues([scriptedReady]).catch((err) => {
+        setTestCases((prev) =>
+          prev.map((row) =>
+            row.id === scriptedReady.id
+              ? {
+                  ...row,
+                  messages: [
+                    createMessage(
+                      "assistant",
+                      `Could not generate simulated dialogue (${err instanceof Error ? err.message : String(err)}). Check your API key or try **Reset session**.`
+                    ),
+                  ],
+                }
+              : row
+          )
+        );
+      });
+    }
   }
 
   function deleteTestCase(testCaseId: string) {
@@ -4576,7 +4868,11 @@ export default function AssistantPanel({
     if (targetIndex < 0) return;
 
     const targetMessage = activeTestCase.messages[targetIndex];
-    const currentPrompt = promptMarkdown.trim() || getAssistantSystemPrompt(appId);
+    const currentPrompt = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    });
     const updatedTargetMessage = {
       ...targetMessage,
       content: nextContent,
@@ -4668,9 +4964,20 @@ export default function AssistantPanel({
     void loadApp();
   }, [appId, appVersion]);
 
+  // Only reset when the app identity or read-only mode changes. Do not depend on
+  // `appName` (loads after mount and would replace all case IDs) or `appVersion`
+  // (bumps on settings save)—those would invalidate in-flight dialogue generation
+  // and leave scripted cases with empty messages forever.
+  // Do not run on the first mount: `useState(createInitialTestCases)` already
+  // created stable IDs; an immediate resetSession would issue new UUIDs and race
+  // the dialogue generator (API results would not match current case ids).
   useEffect(() => {
+    const prev = prevSessionResetKeyRef.current;
+    prevSessionResetKeyRef.current = { appId, readOnly };
+    if (!prev) return;
+    if (prev.appId === appId && prev.readOnly === readOnly) return;
     resetSession();
-  }, [appId, appName, appVersion, readOnly]);
+  }, [appId, readOnly]);
 
   useEffect(() => {
     if (!testCases.length) return;
@@ -4780,7 +5087,14 @@ export default function AssistantPanel({
         },
         body: JSON.stringify({
           appId,
-          system: buildCaseSpecificPrompt(getAssistantSystemPrompt(appId), activeStudentProfile),
+          system: buildCaseSpecificPrompt(
+            resolveAssistantSystemPrompt({
+              promptMarkdown,
+              appId,
+              serverSystemPrompt,
+            }),
+            activeStudentProfile
+          ),
           messages: nextMessages,
           visualizationState: currentVisualizationState,
         }),
@@ -4872,7 +5186,11 @@ export default function AssistantPanel({
   async function runPromptUpdatePipeline() {
     if (!editedMessageCount || busy || applyBusy || !activeTestCase) return;
 
-    const currentPrompt = promptMarkdown.trim() || getAssistantSystemPrompt(appId);
+    const currentPrompt = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    });
     if (!currentPrompt.trim()) {
       setApplyError("The current prompt is empty, so there is nothing to update yet.");
       return;
@@ -5549,7 +5867,7 @@ export default function AssistantPanel({
           onClick={() => setVisualFullscreen(false)}
         />
       )}
-      {batchRunProgress && !readOnly && (
+      {panelBlockingProgress && !readOnly && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px] dark:bg-zinc-950/70">
           <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
             <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
@@ -5561,10 +5879,10 @@ export default function AssistantPanel({
               </svg>
             </div>
             <div className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-              {batchRunProgress.title}
+              {panelBlockingProgress.title}
             </div>
             <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
-              {batchRunProgress.detail}
+              {panelBlockingProgress.detail}
             </div>
           </div>
         </div>
@@ -5603,7 +5921,7 @@ export default function AssistantPanel({
                   Simulated student first
                 </div>
                 <div className="mt-1 text-[11px] font-normal text-slate-600 dark:text-zinc-400">
-                  Edit student & scenario first.
+                  Edit student & scenario, then we generate a 5-turn preview like default tests.
                 </div>
               </button>
               <button

@@ -30,6 +30,14 @@ export const TEXT_FILE_INPUT_ACCEPT = [
 /** Text + images for learner chat (preview & published). */
 export const CHAT_ATTACHMENT_ACCEPT = [TEXT_FILE_INPUT_ACCEPT, "image/*"].join(",");
 
+/** Final prompt editor: text, images, and PDF (PDF text extracted via API). */
+export const TEACHER_PROMPT_ATTACHMENT_ACCEPT = [
+  TEXT_FILE_INPUT_ACCEPT,
+  "image/*",
+  ".pdf",
+  "application/pdf",
+].join(",");
+
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export async function readImageDataUrl(file: File): Promise<string> {
@@ -66,6 +74,53 @@ export async function buildFileAttachmentText(file: File) {
     trimmed.length > 12000 ? `${trimmed.slice(0, 12000)}\n\n[File truncated for length]` : trimmed;
 
   return `[Uploaded file: ${file.name}]\n${limited || "[File was empty]"}`;
+}
+
+/**
+ * Build inline content for the teacher system-prompt attachment flow (text, image as data-URL markdown, or PDF via server text extraction).
+ */
+export async function buildTeacherPromptAttachmentBlock(file: File) {
+  if (isSupportedTextFile(file)) {
+    return buildFileAttachmentText(file);
+  }
+
+  if (file.type.startsWith("image/")) {
+    const dataUrl = await readImageDataUrl(file);
+    return `[Uploaded image: ${file.name}]\n![${file.name}](${dataUrl})`;
+  }
+
+  const isPdf =
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf");
+  if (isPdf) {
+    const form = new FormData();
+    form.set("file", file);
+    const res = await fetch("/api/prompt-attachments/pdf-text", {
+      method: "POST",
+      body: form,
+    });
+    let body: { text?: string; error?: string } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      body = {};
+    }
+    if (!res.ok) {
+      throw new Error(
+        typeof body.error === "string" ? body.error : "Could not extract PDF text."
+      );
+    }
+    const raw = String(body.text || "").trim();
+    const limited =
+      raw.length > 12000
+        ? `${raw.slice(0, 12000)}\n\n[PDF text truncated for length]`
+        : raw;
+    return `[Uploaded PDF: ${file.name}]\n${limited || "[No extractable text found in this PDF]"}`;
+  }
+
+  throw new Error(
+    "Unsupported file type. Use text, code, PDF, or image files."
+  );
 }
 
 export function appendTextToComposer(current: string, addition: string) {

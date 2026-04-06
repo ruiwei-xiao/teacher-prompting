@@ -13,7 +13,8 @@ import {
   getModelLabel,
   normalizeVariability,
 } from "@/lib/app-store/model-selection";
-import { readStoredPrompt } from "@/lib/prompt-storage/client";
+import { isDefaultInstructionPrompt } from "@/lib/prompt-defaults";
+import { readStoredPrompt, saveStoredPrompt } from "@/lib/prompt-storage/client";
 
 export default function EditorPage({
   params,
@@ -83,6 +84,20 @@ export default function EditorPage({
           setForkedFromProjectName(body.app.forkedFromProjectName || "");
           setForkedFromAuthorName(body.app.forkedFromAuthorName || "");
           setForkedFromProjectShareSlug(body.app.forkedFromProjectShareSlug || "");
+          const serverPrompt =
+            (typeof body.app.systemPrompt === "string"
+              ? body.app.systemPrompt.trim()
+              : "") ||
+            (typeof body.app.description === "string"
+              ? body.app.description.trim()
+              : "");
+          const localDraft = readStoredPrompt(appId);
+          if (
+            serverPrompt &&
+            (!localDraft.trim() || isDefaultInstructionPrompt(localDraft))
+          ) {
+            saveStoredPrompt(serverPrompt, appId);
+          }
           return;
         }
       } catch {}

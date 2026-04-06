@@ -18,10 +18,14 @@ import {
 } from '@/lib/prompt-storage/client';
 import { stripTestCaseStudentsFromPrompt } from '@/lib/test-case-students';
 import {
-  buildFileAttachmentText,
-  TEXT_FILE_INPUT_ACCEPT,
+  buildTeacherPromptAttachmentBlock,
+  TEACHER_PROMPT_ATTACHMENT_ACCEPT,
 } from '@/lib/chat-input/client';
 import { TEACHING_AGENT_TEMPLATES } from '@/lib/prompt-builder/teaching-agent-templates';
+import {
+  DEFAULT_INSTRUCTION_PROMPT as DEFAULT_PROMPT,
+  isDefaultInstructionPrompt,
+} from '@/lib/prompt-defaults';
 
 type PromptFeedbackChangedBlock = {
   heading: string;
@@ -218,13 +222,21 @@ function buildPromptDiff(beforePrompt: string, afterPrompt: string): PromptDiffL
 function ToolbarIconFrame({
   children,
   compact,
+  inline,
 }: {
   children: ReactNode;
   compact?: boolean;
+  /** When set with `compact`, drop bottom margin for horizontal toolbar buttons. */
+  inline?: boolean;
 }) {
   if (compact) {
     return (
-      <div className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F3E078] dark:bg-amber-200/90">
+      <div
+        className={[
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F3E078] dark:bg-amber-200/90',
+          inline ? '' : 'mb-1.5',
+        ].join(' ')}
+      >
         <span className="text-slate-900 dark:text-zinc-900 [&>svg]:h-[18px] [&>svg]:w-[18px]">
           {children}
         </span>
@@ -278,24 +290,6 @@ function IconAttachmentFile() {
     </svg>
   );
 }
-
-const DEFAULT_PROMPT = [
-  'Background',
-  'You are an expert in ________.',
-  'Your role is to __________.',
-  'You are talking to __________.',
-  '',
-  'Your Workflow',
-  'First, ___________.',
-  'After they respond, then ___________.',
-  'Next, ___________.',
-  '',
-  'Guidelines & Guardrails',
-  'Avoid language that might seem judgmental or dismissive.',
-  'Be inclusive in your examples and explanations, consider multiple perspectives, and avoid stereotypes.',
-  'Provide clear and concise responses.',
-  'If off-topic, prompt users to return to the main subject.',
-].join('\n');
 
 export default function InstructionDoc({
   appId: appIdProp,
@@ -397,9 +391,14 @@ export default function InstructionDoc({
       }
 
       const storedPrompt = readStoredPrompt(appId);
-      if (storedPrompt.trim()) {
-        const nextPrompt =
-          stripTestCaseStudentsFromPrompt(storedPrompt).trim() || DEFAULT_PROMPT;
+      const storedStripped =
+        stripTestCaseStudentsFromPrompt(storedPrompt).trim() || '';
+      const storedIsOnlyDefaultTemplate =
+        !!storedStripped &&
+        (isDefaultInstructionPrompt(storedPrompt) ||
+          isDefaultInstructionPrompt(storedStripped));
+      if (storedStripped && !storedIsOnlyDefaultTemplate) {
+        const nextPrompt = storedStripped || DEFAULT_PROMPT;
         if (!cancelled) {
           applyPrompt(nextPrompt);
           setHydrated(true);
@@ -412,8 +411,15 @@ export default function InstructionDoc({
           const res = await fetch(`/api/apps/${appId}`);
           const body = await res.json();
           if (!cancelled && res.ok && body?.app) {
+            const fromServer =
+              (typeof body.app.systemPrompt === 'string'
+                ? body.app.systemPrompt.trim()
+                : '') ||
+              (typeof body.app.description === 'string'
+                ? body.app.description.trim()
+                : '');
             const raw =
-              body.app.systemPrompt?.trim() ||
+              fromServer ||
               buildPlainPromptFromBuilder(body.app.builderState || initialBuilderState) ||
               DEFAULT_PROMPT;
             const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
@@ -505,7 +511,7 @@ export default function InstructionDoc({
       setAttachError('');
       try {
         for (const file of list) {
-          const block = await buildFileAttachmentText(file);
+          const block = await buildTeacherPromptAttachmentBlock(file);
           const wrapped = `\n\n### Reference (attached: ${file.name})\n\n${block}\n`;
           insertIntoPrompt(wrapped);
         }
@@ -670,51 +676,49 @@ export default function InstructionDoc({
                   className="shrink-0 border-t border-slate-200 bg-slate-50/90 dark:border-zinc-800 dark:bg-zinc-950/80"
                   {...promptFileDragProps}
                 >
-                  <div className="flex flex-wrap gap-2 px-2.5 py-2">
+                  <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">
                     <input
                       ref={fileInputRef}
                       type="file"
                       className="hidden"
-                      accept={TEXT_FILE_INPUT_ACCEPT}
+                      accept={TEACHER_PROMPT_ATTACHMENT_ACCEPT}
                       multiple
                       onChange={(event) => void onTeacherAttachFiles(event.target.files)}
                     />
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex min-w-[120px] max-w-full flex-1 flex-col rounded-xl border border-slate-200/95 bg-white p-2.5 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:max-w-[168px] sm:flex-none"
+                      className="inline-flex max-w-full flex-1 items-center gap-2.5 rounded-xl border border-slate-200/95 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:flex-none"
                       {...promptFileDropRelayProps}
                     >
-                      <ToolbarIconFrame compact>
+                      <ToolbarIconFrame compact inline>
                         <IconAttachmentFile />
                       </ToolbarIconFrame>
-                      <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
-                        Attachment
-                      </span>
-                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-400">
-                        Add text files into your prompt.
-                      </p>
-                      <span className="mt-1.5 text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
-                        Reference
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
+                          Attachment
+                        </span>
+                        <span className="text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
+                          Reference
+                        </span>
                       </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setTemplateModalOpen(true)}
-                      className="flex min-w-[120px] max-w-full flex-1 flex-col rounded-xl border border-slate-200/95 bg-white p-2.5 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:max-w-[168px] sm:flex-none"
+                      className="inline-flex max-w-full flex-1 items-center gap-2.5 rounded-xl border border-slate-200/95 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:flex-none"
                       {...promptFileDropRelayProps}
                     >
-                      <ToolbarIconFrame compact>
+                      <ToolbarIconFrame compact inline>
                         <IconBranchTemplate />
                       </ToolbarIconFrame>
-                      <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
-                        Template
-                      </span>
-                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500 dark:text-zinc-400">
-                        Open the gallery and pick a teaching pattern.
-                      </p>
-                      <span className="mt-1.5 text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
-                        Agent
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-zinc-50">
+                          Agent
+                        </span>
+                        <span className="text-[10px] font-medium tracking-wide text-slate-400 dark:text-zinc-500">
+                          Template
+                        </span>
                       </span>
                     </button>
                   </div>

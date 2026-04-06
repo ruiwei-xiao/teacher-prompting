@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
     const id = slugify(name);
     const { provider, model } = parseModelSelection(genaiModel);
     const now = new Date().toISOString();
+    const descriptionTrimmed =
+      typeof description === "string" ? description.trim() : "";
 
     const app: AppConfig = {
       id,
@@ -90,6 +92,7 @@ export async function POST(req: NextRequest) {
       model,
       apiKey: genaiApiKey,
       variability: normalizeVariability(DEFAULT_VARIABILITY),
+      ...(descriptionTrimmed ? { systemPrompt: descriptionTrimmed } : {}),
       createdAt: now,
       updatedAt: now,
     };
