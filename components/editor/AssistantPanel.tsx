@@ -24,6 +24,7 @@ import {
   TEST_CASE_STUDENTS_SECTION_HEADING,
   type StudentProfile,
 } from "@/lib/test-case-students";
+import { extractPlottableRhs } from "@/lib/math/function-plot";
 
 type ChatMessage = {
   id: string;
@@ -112,7 +113,7 @@ type TestCaseSet = {
   verificationNote: string;
   warmStart: TestCaseWarmStart;
   teacherEntry?: TeacherEntryMode;
-  /** After "Simulated student first", set until first save—then we auto-generate 5-turn dialogue. */
+  /** After "Simulated student first", set until first save—then case becomes scripted; use Apply to generate preview. */
   autoDialoguePending?: boolean;
 };
 
@@ -145,7 +146,7 @@ function createMessage(
   };
 }
 
-/** Strip leading provider from labels like "openai · gpt-4o-mini". */
+/** Strip leading provider from labels like "openai · gpt-5.4-mini". */
 function modelNameWithoutProvider(modelLabel: string): string {
   const sep = " · ";
   if (!modelLabel.includes(sep)) return modelLabel;
@@ -484,6 +485,13 @@ export function detectVisualizationMode(prompt: string) {
     normalized.includes("reaction state panel")
   ) {
     return "virtual-lab" as const;
+  }
+
+  if (
+    normalized.includes("function graph coach") ||
+    normalized.includes("function plot preview")
+  ) {
+    return "function-graph" as const;
   }
 
   return null;
@@ -3986,9 +3994,168 @@ function DyslexiaSupportVisualization({
   );
 }
 
+function FunctionGraphVisualization({
+  appId,
+  latestAssistantMessage,
+}: {
+  appId: string;
+  latestAssistantMessage?: string;
+}) {
+  const rhsHint = useMemo(
+    () => extractPlottableRhs(latestAssistantMessage),
+    [latestAssistantMessage]
+  );
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [failedRhs, setFailedRhs] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!rhsHint || !appId.trim()) {
+      setImageDataUrl(null);
+      setLoadError(null);
+      setFailedRhs(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    setFailedRhs(null);
+    setImageDataUrl(null);
+    void (async () => {
+      try {
+        const res = await fetch("/api/math/function-plot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appId,
+            assistantMessage: latestAssistantMessage ?? "",
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          reason?: string;
+          rhs?: string;
+          imageDataUrl?: string;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setLoadError(
+            typeof body.error === "string" ? body.error : "Could not load chart"
+          );
+          setLoading(false);
+          return;
+        }
+        if (body.ok === true && typeof body.imageDataUrl === "string") {
+          setImageDataUrl(body.imageDataUrl);
+          setLoading(false);
+          return;
+        }
+        if (body.ok === false) {
+          if (body.reason === "parse_error" || body.reason === "no_data") {
+            setFailedRhs(typeof body.rhs === "string" ? body.rhs : rhsHint);
+          }
+          setLoading(false);
+          return;
+        }
+        setLoadError("Could not render plot");
+        setLoading(false);
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : "Network error");
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, latestAssistantMessage, rhsHint]);
+
+  if (!rhsHint && !loading) {
+    return (
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 text-sm text-slate-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-zinc-200">
+        <p className="font-medium text-indigo-900 dark:text-indigo-200">Function plot preview</p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
+          When the assistant&apos;s latest reply includes a line like{" "}
+          <code className="rounded bg-white/80 px-1 py-0.5 font-mono text-[11px] dark:bg-zinc-900">
+            y = x^2 - 1
+          </code>{" "}
+          or{" "}
+          <code className="rounded bg-white/80 px-1 py-0.5 font-mono text-[11px] dark:bg-zinc-900">
+            f(x) = …
+          </code>
+          , the chart is rendered via{" "}
+          <span className="font-medium">QuickChart.io</span>.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 px-4 py-6 text-center text-sm text-slate-600 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-zinc-300">
+        Generating plot with QuickChart…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-200">
+        {loadError}
+      </div>
+    );
+  }
+
+  if (failedRhs) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+        <p className="font-medium">Could not plot this expression</p>
+        <p className="mt-1 font-mono text-xs opacity-90">{failedRhs}</p>
+        <p className="mt-2 text-xs opacity-80">
+          Use a single-line function in x (e.g. polynomials, sin, cos, sqrt). Put fractions in{" "}
+          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">a/b</code> or simple LaTeX{" "}
+          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">\frac&#123;a&#125;&#123;b&#125;</code>.
+        </p>
+      </div>
+    );
+  }
+
+  if (imageDataUrl) {
+    return (
+      <div className="space-y-2">
+        <img
+          src={imageDataUrl}
+          alt={rhsHint ? `Graph of y = ${rhsHint}` : "Function graph"}
+          className="w-full rounded-2xl border border-indigo-200 bg-white dark:border-indigo-900/50"
+        />
+        <p className="text-[11px] leading-relaxed text-slate-500 dark:text-zinc-500">
+          Rendered by{" "}
+          <a
+            href="https://quickchart.io/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
+          >
+            QuickChart
+          </a>{" "}
+          (Chart.js). x ∈ [−6, 6].
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export function VisualizationSurface({
   mode,
+  appId = "",
   latestUserMessage,
+  latestAssistantMessage,
   assistantTurnCount,
   embedded = false,
   onStateChange,
@@ -3998,8 +4165,11 @@ export function VisualizationSurface({
     | "spacing-testing"
     | "music-staff"
     | "virtual-lab"
-    | "dyslexia-support";
+    | "dyslexia-support"
+    | "function-graph";
+  appId?: string;
   latestUserMessage?: string;
+  latestAssistantMessage?: string;
   assistantTurnCount?: number;
   embedded?: boolean;
   onStateChange?: (state: VisualizationState) => void;
@@ -4037,6 +4207,15 @@ export function VisualizationSurface({
     );
   }
 
+  if (mode === "function-graph") {
+    return (
+      <FunctionGraphVisualization
+        appId={appId}
+        latestAssistantMessage={latestAssistantMessage}
+      />
+    );
+  }
+
   return <VirtualLabVisualization onStateChange={onStateChange} />;
 }
 
@@ -4046,7 +4225,8 @@ export function getVisualizationTitle(
     | "spacing-testing"
     | "music-staff"
     | "virtual-lab"
-    | "dyslexia-support",
+    | "dyslexia-support"
+    | "function-graph",
   fullscreen: boolean
 ) {
   if (mode === "spacing-testing") {
@@ -4065,6 +4245,10 @@ export function getVisualizationTitle(
     return fullscreen
       ? "Dyslexia-friendly literacy support"
       : "Embedded dyslexia support view";
+  }
+
+  if (mode === "function-graph") {
+    return fullscreen ? "Function graph preview" : "Embedded function graph";
   }
 
   return fullscreen ? "Virtual lab visualizer" : "Embedded virtual lab view";
@@ -4120,16 +4304,6 @@ function getInitialMessages(
   ];
 }
 
-function buildTestCaseUserMessages(
-  preset?: TestCasePreset
-) {
-  return [
-    preset?.round1User || "Can you help me get started?",
-    preset?.round2User || "I think I partly get it, but I still feel unsure and might be mixing up a few ideas.",
-    preset?.round3User || "Can I try answering in my own words first, and then you tell me what I understood well and what I should fix?",
-  ];
-}
-
 export default function AssistantPanel({
   appId,
   appName,
@@ -4182,8 +4356,6 @@ export default function AssistantPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const testCasesRef = useRef<TestCaseSet[]>([]);
-  const dialogueGenDoneKeyRef = useRef<string | null>(null);
-  const dialogueGenInFlightKeyRef = useRef<string | null>(null);
   /** Only reset session when appId/readOnly actually change (not on mount). Survives React Strict Mode double-invoked effects. */
   const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
 
@@ -4203,6 +4375,9 @@ export default function AssistantPanel({
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
   const editedMessageCount = messages.filter(messageHasEdits).length;
   const panelBlockingProgress = batchRunProgress ?? dialogueGenProgress;
@@ -4212,12 +4387,18 @@ export default function AssistantPanel({
   }, [testCases]);
 
   const fetchAndApplyScriptedDialogues = useCallback(
-    async (scripted: TestCaseSet[]) => {
-      const basePrompt = resolveAssistantSystemPrompt({
-        promptMarkdown,
-        appId,
-        serverSystemPrompt,
-      }).trim();
+    async (
+      scripted: TestCaseSet[],
+      options?: { systemPromptOverride?: string }
+    ) => {
+      const basePrompt = (
+        options?.systemPromptOverride?.trim() ||
+        resolveAssistantSystemPrompt({
+          promptMarkdown,
+          appId,
+          serverSystemPrompt,
+        }).trim()
+      );
       if (!basePrompt) {
         throw new Error("Add a Final Prompt before generating test-case dialogue.");
       }
@@ -4284,78 +4465,6 @@ export default function AssistantPanel({
     },
     [appId, promptMarkdown, serverSystemPrompt]
   );
-
-  useEffect(() => {
-    if (readOnly) return;
-
-    const basePrompt = resolveAssistantSystemPrompt({
-      promptMarkdown,
-      appId,
-      serverSystemPrompt,
-    }).trim();
-    if (!basePrompt) return;
-
-    const hashPrompt = (s: string) => {
-      let h = 0;
-      for (let i = 0; i < Math.min(s.length, 2000); i += 1) {
-        h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-      }
-      return String(h);
-    };
-    const key = `${appId}|${appVersion ?? 0}|${hashPrompt(basePrompt)}`;
-
-    if (dialogueGenDoneKeyRef.current === key) return;
-    if (dialogueGenInFlightKeyRef.current === key) return;
-
-    dialogueGenInFlightKeyRef.current = key;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const scripted = testCasesRef.current.filter((tc) => tc.warmStart === "scripted");
-        if (!scripted.length) {
-          dialogueGenDoneKeyRef.current = key;
-          return;
-        }
-        await fetchAndApplyScriptedDialogues(scripted);
-        if (!cancelled) {
-          dialogueGenDoneKeyRef.current = key;
-        }
-      } catch (err) {
-        if (cancelled) return;
-        setTestCases((current) =>
-          current.map((tc) => {
-            if (tc.warmStart !== "scripted") return tc;
-            const awaitingPreview = tc.messages.length === 0;
-            if (!awaitingPreview) return tc;
-            return {
-              ...tc,
-              messages: [
-                createMessage(
-                  "assistant",
-                  `Could not generate simulated dialogue (${err instanceof Error ? err.message : String(err)}). Check your API key or try **Reset session**.`
-                ),
-              ],
-            };
-          })
-        );
-        dialogueGenDoneKeyRef.current = key;
-      } finally {
-        dialogueGenInFlightKeyRef.current = null;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    appId,
-    appVersion,
-    readOnly,
-    promptMarkdown,
-    serverSystemPrompt,
-    fetchAndApplyScriptedDialogues,
-  ]);
 
   async function loadApp() {
     if (readOnly) {
@@ -4430,88 +4539,6 @@ export default function AssistantPanel({
     return reply;
   }
 
-  async function rerunTestCase(
-    testCase: TestCaseSet,
-    prompt: string,
-    testCaseIndex: number,
-    totalCases: number
-  ) {
-    if (testCase.warmStart === "teacher") {
-      setBatchRunProgress({
-        title: "Updating current testcases",
-        detail: `Skipping scripted replay for ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
-      });
-      return {
-        ...testCase,
-        visualizationState: null,
-        passed: false,
-        verificationStatus: "idle" as const,
-        verificationNote: "",
-      };
-    }
-
-    setBatchRunProgress({
-      title: "Updating current testcases",
-      detail: `Rerunning ${testCase.purposeLabel} (${testCaseIndex + 1}/${totalCases})`,
-    });
-
-    const userTurns =
-      testCase.simulatedUserTurns && testCase.simulatedUserTurns.length > 0
-        ? testCase.simulatedUserTurns
-        : buildTestCaseUserMessages(testCase.script);
-    const nextMessages: ChatMessage[] = [];
-
-    for (const [messageIndex, userMessage] of userTurns.entries()) {
-      setBatchRunProgress({
-        title: "Updating current testcases",
-        detail: `${testCase.purposeLabel}: generating reply ${messageIndex + 1} of ${userTurns.length}`,
-      });
-      nextMessages.push(createMessage("user", userMessage));
-      const reply = await requestPreviewReply({
-        system: buildCaseSpecificPrompt(prompt, testCase.studentProfile),
-        messages: nextMessages,
-        visualizationState: null,
-      });
-      nextMessages.push(createMessage("assistant", reply));
-    }
-
-    return {
-      ...testCase,
-      messages: nextMessages,
-      simulatedUserTurns: userTurns,
-      visualizationState: null,
-      passed: false,
-      verificationStatus: "idle" as const,
-      verificationNote: "",
-    };
-  }
-
-  async function refreshAllTestCases(prompt: string) {
-    if (!prompt.trim() || readOnly) return;
-
-    setBusy(true);
-    setComposerError("");
-    clearPromptUpdateState(true);
-    setBatchRunProgress({
-      title: "Updating current testcases",
-      detail: "Preparing all test cases...",
-    });
-
-    try {
-      const rerunCases: TestCaseSet[] = [];
-      for (const [index, testCase] of testCases.entries()) {
-        rerunCases.push(await rerunTestCase(testCase, prompt, index, testCases.length));
-      }
-      setTestCases(rerunCases);
-      setApplySummary("Updated all test cases with the current prompt.");
-    } catch (error: any) {
-      setApplyError(error?.message || "Failed to update all test cases.");
-    } finally {
-      setBatchRunProgress(null);
-      setBusy(false);
-    }
-  }
-
   function updateTestCaseById(
     testCaseId: string,
     updater: (testCase: TestCaseSet) => TestCaseSet
@@ -4547,8 +4574,6 @@ export default function AssistantPanel({
   }
 
   function resetSession() {
-    dialogueGenDoneKeyRef.current = null;
-    dialogueGenInFlightKeyRef.current = null;
     const nextCases = createInitialTestCases(displayName, readOnly);
     setTestCases(nextCases);
     setActiveTestCaseId(nextCases[0]?.id || "");
@@ -4578,23 +4603,6 @@ export default function AssistantPanel({
         verificationStatus: "idle",
         verificationNote: "",
       }));
-      void fetchAndApplyScriptedDialogues([tc]).catch((err) => {
-        setTestCases((prev) =>
-          prev.map((row) =>
-            row.id === tc.id
-              ? {
-                  ...row,
-                  messages: [
-                    createMessage(
-                      "assistant",
-                      `Could not regenerate: ${err instanceof Error ? err.message : String(err)}`
-                    ),
-                  ],
-                }
-              : row
-          )
-        );
-      });
       setInput("");
       setAttachedFileName("");
       setAttachedFileText("");
@@ -4783,25 +4791,6 @@ export default function AssistantPanel({
     );
 
     setTestCaseEditDraft(null);
-    if (scriptedReady) {
-      void fetchAndApplyScriptedDialogues([scriptedReady]).catch((err) => {
-        setTestCases((prev) =>
-          prev.map((row) =>
-            row.id === scriptedReady.id
-              ? {
-                  ...row,
-                  messages: [
-                    createMessage(
-                      "assistant",
-                      `Could not generate simulated dialogue (${err instanceof Error ? err.message : String(err)}). Check your API key or try **Reset session**.`
-                    ),
-                  ],
-                }
-              : row
-          )
-        );
-      });
-    }
   }
 
   function deleteTestCase(testCaseId: string) {
@@ -5030,7 +5019,55 @@ export default function AssistantPanel({
       const nextPrompt = customEvent.detail?.markdown || "";
       setPromptMarkdown(nextPrompt);
       if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim()) {
-        void refreshAllTestCases(nextPrompt);
+        setComposerError("");
+        setApplyError("");
+        setTestCases((current) =>
+          current.map((tc) =>
+            tc.warmStart === "scripted"
+              ? {
+                  ...tc,
+                  messages: [],
+                  simulatedUserTurns: undefined,
+                  visualizationState: null,
+                  passed: false,
+                  verificationStatus: "idle",
+                  verificationNote: "",
+                }
+              : tc
+          )
+        );
+        window.setTimeout(() => {
+          const scripted = testCasesRef.current.filter((tc) => tc.warmStart === "scripted");
+          if (!scripted.length) return;
+          void (async () => {
+            try {
+              await fetchAndApplyScriptedDialogues(scripted, {
+                systemPromptOverride: nextPrompt,
+              });
+              setApplyError("");
+              setApplySummary("Regenerated simulated chat previews for all scripted test cases.");
+            } catch (err) {
+              const msg =
+                err instanceof Error ? err.message : String(err);
+              setApplyError(msg);
+              setTestCases((current) =>
+                current.map((tc) => {
+                  if (tc.warmStart !== "scripted") return tc;
+                  if (tc.messages.length > 0) return tc;
+                  return {
+                    ...tc,
+                    messages: [
+                      createMessage(
+                        "assistant",
+                        `Could not generate simulated dialogue (${msg}). Check your API key or try **Apply current prompt** again.`
+                      ),
+                    ],
+                  };
+                })
+              );
+            }
+          })();
+        }, 0);
       }
     };
 
@@ -5042,7 +5079,7 @@ export default function AssistantPanel({
       window.removeEventListener("instruction-doc-updated", onPromptUpdate);
       window.removeEventListener("focus", syncPrompt);
     };
-  }, [appId, promptOverride, readOnly, testCases]);
+  }, [appId, promptOverride, readOnly, fetchAndApplyScriptedDialogues]);
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
@@ -5573,7 +5610,9 @@ export default function AssistantPanel({
             >
               <VisualizationSurface
                 mode={visualizationMode}
+                appId={appId}
                 latestUserMessage={latestUserMessage}
+                latestAssistantMessage={latestAssistantMessage}
                 assistantTurnCount={assistantTurnCount}
                 onStateChange={(nextState) =>
                   updateActiveTestCase((testCase) => ({
@@ -5707,7 +5746,9 @@ export default function AssistantPanel({
             </div>
             <VisualizationSurface
               mode={visualizationMode}
+              appId={appId}
               latestUserMessage={latestUserMessage}
+              latestAssistantMessage={latestAssistantMessage}
               assistantTurnCount={assistantTurnCount}
               embedded={true}
               onStateChange={(nextState) =>
@@ -5921,7 +5962,7 @@ export default function AssistantPanel({
                   Simulated student first
                 </div>
                 <div className="mt-1 text-[11px] font-normal text-slate-600 dark:text-zinc-400">
-                  Edit student & scenario, then we generate a 5-turn preview like default tests.
+                  Edit student & scenario, then click **Apply current prompt** to generate a 5-turn preview.
                 </div>
               </button>
               <button

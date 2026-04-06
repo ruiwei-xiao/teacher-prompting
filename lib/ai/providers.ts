@@ -60,7 +60,7 @@ function openaiModelSupportsImageTool(model: string): boolean {
   return m.includes("gpt");
 }
 
-async function generateOpenAIDalleImage(apiKey: string, prompt: string): Promise<string> {
+async function generateOpenAIIllustrationImage(apiKey: string, prompt: string): Promise<string> {
   const r = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
@@ -68,11 +68,12 @@ async function generateOpenAIDalleImage(apiKey: string, prompt: string): Promise
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "dall-e-3",
+      model: "gpt-image-1.5",
       prompt: prompt.slice(0, 4000),
       n: 1,
       size: "1024x1024",
-      response_format: "url",
+      quality: "medium",
+      response_format: "b64_json",
     }),
   });
   const body = await readUpstream(r);
@@ -80,9 +81,9 @@ async function generateOpenAIDalleImage(apiKey: string, prompt: string): Promise
     const msg = body?.error?.message || JSON.stringify(body).slice(0, 400);
     throw new Error(msg);
   }
-  const url = body?.data?.[0]?.url;
-  if (!url || typeof url !== "string") throw new Error("No image URL in response");
-  return url;
+  const b64 = body?.data?.[0]?.b64_json;
+  if (!b64 || typeof b64 !== "string") throw new Error("No image data in response");
+  return `data:image/png;base64,${b64}`;
 }
 
 export async function sendChat(args: SendChatArgs): Promise<string> {
@@ -205,7 +206,7 @@ async function sendOpenAIWithImageToolLoop(args: SendChatArgs): Promise<string> 
             toolContent = "Missing prompt; ask the learner what to illustrate.";
           } else {
             try {
-              const imageUrl = await generateOpenAIDalleImage(apiKey, imagePrompt);
+              const imageUrl = await generateOpenAIIllustrationImage(apiKey, imagePrompt);
               toolContent = `Success. Show the learner this markdown on its own line: ![illustration](${imageUrl})`;
             } catch (err: unknown) {
               const em = err instanceof Error ? err.message : String(err);
@@ -244,7 +245,7 @@ async function sendClaude({
 }: SendChatArgs): Promise<string> {
   if (messages.some((m) => m.imageUrl?.trim())) {
     throw new Error(
-      "Image attachments are only supported for OpenAI models (e.g. GPT-4o mini) in this app."
+      "Image attachments are only supported for OpenAI models (e.g. GPT-5.4 mini) in this app."
     );
   }
   const anthropicMessages = messages
@@ -287,7 +288,7 @@ async function sendGemini({
 }: SendChatArgs): Promise<string> {
   if (messages.some((m) => m.imageUrl?.trim())) {
     throw new Error(
-      "Image attachments are only supported for OpenAI models (e.g. GPT-4o mini) in this app."
+      "Image attachments are only supported for OpenAI models (e.g. GPT-5.4 mini) in this app."
     );
   }
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;

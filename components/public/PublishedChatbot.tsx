@@ -61,6 +61,9 @@ export default function PublishedChatbot({
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
 
   useEffect(() => {
@@ -262,7 +265,9 @@ export default function PublishedChatbot({
               <div className={visualFullscreen ? "flex-1 overflow-auto bg-slate-50 p-6" : "p-4"}>
                 <VisualizationSurface
                   mode={visualizationMode}
+                  appId={appId}
                   latestUserMessage={latestUserMessage}
+                  latestAssistantMessage={latestAssistantMessage}
                   assistantTurnCount={assistantTurnCount}
                   onStateChange={setVisualizationState}
                 />
@@ -324,7 +329,9 @@ export default function PublishedChatbot({
                 </div>
                 <VisualizationSurface
                   mode={visualizationMode}
+                  appId={appId}
                   latestUserMessage={latestUserMessage}
+                  latestAssistantMessage={latestAssistantMessage}
                   assistantTurnCount={assistantTurnCount}
                   embedded={true}
                   onStateChange={setVisualizationState}

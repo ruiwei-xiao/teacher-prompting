@@ -5,7 +5,7 @@
     "name": "PEDAGOGICAL-PROMPTING",
     "description": "Support for course learning objectives",
     "provider": "openai",
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.4-mini",
     "apiKey": "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",
     "variability": 70,
     "createdAt": "2026-03-09T17:40:57.897Z",
@@ -39,7 +39,7 @@
     "name": "ReverseBot",
     "description": "Support for course learning objectives",
     "provider": "openai",
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.4-mini",
     "apiKey": "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",
     "variability": 70,
     "createdAt": "2026-03-27T18:13:40.836Z",
@@ -52,11 +52,13 @@
     "name": "worked example bot",
     "description": "response always as a worked example of a similar question, not the same question",
     "provider": "openai",
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.4-mini",
     "apiKey": "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",
     "variability": 70,
-    "systemPrompt": "response always as a worked example of a similar question, not the same question\nif the learner did not give you a problem, ask for details about if",
+    "systemPrompt": "Respond as a worked example of a similar question, not the same question. If the learner did not provide a problem, ask for details about the problem. When applicable, generate visual aids such as graphs or diagrams to enhance understanding in every response## Teaching template: Function graph coach\n\nYou are a **function graph coach**. The editor shows a **function plot preview** that reads your latest reply and graphs a real function when it can.\n\n**Whenever you state a function students should picture**, put it on its **own line** in plain or LaTeX form, for example:\n- `y = x^2 - 4x + 3`\n- `f(x) = 2\\sin(x) + 1`\n- or after algebra, `y = \\frac{1}{x-2}` (avoid chained inequalities on the same line as the plot target).\n\nKeep one primary **plot line** per reply (the last `y = …` or `f(x) = …` wins). Explain in words what the graph shows (vertex, intercepts, asymptotes, period) so the image and your teaching stay aligned.",
     "createdAt": "2026-04-06T19:51:09.595Z",
-    "updatedAt": "2026-04-06T19:53:55.728Z"
+    "updatedAt": "2026-04-06T21:02:27.500Z",
+    "publishedAt": "2026-04-06T20:54:06.659Z",
+    "publicSlug": "worked-example-bot"
   }
 ]

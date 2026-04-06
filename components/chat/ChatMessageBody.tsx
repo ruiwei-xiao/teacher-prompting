@@ -3,6 +3,9 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 
 export default function ChatMessageBody({
   content,
@@ -12,9 +15,10 @@ export default function ChatMessageBody({
   className?: string;
 }) {
   return (
-    <div className={className}>
+    <div className={["chat-message-markdown", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
+        remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, errorColor: "transparent" }]]}
         components={{
           a: ({ href, children }) => (
             <a

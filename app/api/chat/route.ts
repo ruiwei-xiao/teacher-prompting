@@ -310,7 +310,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Image attachments are only supported for bots that use OpenAI (e.g. GPT-4o mini).",
+            "Image attachments are only supported for bots that use OpenAI (e.g. GPT-5.4 mini).",
         },
         { status: 400 }
       );

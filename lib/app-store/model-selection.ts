@@ -8,13 +8,30 @@ export type ModelOption = {
 export const DEFAULT_VARIABILITY = 70;
 
 export const MODEL_OPTIONS: ModelOption[] = [
-  { value: "openai:gpt-4o-mini", label: "OpenAI - GPT-4o mini" },
-  { value: "openai:gpt-4o", label: "OpenAI - GPT-4o" },
+  { value: "openai:gpt-5.4-mini", label: "OpenAI - GPT-5.4 mini" },
+  { value: "openai:gpt-5.4", label: "OpenAI - GPT-5.4" },
   {
-    value: "anthropic:claude-3-5-sonnet",
-    label: "Anthropic - Claude 3.5 Sonnet",
+    value: "anthropic:claude-sonnet-4-6",
+    label: "Anthropic - Claude Sonnet 4.6",
   },
-  { value: "google:gemini-1.5-pro", label: "Google - Gemini 1.5 Pro" },
+  {
+    value: "anthropic:claude-opus-4-6",
+    label: "Anthropic - Claude Opus 4.6",
+  },
+  { value: "google:gemini-2.5-flash", label: "Google - Gemini 2.5 Flash" },
+  { value: "google:gemini-2.5-pro", label: "Google - Gemini 2.5 Pro" },
+  {
+    value: "google:gemini-3.1-flash-lite-preview",
+    label: "Google - Gemini 3.1 Flash-Lite (preview)",
+  },
+  {
+    value: "google:gemini-3-flash-preview",
+    label: "Google - Gemini 3 Flash (preview)",
+  },
+  {
+    value: "google:gemini-3.1-pro-preview",
+    label: "Google - Gemini 3.1 Pro (preview)",
+  },
 ];
 
 export function parseModelSelection(modelValue: string): {
