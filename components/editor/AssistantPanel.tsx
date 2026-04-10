@@ -9,6 +9,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { RefObject } from "react";
+import { flushSync } from "react-dom";
 import {
   buildFileAttachmentText,
   CHAT_ATTACHMENT_ACCEPT,
@@ -86,6 +88,8 @@ type TestCaseStatus = {
   totalCount: number;
   passedCount: number;
   allPassed: boolean;
+  /** Changes when any testcase chat length changes — editor spotlight remeasure on step 6. */
+  chatLayoutKey: string;
 };
 
 type BatchRunProgress = {
@@ -4304,6 +4308,14 @@ function getInitialMessages(
   ];
 }
 
+export type AssistantPanelSpotlightTargetRefs = {
+  simulatedChat: RefObject<HTMLDivElement | null>;
+  case0: RefObject<HTMLDivElement | null>;
+  case1: RefObject<HTMLDivElement | null>;
+  addCase: RefObject<HTMLButtonElement | null>;
+  markPass: RefObject<HTMLButtonElement | null>;
+};
+
 export default function AssistantPanel({
   appId,
   appName,
@@ -4311,6 +4323,7 @@ export default function AssistantPanel({
   readOnly = false,
   promptOverride,
   modelLabelOverride,
+  spotlightTargetRefs,
   onTestCaseStatusChange,
 }: {
   appId: string;
@@ -4319,6 +4332,8 @@ export default function AssistantPanel({
   readOnly?: boolean;
   promptOverride?: string;
   modelLabelOverride?: string;
+  /** Refs on testcase UI regions for the editor-page spotlight tour (optional). */
+  spotlightTargetRefs?: AssistantPanelSpotlightTargetRefs;
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
 }) {
   const displayName = appName.trim() || appId;
@@ -4358,6 +4373,8 @@ export default function AssistantPanel({
   const testCasesRef = useRef<TestCaseSet[]>([]);
   /** Only reset session when appId/readOnly actually change (not on mount). Survives React Strict Mode double-invoked effects. */
   const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
+  /** One-shot auto-run of scripted testcase dialogue when a new app already has a prompt but user has not clicked Apply yet. */
+  const didBootstrapSimulatedDialogueRef = useRef(false);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -4380,6 +4397,12 @@ export default function AssistantPanel({
     .find((message) => message.role === "assistant")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
   const editedMessageCount = messages.filter(messageHasEdits).length;
+  /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. */
+  const showApplyPromptStrip =
+    editedMessageCount > 0 ||
+    applyBusy ||
+    Boolean(applyError) ||
+    Boolean(pipelineResult);
   const panelBlockingProgress = batchRunProgress ?? dialogueGenProgress;
 
   useEffect(() => {
@@ -4574,6 +4597,7 @@ export default function AssistantPanel({
   }
 
   function resetSession() {
+    didBootstrapSimulatedDialogueRef.current = false;
     const nextCases = createInitialTestCases(displayName, readOnly);
     setTestCases(nextCases);
     setActiveTestCaseId(nextCases[0]?.id || "");
@@ -4711,6 +4735,12 @@ export default function AssistantPanel({
       return;
     }
 
+    const finalPrompt = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    }).trim();
+
     const nextScript: TestCasePreset = {
       ...target.script,
       purposeLabel: d.purposeLabel.trim() || target.script.purposeLabel,
@@ -4748,7 +4778,14 @@ export default function AssistantPanel({
           warmStart: "scripted",
           teacherEntry: undefined,
           autoDialoguePending: false,
-          messages: [],
+          messages: finalPrompt
+            ? []
+            : [
+                createMessage(
+                  "assistant",
+                  `Add your **Final Prompt** in the instruction panel on the left, then click **Apply current prompt** there. That saves the prompt and generates the simulated student conversation in this testcase.`
+                ),
+              ],
           simulatedUserTurns: undefined,
           visualizationState: null,
           passed: false,
@@ -4791,6 +4828,34 @@ export default function AssistantPanel({
     );
 
     setTestCaseEditDraft(null);
+
+    if (scriptedReady && finalPrompt) {
+      void (async () => {
+        try {
+          await fetchAndApplyScriptedDialogues([scriptedReady]);
+          setApplyError("");
+          setApplySummary("Generated simulated chat preview for this test case.");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setApplyError(msg);
+          setTestCases((current) =>
+            current.map((tc) => {
+              if (tc.id !== scriptedReady.id) return tc;
+              if (tc.messages.length > 0) return tc;
+              return {
+                ...tc,
+                messages: [
+                  createMessage(
+                    "assistant",
+                    `Could not generate simulated dialogue (${msg}). Check your API key, confirm the Final Prompt is saved, or click **Apply current prompt** in the instruction panel to try again.`
+                  ),
+                ],
+              };
+            })
+          );
+        }
+      })();
+    }
   }
 
   function deleteTestCase(testCaseId: string) {
@@ -4969,6 +5034,64 @@ export default function AssistantPanel({
   }, [appId, readOnly]);
 
   useEffect(() => {
+    didBootstrapSimulatedDialogueRef.current = false;
+  }, [appId]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    if (didBootstrapSimulatedDialogueRef.current) return;
+
+    const base = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    }).trim();
+    if (!base) return;
+    if (base.trim() === ASSISTANT_PANEL_DEFAULT_SYSTEM_PROMPT.trim()) return;
+
+    const scriptedEmpty = testCases.filter(
+      (tc) =>
+        tc.warmStart === "scripted" &&
+        tc.messages.length === 0 &&
+        tc.studentProfile
+    );
+    if (!scriptedEmpty.length) return;
+
+    didBootstrapSimulatedDialogueRef.current = true;
+    void (async () => {
+      try {
+        await fetchAndApplyScriptedDialogues(scriptedEmpty);
+        setApplyError("");
+        setApplySummary("Simulated student conversations are ready for your test cases.");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setApplyError(msg);
+        setTestCases((current) =>
+          current.map((tc) => {
+            if (tc.warmStart !== "scripted" || tc.messages.length > 0) return tc;
+            return {
+              ...tc,
+              messages: [
+                createMessage(
+                  "assistant",
+                  `Could not auto-generate simulated dialogue (${msg}). Check the API key in settings, or click **Apply current prompt** in the Final Prompt panel to try again.`
+                ),
+              ],
+            };
+          })
+        );
+      }
+    })();
+  }, [
+    readOnly,
+    appId,
+    promptMarkdown,
+    serverSystemPrompt,
+    testCases,
+    fetchAndApplyScriptedDialogues,
+  ]);
+
+  useEffect(() => {
     if (!testCases.length) return;
     if (activeTestCaseId && testCases.some((testCase) => testCase.id === activeTestCaseId)) {
       return;
@@ -4977,10 +5100,12 @@ export default function AssistantPanel({
   }, [activeTestCaseId, testCases]);
 
   useEffect(() => {
+    const chatLayoutKey = testCases.map((tc) => `${tc.id}:${tc.messages.length}`).join("|");
     onTestCaseStatusChange?.({
       totalCount: testCases.length,
       passedCount: passedCaseCount,
       allPassed: testCases.length > 0 && passedCaseCount === testCases.length,
+      chatLayoutKey,
     });
   }, [onTestCaseStatusChange, passedCaseCount, testCases]);
 
@@ -5021,21 +5146,23 @@ export default function AssistantPanel({
       if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim()) {
         setComposerError("");
         setApplyError("");
-        setTestCases((current) =>
-          current.map((tc) =>
-            tc.warmStart === "scripted"
-              ? {
-                  ...tc,
-                  messages: [],
-                  simulatedUserTurns: undefined,
-                  visualizationState: null,
-                  passed: false,
-                  verificationStatus: "idle",
-                  verificationNote: "",
-                }
-              : tc
-          )
-        );
+        flushSync(() => {
+          setTestCases((current) =>
+            current.map((tc) =>
+              tc.warmStart === "scripted"
+                ? {
+                    ...tc,
+                    messages: [],
+                    simulatedUserTurns: undefined,
+                    visualizationState: null,
+                    passed: false,
+                    verificationStatus: "idle",
+                    verificationNote: "",
+                  }
+                : tc
+            )
+          );
+        });
         window.setTimeout(() => {
           const scripted = testCasesRef.current.filter((tc) => tc.warmStart === "scripted");
           if (!scripted.length) return;
@@ -5407,6 +5534,13 @@ export default function AssistantPanel({
               return (
                 <div
                   key={testCase.id}
+                  ref={
+                    index === 0
+                      ? spotlightTargetRefs?.case0
+                      : index === 1
+                        ? spotlightTargetRefs?.case1
+                        : undefined
+                  }
                   className="flex min-w-[200px] max-w-[280px] flex-col gap-2"
                 >
                   <div
@@ -5508,6 +5642,7 @@ export default function AssistantPanel({
               );
             })}
             <button
+              ref={spotlightTargetRefs?.addCase}
               type="button"
               onClick={() => setAddTestCaseChoiceOpen(true)}
               disabled={busy || applyBusy}
@@ -5538,6 +5673,7 @@ export default function AssistantPanel({
         {!readOnly && (
           <div className="flex shrink-0 items-center gap-2">
             <button
+              ref={spotlightTargetRefs?.markPass}
               className={[
                 "rounded-xl px-3 py-1 text-xs font-medium transition",
                 activeTestCase?.passed
@@ -5563,7 +5699,7 @@ export default function AssistantPanel({
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div ref={spotlightTargetRefs?.simulatedChat} className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-rose-100 bg-white/80 px-4 py-2 text-[11px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
         {readOnly ? "Read-only shared preview." : "Chat · edit bubbles · update prompt."}
       </div>
@@ -5721,7 +5857,7 @@ export default function AssistantPanel({
                         type="button"
                         onClick={() => startEditingMessage(message)}
                         disabled={busy || applyBusy}
-                        className="rounded-xl border border-slate-300 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/80 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                        className="rounded-full border border-sky-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50/50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-800/80 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-sky-700 dark:hover:bg-zinc-800"
                       >
                         Edit bubble
                       </button>
@@ -5770,6 +5906,7 @@ export default function AssistantPanel({
 
       {!readOnly && (
         <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4 dark:border-zinc-800 dark:bg-zinc-950">
+        {showApplyPromptStrip && (
         <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/60 dark:bg-amber-950/50">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -5808,6 +5945,13 @@ export default function AssistantPanel({
             </p>
           )}
         </div>
+        )}
+        {!showApplyPromptStrip && applySummary && (
+          <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400">{applySummary}</p>
+        )}
+        {!showApplyPromptStrip && applyError && (
+          <p className="mb-3 text-xs text-red-600 dark:text-red-400">{applyError}</p>
+        )}
         <div className="flex gap-2">
           <button
             className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-zinc-200 dark:hover:bg-amber-950/60"

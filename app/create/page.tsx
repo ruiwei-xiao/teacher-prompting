@@ -114,7 +114,7 @@ export default function CreateAppPage() {
 
             <div className="mt-8 max-w-3xl">
               <CreateAppForm
-                onCreate={(id) => router.push(`/app/${id}/tour`)}
+                onCreate={(id) => router.push(`/app/${id}/editor`)}
                 genaiModel={selectedModel}
                 genaiApiKey={apiKey}
               />

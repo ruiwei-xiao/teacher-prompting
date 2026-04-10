@@ -9,6 +9,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from 'react';
+import type { RefObject } from 'react';
 import { useParams } from 'next/navigation';
 import type { PromptBuilderState } from '@/lib/app-store/types';
 import {
@@ -296,11 +297,19 @@ export default function InstructionDoc({
   readOnly = false,
   initialBuilderState,
   initialPrompt,
+  spotlightPromptRef,
+  spotlightAttachmentRef,
+  spotlightAgentRef,
+  spotlightApplyPromptRef,
 }: {
   appId?: string;
   readOnly?: boolean;
   initialBuilderState?: PromptBuilderState | null;
   initialPrompt?: string;
+  spotlightPromptRef?: RefObject<HTMLDivElement | null>;
+  spotlightAttachmentRef?: RefObject<HTMLButtonElement | null>;
+  spotlightAgentRef?: RefObject<HTMLButtonElement | null>;
+  spotlightApplyPromptRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const params = useParams<{ appId: string }>();
   const appId = appIdProp || params?.appId || '';
@@ -586,6 +595,7 @@ export default function InstructionDoc({
           </div>
           {!readOnly && (
             <button
+              ref={spotlightApplyPromptRef}
               type="button"
               onClick={applyCurrentPrompt}
               className="shrink-0 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
@@ -594,6 +604,14 @@ export default function InstructionDoc({
             </button>
           )}
         </div>
+        {!readOnly && (
+          <p className="text-[11px] leading-snug text-slate-500 dark:text-zinc-400">
+            The first time you open an app, a guided spotlight walks the Final Prompt, attachments, templates, then the
+            test suite on the right. New apps auto-generate previews when a prompt is available; use{' '}
+            <span className="font-medium text-slate-700 dark:text-zinc-300">Apply current prompt</span> to refresh them
+            after edits.
+          </p>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -611,6 +629,7 @@ export default function InstructionDoc({
             </div>
           ) : (
             <div
+              ref={spotlightPromptRef}
               className={[
                 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border transition',
                 highlightPrompt
@@ -686,6 +705,7 @@ export default function InstructionDoc({
                       onChange={(event) => void onTeacherAttachFiles(event.target.files)}
                     />
                     <button
+                      ref={spotlightAttachmentRef}
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       className="inline-flex max-w-full flex-1 items-center gap-2.5 rounded-xl border border-slate-200/95 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:flex-none"
@@ -704,6 +724,7 @@ export default function InstructionDoc({
                       </span>
                     </button>
                     <button
+                      ref={spotlightAgentRef}
                       type="button"
                       onClick={() => setTemplateModalOpen(true)}
                       className="inline-flex max-w-full flex-1 items-center gap-2.5 rounded-xl border border-slate-200/95 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 sm:flex-none"

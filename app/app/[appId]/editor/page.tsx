@@ -1,6 +1,15 @@
 "use client";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import EditorChrome from "@/components/editor/EditorChrome";
+import EditorTestcaseSpotlight from "@/components/editor/EditorTestcaseSpotlight";
+import type { SpotlightHoleRect } from "@/components/editor/EditorTestcaseSpotlight";
+import {
+  EDITOR_SPOTLIGHT_STEP_COUNT,
+  editorSpotlightTourBody,
+  editorSpotlightTourStorageKey,
+  editorSpotlightTourTitle,
+} from "@/components/editor/editorSpotlightTourSteps";
+import type { AssistantPanelSpotlightTargetRefs } from "@/components/editor/AssistantPanel";
 import LeftChat from "@/components/editor/LeftChat";
 import InstructionDoc from "@/components/editor/InstructionDoc";
 import RightRail from "@/components/editor/RightRail";
@@ -39,6 +48,7 @@ export default function EditorPage({
     totalCount: 0,
     passedCount: 0,
     allPassed: false,
+    chatLayoutKey: "",
   });
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
@@ -58,6 +68,29 @@ export default function EditorPage({
   const [editorPaneWidth, setEditorPaneWidth] = useState(62);
   const [isResizingPanels, setIsResizingPanels] = useState(false);
   const splitPaneRef = useRef<HTMLDivElement>(null);
+  const publishSpotlightRef = useRef<HTMLButtonElement>(null);
+  const spotlightPromptRef = useRef<HTMLDivElement>(null);
+  const spotlightAttachmentRef = useRef<HTMLButtonElement>(null);
+  const spotlightAgentRef = useRef<HTMLButtonElement>(null);
+  const spotlightApplyPromptRef = useRef<HTMLButtonElement>(null);
+  const spotlightSimulatedChatRef = useRef<HTMLDivElement>(null);
+  const spotlightCase0Ref = useRef<HTMLDivElement>(null);
+  const spotlightCase1Ref = useRef<HTMLDivElement>(null);
+  const spotlightAddCaseRef = useRef<HTMLButtonElement>(null);
+  const spotlightMarkPassRef = useRef<HTMLButtonElement>(null);
+  const [editorSpotlightStep, setEditorSpotlightStep] = useState<number | null>(null);
+  const [editorSpotlightRect, setEditorSpotlightRect] = useState<SpotlightHoleRect | null>(null);
+
+  const spotlightTargetRefs = useMemo<AssistantPanelSpotlightTargetRefs>(
+    () => ({
+      simulatedChat: spotlightSimulatedChatRef,
+      case0: spotlightCase0Ref,
+      case1: spotlightCase1Ref,
+      addCase: spotlightAddCaseRef,
+      markPass: spotlightMarkPassRef,
+    }),
+    []
+  );
 
   const gridCols = assistantOpen
     ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_minmax(0,1fr)]"
@@ -253,6 +286,85 @@ export default function EditorPage({
     };
   }, [isResizingPanels]);
 
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem(editorSpotlightTourStorageKey(appId)) === "done") {
+      setEditorSpotlightStep(null);
+      return;
+    }
+    setEditorSpotlightStep(0);
+  }, [appId]);
+
+  useLayoutEffect(() => {
+    if (editorSpotlightStep === null) {
+      setEditorSpotlightRect(null);
+      return;
+    }
+    const resolveNode = (): HTMLElement | null => {
+      switch (editorSpotlightStep) {
+        case 0:
+          return spotlightPromptRef.current;
+        case 1:
+          return spotlightAttachmentRef.current;
+        case 2:
+          return spotlightAgentRef.current;
+        case 3:
+          return spotlightSimulatedChatRef.current;
+        case 4:
+          return spotlightCase0Ref.current;
+        case 5:
+          return spotlightCase1Ref.current || spotlightCase0Ref.current;
+        case 6:
+          return spotlightSimulatedChatRef.current;
+        case 7:
+          return spotlightApplyPromptRef.current;
+        case 8:
+          return spotlightAddCaseRef.current;
+        case 9:
+          return spotlightMarkPassRef.current;
+        case 10:
+          return publishSpotlightRef.current;
+        default:
+          return null;
+      }
+    };
+    const update = () => {
+      const el = resolveNode();
+      if (!el) {
+        setEditorSpotlightRect(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      setEditorSpotlightRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    };
+    update();
+    const el = resolveNode();
+    const ro = new ResizeObserver(update);
+    if (el) ro.observe(el);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [
+    editorSpotlightStep,
+    assistantOpen,
+    editorPaneWidth,
+    appVersion,
+    testCaseStatus.passedCount,
+    testCaseStatus.totalCount,
+    testCaseStatus.chatLayoutKey,
+  ]);
+
+  const replayEditorGuide = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(editorSpotlightTourStorageKey(appId));
+    }
+    setEditorSpotlightStep(0);
+  }, [appId]);
+
   return (
     <EditorChrome
       appName={appName}
@@ -267,6 +379,8 @@ export default function EditorPage({
         void handlePublish();
       }}
       publishBusy={publishBusy}
+      publishButtonRef={publishSpotlightRef}
+      onReplayEditorGuide={replayEditorGuide}
     >
       {forkedFromProjectName && (
         <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-100">
@@ -316,7 +430,12 @@ export default function EditorPage({
               className="h-full min-h-0 shrink-0 overflow-hidden"
               style={{ width: `${editorPaneWidth}%` }}
             >
-              <InstructionDoc />
+              <InstructionDoc
+                spotlightPromptRef={spotlightPromptRef}
+                spotlightAttachmentRef={spotlightAttachmentRef}
+                spotlightAgentRef={spotlightAgentRef}
+                spotlightApplyPromptRef={spotlightApplyPromptRef}
+              />
             </div>
             <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
               <div
@@ -349,6 +468,7 @@ export default function EditorPage({
                 appId={appId}
                 appName={appName}
                 appVersion={appVersion}
+                spotlightTargetRefs={spotlightTargetRefs}
                 onTestCaseStatusChange={setTestCaseStatus}
               />
             </div>
@@ -400,6 +520,31 @@ export default function EditorPage({
           setShareError("");
         }}
       />
+
+      {editorSpotlightStep !== null && (
+        <EditorTestcaseSpotlight
+          show
+          holeRect={editorSpotlightRect}
+          title={editorSpotlightTourTitle(editorSpotlightStep)}
+          body={editorSpotlightTourBody(editorSpotlightStep)}
+          stepIndex={editorSpotlightStep}
+          stepCount={EDITOR_SPOTLIGHT_STEP_COUNT}
+          primaryLabel={
+            editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1
+              ? "Next"
+              : "Okay, I understand"
+          }
+          onPrimary={() => {
+            if (editorSpotlightStep === null) return;
+            if (editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1) {
+              setEditorSpotlightStep(editorSpotlightStep + 1);
+            } else {
+              window.localStorage.setItem(editorSpotlightTourStorageKey(appId), "done");
+              setEditorSpotlightStep(null);
+            }
+          }}
+        />
+      )}
     </EditorChrome>
   );
 }
