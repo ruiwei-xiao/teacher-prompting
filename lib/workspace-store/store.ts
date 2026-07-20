@@ -1,18 +1,22 @@
 /**
  * WorkspaceStore — dual persistence (Postgres + JSON fallback) for workspaces,
- * memberships, invites, and placements. Mirrors lib/app-store/store.ts and
- * lib/auth/user-store.ts.
+ * memberships, invites, placements, and activity. Mirrors lib/app-store/store.ts
+ * and lib/auth/user-store.ts.
  *
  * Task 1.3: workspace + membership methods.
  * Task 1.4: invites + placements (does not mutate AppConfig / ownerId).
+ * Task 1.5: activity append/list + cascade on delete (no delete append).
  */
 import { randomBytes } from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import { sql } from "@vercel/postgres";
+import { filterActivityForViewer, isFacilitationViewer } from "./activity";
 import type {
   BuildingPermissions,
   Workspace,
+  WorkspaceActivityEvent,
+  WorkspaceActivityType,
   WorkspaceInvite,
   WorkspaceInviteRole,
   WorkspaceMembership,
@@ -28,6 +32,7 @@ type WorkspaceFileData = {
   members: WorkspaceMembership[];
   invites: WorkspaceInvite[];
   placements: WorkspacePlacement[];
+  activity: WorkspaceActivityEvent[];
 };
 
 type WorkspaceRow = {
@@ -65,10 +70,39 @@ type PlacementRow = {
   placed_at: string | Date;
 };
 
+type ActivityRow = {
+  id: string;
+  workspace_id: string;
+  type: string;
+  actor_user_id: string;
+  payload: string;
+  created_at: string | Date;
+};
+
 export type CreateInviteInput = Omit<
   WorkspaceInvite,
   "id" | "token" | "createdAt" | "revokedAt"
 > & { token?: string };
+
+export type AppendActivityInput = {
+  workspaceId: string;
+  type: WorkspaceActivityType;
+  actorUserId: string;
+  payload?: Record<string, unknown>;
+};
+
+export type ListActivityOptions = {
+  viewerRole: WorkspaceRole;
+  /**
+   * App IDs the viewer may see. Used for Participants when filtering
+   * bot.placed / bot.unplaced. Ignored for Owner/Facilitator.
+   */
+  visibleAppIds?: readonly string[];
+  /** Max events to return (newest first). Defaults to 100. */
+  limit?: number;
+};
+
+const DEFAULT_ACTIVITY_LIMIT = 100;
 
 let postgresReadyPromise: Promise<void> | null = null;
 
@@ -149,8 +183,37 @@ function rowToPlacement(row: PlacementRow): WorkspacePlacement {
   };
 }
 
+function parseActivityPayload(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function rowToActivity(row: ActivityRow): WorkspaceActivityEvent {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    type: row.type as WorkspaceActivityType,
+    actorUserId: row.actor_user_id,
+    payload: parseActivityPayload(row.payload),
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
 function emptyFileData(): WorkspaceFileData {
-  return { workspaces: [], members: [], invites: [], placements: [] };
+  return {
+    workspaces: [],
+    members: [],
+    invites: [],
+    placements: [],
+    activity: [],
+  };
 }
 
 function generateInviteToken(): string {
@@ -197,6 +260,7 @@ async function readFileData(): Promise<WorkspaceFileData> {
     members: Array.isArray(parsed.members) ? parsed.members : [],
     invites: Array.isArray(parsed.invites) ? parsed.invites : [],
     placements: Array.isArray(parsed.placements) ? parsed.placements : [],
+    activity: Array.isArray(parsed.activity) ? parsed.activity : [],
   };
 }
 
@@ -275,6 +339,22 @@ async function ensurePostgresStore() {
       await sql`
         CREATE INDEX IF NOT EXISTS workspace_placements_app_id_idx
         ON workspace_placements (app_id)
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS workspace_activity (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          actor_user_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS workspace_activity_workspace_created_idx
+        ON workspace_activity (workspace_id, created_at DESC)
       `;
     })();
   }
@@ -358,6 +438,7 @@ async function deleteWorkspaceInFile(workspaceId: string): Promise<void> {
   data.members = data.members.filter((m) => m.workspaceId !== workspaceId);
   data.invites = data.invites.filter((i) => i.workspaceId !== workspaceId);
   data.placements = data.placements.filter((p) => p.workspaceId !== workspaceId);
+  data.activity = data.activity.filter((e) => e.workspaceId !== workspaceId);
   await writeFileData(data);
 }
 
@@ -593,6 +674,55 @@ async function listPlacementsInFile(
   return data.placements.filter((p) => p.workspaceId === workspaceId);
 }
 
+async function appendActivityInFile(
+  input: AppendActivityInput
+): Promise<WorkspaceActivityEvent> {
+  const data = await readFileData();
+  if (!data.workspaces.some((w) => w.id === input.workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
+  const event: WorkspaceActivityEvent = {
+    id: crypto.randomUUID(),
+    workspaceId: input.workspaceId,
+    type: input.type,
+    actorUserId: input.actorUserId,
+    payload: input.payload ? { ...input.payload } : {},
+    createdAt: new Date().toISOString(),
+  };
+  data.activity.push(event);
+  await writeFileData(data);
+  return event;
+}
+
+async function listActivityInFile(
+  workspaceId: string,
+  options: ListActivityOptions
+): Promise<WorkspaceActivityEvent[]> {
+  const data = await readFileData();
+  const limit = Math.max(0, options.limit ?? DEFAULT_ACTIVITY_LIMIT);
+  // Tie-break equal timestamps by append order (later index = newer).
+  const events = data.activity
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.workspaceId === workspaceId)
+    .sort((a, b) => {
+      const delta =
+        new Date(b.event.createdAt).getTime() -
+        new Date(a.event.createdAt).getTime();
+      if (delta !== 0) return delta;
+      return b.index - a.index;
+    })
+    .map(({ event }) => event);
+
+  // Participants: visibility filter before limit so facilitation floods cannot
+  // push older visible bot events out of the window. Owners/Facilitators keep
+  // newest-first then limit (filter is a no-op).
+  const visible = filterActivityForViewer(events, {
+    role: options.viewerRole,
+    visibleAppIds: options.visibleAppIds,
+  });
+  return visible.slice(0, limit);
+}
+
 // --- Postgres implementations ---
 
 async function createWorkspaceInPostgres(input: {
@@ -685,6 +815,7 @@ async function updateWorkspaceInPostgres(
 
 async function deleteWorkspaceInPostgres(workspaceId: string): Promise<void> {
   await ensurePostgresStore();
+  await sql`DELETE FROM workspace_activity WHERE workspace_id = ${workspaceId}`;
   await sql`DELETE FROM workspace_placements WHERE workspace_id = ${workspaceId}`;
   await sql`DELETE FROM workspace_invites WHERE workspace_id = ${workspaceId}`;
   await sql`DELETE FROM workspace_members WHERE workspace_id = ${workspaceId}`;
@@ -983,6 +1114,77 @@ async function listPlacementsInPostgres(
   return result.rows.map(rowToPlacement);
 }
 
+async function appendActivityInPostgres(
+  input: AppendActivityInput
+): Promise<WorkspaceActivityEvent> {
+  await ensurePostgresStore();
+  const workspace = await getWorkspaceInPostgres(input.workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found.");
+  }
+  const event: WorkspaceActivityEvent = {
+    id: crypto.randomUUID(),
+    workspaceId: input.workspaceId,
+    type: input.type,
+    actorUserId: input.actorUserId,
+    payload: input.payload ? { ...input.payload } : {},
+    createdAt: new Date().toISOString(),
+  };
+  const payloadJson = JSON.stringify(event.payload);
+  await sql`
+    INSERT INTO workspace_activity (
+      id, workspace_id, type, actor_user_id, payload, created_at
+    )
+    VALUES (
+      ${event.id},
+      ${event.workspaceId},
+      ${event.type},
+      ${event.actorUserId},
+      ${payloadJson},
+      ${event.createdAt}
+    )
+  `;
+  return event;
+}
+
+async function listActivityInPostgres(
+  workspaceId: string,
+  options: ListActivityOptions
+): Promise<WorkspaceActivityEvent[]> {
+  await ensurePostgresStore();
+  const limit = Math.max(0, options.limit ?? DEFAULT_ACTIVITY_LIMIT);
+  const viewer = {
+    role: options.viewerRole,
+    visibleAppIds: options.visibleAppIds,
+  };
+
+  // Owners/Facilitators: newest-first then limit (visibility filter is a no-op).
+  if (isFacilitationViewer(options.viewerRole)) {
+    const result = await sql<ActivityRow>`
+      SELECT id, workspace_id, type, actor_user_id, payload, created_at
+      FROM workspace_activity
+      WHERE workspace_id = ${workspaceId}
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+    return filterActivityForViewer(result.rows.map(rowToActivity), viewer);
+  }
+
+  // Participants: load newest-first without limit, filter visibility, then limit
+  // so older visible bot.placed/unplaced are not dropped by facilitation noise.
+  if (limit === 0) {
+    return [];
+  }
+  const result = await sql<ActivityRow>`
+    SELECT id, workspace_id, type, actor_user_id, payload, created_at
+    FROM workspace_activity
+    WHERE workspace_id = ${workspaceId}
+    ORDER BY created_at DESC
+  `;
+  const visible = filterActivityForViewer(result.rows.map(rowToActivity), viewer);
+  return visible.slice(0, limit);
+}
+
 // --- Public façade ---
 
 export async function createWorkspace(input: {
@@ -1164,4 +1366,31 @@ export async function listPlacements(
     return listPlacementsInPostgres(workspaceId);
   }
   return listPlacementsInFile(workspaceId);
+}
+
+/**
+ * Append-only activity event. Callers record join/leave/removed, place/unplace,
+ * rename, and permissions updates. Workspace delete does not append — it cascades.
+ */
+export async function appendActivity(
+  input: AppendActivityInput
+): Promise<WorkspaceActivityEvent> {
+  if (shouldUsePostgres()) {
+    return appendActivityInPostgres(input);
+  }
+  return appendActivityInFile(input);
+}
+
+/**
+ * Chronological activity for a Workspace with Owner/Facilitator vs Participant
+ * visibility filtering applied at list time.
+ */
+export async function listActivity(
+  workspaceId: string,
+  options: ListActivityOptions
+): Promise<WorkspaceActivityEvent[]> {
+  if (shouldUsePostgres()) {
+    return listActivityInPostgres(workspaceId, options);
+  }
+  return listActivityInFile(workspaceId, options);
 }

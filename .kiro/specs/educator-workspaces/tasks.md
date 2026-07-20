@@ -26,7 +26,7 @@
   - _Requirements: 2.1, 2.2, 2.4, 4.1, 4.2, 4.3_
   - _Boundary: WorkspaceStore_
 
-- [ ] 1.5 Persist lightweight activity
+- [x] 1.5 Persist lightweight activity
   - Append/list helpers for member join/leave/removed, bot placed/unplaced, workspace renamed, permissions updated (not Workspace-delete append; delete cascades related rows)
   - Facilitator/Owner vs Participant visibility filtering can be applied when listing
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_

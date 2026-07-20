@@ -1,5 +1,5 @@
 /**
- * Runtime self-test for WorkspaceStore persistence (Tasks 1.3–1.4).
+ * Runtime self-test for WorkspaceStore persistence (Tasks 1.3–1.5).
  * Forces JSON file mode (no Postgres) for reliable local runs.
  *
  * Run: npx tsx lib/workspace-store/store.selftest.ts
@@ -50,11 +50,13 @@ async function main(): Promise<void> {
     acceptInviteByToken,
     acceptPendingEmailInvitesForUser,
     addMember,
+    appendActivity,
     createInvite,
     createWorkspace,
     deleteWorkspace,
     getInvite,
     getWorkspace,
+    listActivity,
     listInvites,
     listMembers,
     listPlacements,
@@ -369,6 +371,7 @@ async function main(): Promise<void> {
       members: unknown[];
       invites?: unknown[];
       placements?: unknown[];
+      activity?: unknown[];
     };
     assert(Array.isArray(parsed.workspaces), "JSON store has workspaces array");
     assert(Array.isArray(parsed.members), "JSON store has members array");
@@ -385,6 +388,197 @@ async function main(): Promise<void> {
         (w) => typeof w === "object" && w !== null && (w as { id: string }).id === wsB.id
       ),
       "second Workspace persisted after invite/placement tests"
+    );
+
+    // =========================================================================
+    // Task 1.5 — lightweight activity append/list + cascade (no delete append)
+    // =========================================================================
+    const wsAct = await createWorkspace({
+      name: "Activity Lab",
+      ownerUserId: "act_owner",
+    });
+
+    const joined = await appendActivity({
+      workspaceId: wsAct.id,
+      type: "member.joined",
+      actorUserId: "act_owner",
+      payload: { userId: "act_participant", role: "participant" },
+    });
+    assert(typeof joined.id === "string" && joined.id.length > 0, "appendActivity assigns id");
+    assertEqual(joined.workspaceId, wsAct.id, "appendActivity workspaceId");
+    assertEqual(joined.type, "member.joined", "appendActivity type");
+    assertEqual(joined.actorUserId, "act_owner", "appendActivity actorUserId");
+    assertEqual(
+      joined.payload,
+      { userId: "act_participant", role: "participant" },
+      "appendActivity payload"
+    );
+    assert(typeof joined.createdAt === "string", "appendActivity createdAt");
+
+    // slight delay so chronological order is deterministic
+    await new Promise((r) => setTimeout(r, 5));
+
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "member.left",
+      actorUserId: "act_participant",
+      payload: { userId: "act_participant" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "member.removed",
+      actorUserId: "act_owner",
+      payload: { userId: "act_other" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "bot.placed",
+      actorUserId: "act_owner",
+      payload: { appId: "bot_visible" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "bot.placed",
+      actorUserId: "act_peer",
+      payload: { appId: "bot_hidden" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "bot.unplaced",
+      actorUserId: "act_owner",
+      payload: { appId: "bot_visible" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "workspace.renamed",
+      actorUserId: "act_owner",
+      payload: { from: "Activity Lab", to: "Activity Lab Renamed" },
+    });
+    await appendActivity({
+      workspaceId: wsAct.id,
+      type: "permissions.updated",
+      actorUserId: "act_owner",
+      payload: { canSeeOthersBots: true },
+    });
+
+    const allForOwner = await listActivity(wsAct.id, { viewerRole: "owner" });
+    assertEqual(allForOwner.length, 8, "Owner sees all activity types");
+    assertEqual(
+      allForOwner.map((e) => e.type),
+      [
+        "permissions.updated",
+        "workspace.renamed",
+        "bot.unplaced",
+        "bot.placed",
+        "bot.placed",
+        "member.removed",
+        "member.left",
+        "member.joined",
+      ],
+      "listActivity is chronological newest-first"
+    );
+
+    const allForFacilitator = await listActivity(wsAct.id, {
+      viewerRole: "facilitator",
+    });
+    assertEqual(allForFacilitator.length, 8, "Facilitator sees all activity types");
+
+    const forParticipant = await listActivity(wsAct.id, {
+      viewerRole: "participant",
+      visibleAppIds: ["bot_visible"],
+    });
+    assertEqual(
+      forParticipant.map((e) => e.type),
+      ["bot.unplaced", "bot.placed"],
+      "Participant sees only bot place/unplace for visible apps"
+    );
+    assertEqual(
+      forParticipant.map((e) => e.payload.appId),
+      ["bot_visible", "bot_visible"],
+      "Participant does not see facilitation membership/rename/permissions or hidden bots"
+    );
+
+    const participantNoApps = await listActivity(wsAct.id, {
+      viewerRole: "participant",
+      visibleAppIds: [],
+    });
+    assertEqual(
+      participantNoApps.length,
+      0,
+      "Participant with no visible apps sees empty activity"
+    );
+
+    // Filter-before-limit: facilitation flood must not hide an older visible bot.placed
+    const wsLimit = await createWorkspace({
+      name: "Limit Lab",
+      ownerUserId: "act_owner",
+    });
+    await appendActivity({
+      workspaceId: wsLimit.id,
+      type: "bot.placed",
+      actorUserId: "act_owner",
+      payload: { appId: "bot_visible" },
+    });
+    const smallLimit = 3;
+    for (let i = 0; i < smallLimit + 2; i += 1) {
+      await appendActivity({
+        workspaceId: wsLimit.id,
+        type: "member.joined",
+        actorUserId: "act_owner",
+        payload: { userId: `flood_${i}`, role: "participant" },
+      });
+    }
+    const limitedParticipant = await listActivity(wsLimit.id, {
+      viewerRole: "participant",
+      visibleAppIds: ["bot_visible"],
+      limit: smallLimit,
+    });
+    assertEqual(
+      limitedParticipant.map((e) => e.type),
+      ["bot.placed"],
+      "Participant with small limit still sees older visible bot.placed after facilitation flood"
+    );
+    assertEqual(
+      limitedParticipant[0]?.payload.appId,
+      "bot_visible",
+      "Participant limited list keeps visible bot appId"
+    );
+    const limitedOwner = await listActivity(wsLimit.id, {
+      viewerRole: "owner",
+      limit: smallLimit,
+    });
+    assertEqual(
+      limitedOwner.length,
+      smallLimit,
+      "Owner newest-first then limit length"
+    );
+    assertEqual(
+      limitedOwner.map((e) => e.type),
+      ["member.joined", "member.joined", "member.joined"],
+      "Owner with small limit sees only newest facilitation events"
+    );
+    await deleteWorkspace(wsLimit.id);
+
+    // deleteWorkspace cascades activity; does NOT append a delete event
+    await deleteWorkspace(wsAct.id);
+    assertEqual(
+      await listActivity(wsAct.id, { viewerRole: "owner" }),
+      [],
+      "deleteWorkspace cascades activity rows"
+    );
+    assertEqual(await getWorkspace(wsAct.id), null, "deleteWorkspace removes Workspace");
+
+    const rawAfterAct = await fs.readFile(dataFile, "utf-8");
+    const parsedAfterAct = JSON.parse(rawAfterAct) as { activity?: unknown[] };
+    assert(Array.isArray(parsedAfterAct.activity), "JSON store has activity array");
+    assert(
+      !(parsedAfterAct.activity ?? []).some(
+        (e) =>
+          typeof e === "object" &&
+          e !== null &&
+          (e as { workspaceId?: string }).workspaceId === wsAct.id
+      ),
+      "cascaded activity rows gone from JSON file"
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
