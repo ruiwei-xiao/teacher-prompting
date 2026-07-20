@@ -32,7 +32,7 @@
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
   - _Boundary: ActivityLog_
 
-- [ ] 1.6 Protect Workspace routes at the auth edge
+- [x] 1.6 Protect Workspace routes at the auth edge
   - Require sign-in for Workspace pages and Workspace APIs with callbackUrl return (including invite join landing)
   - Unauthenticated access to those paths redirects to sign-in rather than rendering member content
   - _Requirements: 8.3, 8.4_

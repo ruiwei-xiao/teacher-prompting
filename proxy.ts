@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
 export const config = {
-  matcher: ["/create", "/app/:path*", "/api/apps", "/api/apps/:path*"],
+  matcher: [
+    "/create",
+    "/app/:path*",
+    "/api/apps",
+    "/api/apps/:path*",
+    "/workspace/:path*",
+    "/api/workspaces",
+    "/api/workspaces/:path*",
+  ],
 };
 
 export const proxy = auth((req) => {
