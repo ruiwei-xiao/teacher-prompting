@@ -1,16 +1,22 @@
 /**
- * WorkspaceStore — dual persistence (Postgres + JSON fallback) for workspaces
- * and memberships. Mirrors lib/app-store/store.ts and lib/auth/user-store.ts.
+ * WorkspaceStore — dual persistence (Postgres + JSON fallback) for workspaces,
+ * memberships, invites, and placements. Mirrors lib/app-store/store.ts and
+ * lib/auth/user-store.ts.
  *
- * Task 1.3: workspace + membership methods only (invites/placements/activity later).
+ * Task 1.3: workspace + membership methods.
+ * Task 1.4: invites + placements (does not mutate AppConfig / ownerId).
  */
+import { randomBytes } from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import { sql } from "@vercel/postgres";
 import type {
   BuildingPermissions,
   Workspace,
+  WorkspaceInvite,
+  WorkspaceInviteRole,
   WorkspaceMembership,
+  WorkspacePlacement,
   WorkspaceRole,
 } from "./types";
 
@@ -20,6 +26,8 @@ const DEFAULT_WORKSPACES_FILE = path.join(DATA_DIR, "workspaces.json");
 type WorkspaceFileData = {
   workspaces: Workspace[];
   members: WorkspaceMembership[];
+  invites: WorkspaceInvite[];
+  placements: WorkspacePlacement[];
 };
 
 type WorkspaceRow = {
@@ -36,6 +44,31 @@ type MemberRow = {
   role: string;
   joined_at: string | Date;
 };
+
+type InviteRow = {
+  id: string;
+  workspace_id: string;
+  kind: string;
+  email: string | null;
+  role: string;
+  token: string;
+  expires_at: string | Date | null;
+  revoked_at: string | Date | null;
+  created_by: string;
+  created_at: string | Date;
+};
+
+type PlacementRow = {
+  workspace_id: string;
+  app_id: string;
+  placed_by: string;
+  placed_at: string | Date;
+};
+
+export type CreateInviteInput = Omit<
+  WorkspaceInvite,
+  "id" | "token" | "createdAt" | "revokedAt"
+> & { token?: string };
 
 let postgresReadyPromise: Promise<void> | null = null;
 
@@ -91,8 +124,58 @@ function rowToMembership(row: MemberRow): WorkspaceMembership {
   };
 }
 
+function rowToInvite(row: InviteRow): WorkspaceInvite {
+  const invite: WorkspaceInvite = {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    kind: row.kind as "email" | "link",
+    role: row.role as WorkspaceInviteRole,
+    token: row.token,
+    createdByUserId: row.created_by,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+  if (row.email) invite.email = row.email;
+  if (row.expires_at) invite.expiresAt = new Date(row.expires_at).toISOString();
+  if (row.revoked_at) invite.revokedAt = new Date(row.revoked_at).toISOString();
+  return invite;
+}
+
+function rowToPlacement(row: PlacementRow): WorkspacePlacement {
+  return {
+    workspaceId: row.workspace_id,
+    appId: row.app_id,
+    placedByUserId: row.placed_by,
+    placedAt: new Date(row.placed_at).toISOString(),
+  };
+}
+
 function emptyFileData(): WorkspaceFileData {
-  return { workspaces: [], members: [] };
+  return { workspaces: [], members: [], invites: [], placements: [] };
+}
+
+function generateInviteToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isInviteAcceptable(invite: WorkspaceInvite, now = new Date()): boolean {
+  if (invite.revokedAt) return false;
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= now.getTime()) {
+    return false;
+  }
+  return true;
+}
+
+function inviteRejectReason(invite: WorkspaceInvite | null | undefined): string {
+  if (!invite) return "Invite not found.";
+  if (invite.revokedAt) return "Invite is no longer valid (revoked).";
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= Date.now()) {
+    return "Invite is no longer valid (expired).";
+  }
+  return "Invite is no longer valid.";
 }
 
 async function ensureFileStore() {
@@ -112,6 +195,8 @@ async function readFileData(): Promise<WorkspaceFileData> {
   return {
     workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : [],
     members: Array.isArray(parsed.members) ? parsed.members : [],
+    invites: Array.isArray(parsed.invites) ? parsed.invites : [],
+    placements: Array.isArray(parsed.placements) ? parsed.placements : [],
   };
 }
 
@@ -150,6 +235,46 @@ async function ensurePostgresStore() {
       await sql`
         CREATE INDEX IF NOT EXISTS workspace_members_user_id_idx
         ON workspace_members (user_id)
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS workspace_invites (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          email TEXT,
+          role TEXT NOT NULL,
+          token TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMPTZ,
+          revoked_at TIMESTAMPTZ,
+          created_by TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS workspace_invites_token_idx
+        ON workspace_invites (token)
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS workspace_invites_workspace_id_idx
+        ON workspace_invites (workspace_id)
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS workspace_placements (
+          workspace_id TEXT NOT NULL,
+          app_id TEXT NOT NULL,
+          placed_by TEXT NOT NULL,
+          placed_at TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (workspace_id, app_id)
+        )
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS workspace_placements_app_id_idx
+        ON workspace_placements (app_id)
       `;
     })();
   }
@@ -231,6 +356,8 @@ async function deleteWorkspaceInFile(workspaceId: string): Promise<void> {
   const data = await readFileData();
   data.workspaces = data.workspaces.filter((w) => w.id !== workspaceId);
   data.members = data.members.filter((m) => m.workspaceId !== workspaceId);
+  data.invites = data.invites.filter((i) => i.workspaceId !== workspaceId);
+  data.placements = data.placements.filter((p) => p.workspaceId !== workspaceId);
   await writeFileData(data);
 }
 
@@ -320,6 +447,150 @@ async function transferOwnershipInFile(
     return m;
   });
   await writeFileData(data);
+}
+
+async function createInviteInFile(input: CreateInviteInput): Promise<WorkspaceInvite> {
+  const data = await readFileData();
+  if (!data.workspaces.some((w) => w.id === input.workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
+  if (input.kind === "email" && !input.email?.trim()) {
+    throw new Error("Email invite requires an email address.");
+  }
+  const invite: WorkspaceInvite = {
+    id: crypto.randomUUID(),
+    workspaceId: input.workspaceId,
+    kind: input.kind,
+    role: input.role,
+    token: input.token ?? generateInviteToken(),
+    createdByUserId: input.createdByUserId,
+    createdAt: new Date().toISOString(),
+  };
+  if (input.email) invite.email = input.email.trim();
+  if (input.expiresAt) invite.expiresAt = input.expiresAt;
+  data.invites.push(invite);
+  await writeFileData(data);
+  return invite;
+}
+
+async function listInvitesInFile(workspaceId: string): Promise<WorkspaceInvite[]> {
+  const data = await readFileData();
+  return data.invites.filter((i) => i.workspaceId === workspaceId);
+}
+
+async function getInviteInFile(
+  workspaceId: string,
+  inviteId: string
+): Promise<WorkspaceInvite | null> {
+  const data = await readFileData();
+  return (
+    data.invites.find((i) => i.workspaceId === workspaceId && i.id === inviteId) ??
+    null
+  );
+}
+
+async function revokeInviteInFile(
+  workspaceId: string,
+  inviteId: string
+): Promise<void> {
+  const data = await readFileData();
+  const idx = data.invites.findIndex(
+    (i) => i.workspaceId === workspaceId && i.id === inviteId
+  );
+  if (idx === -1) {
+    throw new Error("Invite not found.");
+  }
+  data.invites[idx] = {
+    ...data.invites[idx],
+    revokedAt: new Date().toISOString(),
+  };
+  await writeFileData(data);
+}
+
+async function acceptInviteByTokenInFile(
+  token: string,
+  userId: string
+): Promise<{ workspaceId: string }> {
+  const data = await readFileData();
+  const invite = data.invites.find((i) => i.token === token);
+  if (!invite || !isInviteAcceptable(invite)) {
+    throw new Error(inviteRejectReason(invite));
+  }
+  await addMemberInFile({
+    workspaceId: invite.workspaceId,
+    userId,
+    role: invite.role,
+  });
+  return { workspaceId: invite.workspaceId };
+}
+
+async function acceptPendingEmailInvitesForUserInFile(
+  userId: string,
+  email: string
+): Promise<string[]> {
+  const normalized = normalizeEmail(email);
+  const data = await readFileData();
+  const pending = data.invites.filter(
+    (i) =>
+      i.kind === "email" &&
+      i.email &&
+      normalizeEmail(i.email) === normalized &&
+      isInviteAcceptable(i)
+  );
+  const workspaceIds: string[] = [];
+  for (const invite of pending) {
+    await addMemberInFile({
+      workspaceId: invite.workspaceId,
+      userId,
+      role: invite.role,
+    });
+    if (!workspaceIds.includes(invite.workspaceId)) {
+      workspaceIds.push(invite.workspaceId);
+    }
+  }
+  return workspaceIds;
+}
+
+async function placeAppInFile(
+  workspaceId: string,
+  appId: string,
+  placedByUserId: string
+): Promise<void> {
+  const data = await readFileData();
+  if (!data.workspaces.some((w) => w.id === workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
+  const existing = data.placements.find(
+    (p) => p.workspaceId === workspaceId && p.appId === appId
+  );
+  if (existing) {
+    return;
+  }
+  data.placements.push({
+    workspaceId,
+    appId,
+    placedByUserId,
+    placedAt: new Date().toISOString(),
+  });
+  await writeFileData(data);
+}
+
+async function removePlacementInFile(
+  workspaceId: string,
+  appId: string
+): Promise<void> {
+  const data = await readFileData();
+  data.placements = data.placements.filter(
+    (p) => !(p.workspaceId === workspaceId && p.appId === appId)
+  );
+  await writeFileData(data);
+}
+
+async function listPlacementsInFile(
+  workspaceId: string
+): Promise<WorkspacePlacement[]> {
+  const data = await readFileData();
+  return data.placements.filter((p) => p.workspaceId === workspaceId);
 }
 
 // --- Postgres implementations ---
@@ -414,6 +685,8 @@ async function updateWorkspaceInPostgres(
 
 async function deleteWorkspaceInPostgres(workspaceId: string): Promise<void> {
   await ensurePostgresStore();
+  await sql`DELETE FROM workspace_placements WHERE workspace_id = ${workspaceId}`;
+  await sql`DELETE FROM workspace_invites WHERE workspace_id = ${workspaceId}`;
   await sql`DELETE FROM workspace_members WHERE workspace_id = ${workspaceId}`;
   await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
 }
@@ -522,6 +795,194 @@ async function transferOwnershipInPostgres(
   `;
 }
 
+async function createInviteInPostgres(
+  input: CreateInviteInput
+): Promise<WorkspaceInvite> {
+  await ensurePostgresStore();
+  const workspace = await getWorkspaceInPostgres(input.workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found.");
+  }
+  if (input.kind === "email" && !input.email?.trim()) {
+    throw new Error("Email invite requires an email address.");
+  }
+  const invite: WorkspaceInvite = {
+    id: crypto.randomUUID(),
+    workspaceId: input.workspaceId,
+    kind: input.kind,
+    role: input.role,
+    token: input.token ?? generateInviteToken(),
+    createdByUserId: input.createdByUserId,
+    createdAt: new Date().toISOString(),
+  };
+  if (input.email) invite.email = input.email.trim();
+  if (input.expiresAt) invite.expiresAt = input.expiresAt;
+
+  await sql`
+    INSERT INTO workspace_invites (
+      id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    )
+    VALUES (
+      ${invite.id},
+      ${invite.workspaceId},
+      ${invite.kind},
+      ${invite.email ?? null},
+      ${invite.role},
+      ${invite.token},
+      ${invite.expiresAt ?? null},
+      ${null},
+      ${invite.createdByUserId},
+      ${invite.createdAt}
+    )
+  `;
+  return invite;
+}
+
+async function listInvitesInPostgres(
+  workspaceId: string
+): Promise<WorkspaceInvite[]> {
+  await ensurePostgresStore();
+  const result = await sql<InviteRow>`
+    SELECT id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    FROM workspace_invites
+    WHERE workspace_id = ${workspaceId}
+  `;
+  return result.rows.map(rowToInvite);
+}
+
+async function getInviteInPostgres(
+  workspaceId: string,
+  inviteId: string
+): Promise<WorkspaceInvite | null> {
+  await ensurePostgresStore();
+  const result = await sql<InviteRow>`
+    SELECT id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    FROM workspace_invites
+    WHERE workspace_id = ${workspaceId} AND id = ${inviteId}
+    LIMIT 1
+  `;
+  const row = result.rows[0];
+  return row ? rowToInvite(row) : null;
+}
+
+async function revokeInviteInPostgres(
+  workspaceId: string,
+  inviteId: string
+): Promise<void> {
+  await ensurePostgresStore();
+  const revokedAt = new Date().toISOString();
+  const result = await sql`
+    UPDATE workspace_invites
+    SET revoked_at = ${revokedAt}
+    WHERE workspace_id = ${workspaceId} AND id = ${inviteId}
+  `;
+  if (result.rowCount === 0) {
+    throw new Error("Invite not found.");
+  }
+}
+
+async function acceptInviteByTokenInPostgres(
+  token: string,
+  userId: string
+): Promise<{ workspaceId: string }> {
+  await ensurePostgresStore();
+  const result = await sql<InviteRow>`
+    SELECT id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    FROM workspace_invites
+    WHERE token = ${token}
+    LIMIT 1
+  `;
+  const invite = result.rows[0] ? rowToInvite(result.rows[0]) : null;
+  if (!invite || !isInviteAcceptable(invite)) {
+    throw new Error(inviteRejectReason(invite));
+  }
+  await addMemberInPostgres({
+    workspaceId: invite.workspaceId,
+    userId,
+    role: invite.role,
+  });
+  return { workspaceId: invite.workspaceId };
+}
+
+async function acceptPendingEmailInvitesForUserInPostgres(
+  userId: string,
+  email: string
+): Promise<string[]> {
+  await ensurePostgresStore();
+  const normalized = normalizeEmail(email);
+  const result = await sql<InviteRow>`
+    SELECT id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    FROM workspace_invites
+    WHERE kind = ${"email"}
+      AND email IS NOT NULL
+      AND lower(email) = ${normalized}
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > NOW())
+  `;
+  const workspaceIds: string[] = [];
+  for (const row of result.rows) {
+    const invite = rowToInvite(row);
+    await addMemberInPostgres({
+      workspaceId: invite.workspaceId,
+      userId,
+      role: invite.role,
+    });
+    if (!workspaceIds.includes(invite.workspaceId)) {
+      workspaceIds.push(invite.workspaceId);
+    }
+  }
+  return workspaceIds;
+}
+
+async function placeAppInPostgres(
+  workspaceId: string,
+  appId: string,
+  placedByUserId: string
+): Promise<void> {
+  await ensurePostgresStore();
+  const workspace = await getWorkspaceInPostgres(workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found.");
+  }
+  const existing = await sql<PlacementRow>`
+    SELECT workspace_id, app_id, placed_by, placed_at
+    FROM workspace_placements
+    WHERE workspace_id = ${workspaceId} AND app_id = ${appId}
+    LIMIT 1
+  `;
+  if (existing.rows[0]) {
+    return;
+  }
+  const placedAt = new Date().toISOString();
+  await sql`
+    INSERT INTO workspace_placements (workspace_id, app_id, placed_by, placed_at)
+    VALUES (${workspaceId}, ${appId}, ${placedByUserId}, ${placedAt})
+  `;
+}
+
+async function removePlacementInPostgres(
+  workspaceId: string,
+  appId: string
+): Promise<void> {
+  await ensurePostgresStore();
+  await sql`
+    DELETE FROM workspace_placements
+    WHERE workspace_id = ${workspaceId} AND app_id = ${appId}
+  `;
+}
+
+async function listPlacementsInPostgres(
+  workspaceId: string
+): Promise<WorkspacePlacement[]> {
+  await ensurePostgresStore();
+  const result = await sql<PlacementRow>`
+    SELECT workspace_id, app_id, placed_by, placed_at
+    FROM workspace_placements
+    WHERE workspace_id = ${workspaceId}
+  `;
+  return result.rows.map(rowToPlacement);
+}
+
 // --- Public façade ---
 
 export async function createWorkspace(input: {
@@ -617,4 +1078,90 @@ export async function transferOwnership(
     return transferOwnershipInPostgres(workspaceId, toUserId, demoteTo);
   }
   return transferOwnershipInFile(workspaceId, toUserId, demoteTo);
+}
+
+export async function createInvite(
+  input: CreateInviteInput
+): Promise<WorkspaceInvite> {
+  if (shouldUsePostgres()) {
+    return createInviteInPostgres(input);
+  }
+  return createInviteInFile(input);
+}
+
+export async function listInvites(workspaceId: string): Promise<WorkspaceInvite[]> {
+  if (shouldUsePostgres()) {
+    return listInvitesInPostgres(workspaceId);
+  }
+  return listInvitesInFile(workspaceId);
+}
+
+export async function getInvite(
+  workspaceId: string,
+  inviteId: string
+): Promise<WorkspaceInvite | null> {
+  if (shouldUsePostgres()) {
+    return getInviteInPostgres(workspaceId, inviteId);
+  }
+  return getInviteInFile(workspaceId, inviteId);
+}
+
+export async function revokeInvite(
+  workspaceId: string,
+  inviteId: string
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return revokeInviteInPostgres(workspaceId, inviteId);
+  }
+  return revokeInviteInFile(workspaceId, inviteId);
+}
+
+export async function acceptInviteByToken(
+  token: string,
+  userId: string
+): Promise<{ workspaceId: string }> {
+  if (shouldUsePostgres()) {
+    return acceptInviteByTokenInPostgres(token, userId);
+  }
+  return acceptInviteByTokenInFile(token, userId);
+}
+
+export async function acceptPendingEmailInvitesForUser(
+  userId: string,
+  email: string
+): Promise<string[]> {
+  if (shouldUsePostgres()) {
+    return acceptPendingEmailInvitesForUserInPostgres(userId, email);
+  }
+  return acceptPendingEmailInvitesForUserInFile(userId, email);
+}
+
+export async function placeApp(
+  workspaceId: string,
+  appId: string,
+  placedByUserId: string
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return placeAppInPostgres(workspaceId, appId, placedByUserId);
+  }
+  return placeAppInFile(workspaceId, appId, placedByUserId);
+}
+
+export async function removePlacement(
+  workspaceId: string,
+  appId: string
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return removePlacementInPostgres(workspaceId, appId);
+  }
+  return removePlacementInFile(workspaceId, appId);
+}
+
+export async function listPlacements(
+  workspaceId: string
+): Promise<WorkspacePlacement[]> {
+  if (shouldUsePostgres()) {
+    return listPlacementsInPostgres(workspaceId);
+  }
+  return listPlacementsInFile(workspaceId);
 }

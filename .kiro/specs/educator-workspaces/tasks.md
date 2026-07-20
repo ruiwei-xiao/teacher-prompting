@@ -20,7 +20,7 @@
   - _Requirements: 1.1, 1.5, 2.6, 3.1, 3.2, 9.1_
   - _Boundary: WorkspaceStore_
 
-- [ ] 1.4 Persist invites and placements
+- [x] 1.4 Persist invites and placements
   - Store invite records (email pending + link tokens with revoke/expiry) and bot↔Workspace placements without changing bot ownership
   - Same bot can be placed in multiple Workspaces; placement uniqueness enforced per Workspace
   - _Requirements: 2.1, 2.2, 2.4, 4.1, 4.2, 4.3_
@@ -210,3 +210,4 @@
 
 - Workspace selftests use `npx tsx`; in this environment tsx may need unrestricted sandbox (`all`) due to IPC pipe EPERM.
 - Prefer `npx tsx` over `node --experimental-strip-types` for `lib/workspace-store/*.selftest.ts`.
+- Email invites stay non-revoked after accept; task 5.1 / leave flows should avoid re-adding via `acceptPendingEmailInvitesForUser` (revoke or mark consumed when wiring auth).
