@@ -172,7 +172,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 2.4, 6.1_
 
-- [ ] 6.7 Build peer preview and duplicate UI
+- [x] 6.7 Build peer preview and duplicate UI
   - Non-edit inspect of a visible peer bot with duplicate into My bots; no authoring edit controls for non-owners
   - Duplicate creates a new bot under the viewer; source remains owned by original author
   - _Requirements: 4.6, 4.7_

@@ -19,6 +19,7 @@ import {
   parsePlacementsListResponse,
   type HubBotSummary,
 } from "@/lib/workspace-ui/hub";
+import { peerBotPreviewHref } from "@/lib/workspace-ui/peer-preview";
 import ShareDialog from "@/components/dashboard/ShareDialog";
 
 type GridBot = HubBotSummary & {
@@ -449,9 +450,7 @@ export default function WorkspaceBotGrid({
                     <button
                       type="button"
                       onClick={() =>
-                        router.push(
-                          `/workspace/${workspaceId}/bots/${bot.id}`
-                        )
+                        router.push(peerBotPreviewHref(workspaceId, bot.id))
                       }
                       className="inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
                     >
