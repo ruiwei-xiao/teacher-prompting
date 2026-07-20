@@ -8,7 +8,7 @@
   - _Requirements: 3.1, 5.1_
   - _Boundary: WorkspaceStore_
 
-- [ ] 1.2 Implement permission evaluation
+- [x] 1.2 Implement permission evaluation
   - Implement role × building-permission × action checks including Playlab-scoped permission (c) (same-Workspace share always allowed; beyond-Workspace gated only with Workspace context; Publish never gated)
   - Evaluator returns allow/deny for Owner, Facilitator, and Participant sample matrices covering create, see-others, share-outside, manage-own, delete Workspace, and manage members
   - _Requirements: 3.2, 3.3, 3.4, 3.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9_
