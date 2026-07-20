@@ -60,7 +60,7 @@
   - _Boundary: WorkspacesAPI_
   - _Depends: 1.4, 1.5_
 
-- [ ] 2.4 Expose activity feed API
+- [x] 2.4 Expose activity feed API
   - Role-filtered chronological activity for a Workspace (facilitation vs limited participant view)
   - Owners/Facilitators see membership and settings events; Participants do not see facilitation-only membership management details
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
