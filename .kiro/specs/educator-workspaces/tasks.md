@@ -98,7 +98,7 @@
 
 ## 4. Apps API gates and share UI context
 
-- [ ] 4.1 Gate educator share and self-delete from apps APIs
+- [x] 4.1 Gate educator share and self-delete from apps APIs
   - With Workspace context, enforce permission (c) on educator-outward fields only and permission (d) on delete; never gate Publish; surface denials in delete UI
   - Publish succeeds while (c) is off; shareProject with Workspace context and (c) off returns forbidden for Participants; delete UI shows policy denial when (d) blocks
   - _Requirements: 5.5, 5.6, 5.7, 5.8, 5.9, 7.2, 7.4_

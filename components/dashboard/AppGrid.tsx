@@ -83,6 +83,12 @@ export default function AppGrid() {
       const body = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error(
+            body?.error ||
+              "You do not have permission to delete this bot under Workspace policy."
+          );
+        }
         throw new Error(body?.error || "Failed to delete bot.");
       }
 
