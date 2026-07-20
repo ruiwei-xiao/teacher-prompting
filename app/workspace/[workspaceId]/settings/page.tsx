@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import TopNav from "@/components/app-shell/TopNav";
 import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
+import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
 import WorkspacePermissionsForm from "@/components/workspace/WorkspacePermissionsForm";
 import type {
   BuildingPermissions,
@@ -21,6 +22,7 @@ type SettingsState =
       name: string;
       role: WorkspaceRole;
       permissions: BuildingPermissions;
+      currentUserId: string;
     };
 
 export default function WorkspaceSettingsPage() {
@@ -39,12 +41,27 @@ export default function WorkspaceSettingsPage() {
 
     async function load() {
       try {
-        const res = await fetch(`/api/workspaces/${workspaceId}`);
-        const body = await res.json().catch(() => ({}));
+        const [workspaceRes, sessionRes] = await Promise.all([
+          fetch(`/api/workspaces/${workspaceId}`),
+          fetch("/api/auth/session"),
+        ]);
+        const body = await workspaceRes.json().catch(() => ({}));
+        const sessionBody = await sessionRes.json().catch(() => ({}));
         if (cancelled) return;
-        const parsed = parseWorkspaceGetResponse(res.status, body);
+        const parsed = parseWorkspaceGetResponse(workspaceRes.status, body);
         if (!parsed.ok) {
           setState({ status: "error", message: parsed.error });
+          return;
+        }
+        const currentUserId =
+          typeof sessionBody?.user?.id === "string"
+            ? sessionBody.user.id
+            : "";
+        if (!currentUserId) {
+          setState({
+            status: "error",
+            message: "Signed-in user id is required to manage members",
+          });
           return;
         }
         setState({
@@ -52,6 +69,7 @@ export default function WorkspaceSettingsPage() {
           name: parsed.workspace.name,
           role: parsed.role,
           permissions: parsed.workspace.buildingPermissions,
+          currentUserId,
         });
       } catch {
         if (!cancelled) {
@@ -105,8 +123,8 @@ export default function WorkspaceSettingsPage() {
                     {state.name}
                   </h1>
                   <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
-                    Rename this Workspace, edit building permissions, or delete
-                    it if you are the Owner.
+                    Rename this Workspace, edit building permissions, manage
+                    members, or delete it if you are the Owner.
                   </p>
                   <div className="mt-4 flex flex-wrap gap-4">
                     <Link
@@ -115,6 +133,12 @@ export default function WorkspaceSettingsPage() {
                     >
                       ← Back to Workspace
                     </Link>
+                    <a
+                      href="#members"
+                      className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+                    >
+                      Members
+                    </a>
                     <Link
                       href={MY_BOTS_HREF}
                       className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
@@ -130,6 +154,17 @@ export default function WorkspaceSettingsPage() {
                   initialPermissions={state.permissions}
                   role={state.role}
                 />
+
+                <div
+                  id="members"
+                  className="border-t border-slate-200 pt-8 dark:border-zinc-800"
+                >
+                  <WorkspaceMemberList
+                    workspaceId={workspaceId}
+                    role={state.role}
+                    currentUserId={state.currentUserId}
+                  />
+                </div>
               </>
             )}
           </section>

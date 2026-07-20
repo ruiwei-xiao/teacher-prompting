@@ -151,7 +151,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 2.1, 6.1_
 
-- [ ] 6.4 (P) Build members UI
+- [x] 6.4 (P) Build members UI
   - Searchable member list with role changes, remove, ownership transfer, and self-leave for authorized roles
   - Search narrows a long roster; leave/remove stops Workspace access for that user
   - _Requirements: 2.5, 3.2, 3.3, 3.5, 9.1, 9.3_
