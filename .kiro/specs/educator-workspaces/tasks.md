@@ -179,7 +179,7 @@
   - _Boundary: PeerBotPreview_
   - _Depends: 3.3, 3.4, 6.2_
 
-- [ ] 6.8 Build invite join landing
+- [x] 6.8 Build invite join landing
   - Signed-in user joining via token lands in the Workspace; signed-out user is sent through sign-in with return to join
   - Successful join shows the Workspace hub; invalid link shows no-longer-valid messaging
   - _Requirements: 2.2, 2.4, 8.3, 8.4, 9.2_
