@@ -53,7 +53,7 @@
   - _Boundary: WorkspacesAPI_
   - _Depends: 1.3, 1.5_
 
-- [ ] 2.3 Expose invite and join APIs
+- [x] 2.3 Expose invite and join APIs
   - Create/revoke email and link invites (Facilitator or Participant roles only); accept valid link tokens; reject revoked/expired; append join activity
   - Valid link join adds membership; revoked/expired join returns not-found/gone with clear error
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 6.1, 8.3, 8.4, 9.2_
