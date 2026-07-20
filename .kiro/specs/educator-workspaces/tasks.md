@@ -46,7 +46,7 @@
   - _Requirements: 1.1, 1.4, 2.6, 3.2, 3.3, 3.4, 3.6, 5.10, 6.3, 8.1_
   - _Boundary: WorkspacesAPI_
 
-- [ ] 2.2 (P) Expose membership management APIs
+- [x] 2.2 (P) Expose membership management APIs
   - List/search members, change roles, remove members, self-leave, and ownership transfer (sole Owner; demote previous Owner); append activity for join/leave/removed as applicable
   - Search filters a large roster; self-leave removes Workspace from the user’s list; non-members get forbidden
   - _Requirements: 2.5, 3.2, 3.3, 3.5, 3.6, 6.1, 8.1, 9.1, 9.3_
