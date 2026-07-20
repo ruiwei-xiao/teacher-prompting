@@ -82,14 +82,14 @@
   - _Requirements: 4.7_
   - _Boundary: AppForkHelper_
 
-- [ ] 3.3 Provide peer read-only bot snapshot API
+- [x] 3.3 Provide peer read-only bot snapshot API
   - Members who may view a placed bot receive a secret-stripped snapshot; non-owners still cannot edit via apps PATCH
   - Snapshot omits provider secrets; forbidden when permission (b) hides others’ bots from Participants
   - _Requirements: 4.6, 4.7, 5.3, 5.4, 8.1_
   - _Boundary: WorkspacesAPI_
   - _Depends: 3.1_
 
-- [ ] 3.4 Provide peer duplicate API
+- [x] 3.4 Provide peer duplicate API
   - After ACL, duplicate a visible placed bot into the caller’s My bots via the shared fork helper
   - Caller becomes owner of the new bot; source bot ownership unchanged
   - _Requirements: 4.7_
