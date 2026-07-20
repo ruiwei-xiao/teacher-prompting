@@ -9,6 +9,7 @@ import type {
 import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
 import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
 import { workspaceSettingsHref } from "@/lib/workspace-ui/settings";
+import WorkspaceActivityFeed from "@/components/workspace/WorkspaceActivityFeed";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
 
 type HubState =
@@ -128,6 +129,12 @@ export default function WorkspaceHub({
           >
             Members
           </Link>
+          <a
+            href="#activity"
+            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+          >
+            Activity
+          </a>
         </div>
       </div>
 
@@ -136,6 +143,16 @@ export default function WorkspaceHub({
         role={state.role}
         permissions={state.permissions}
       />
+
+      <div
+        id="activity"
+        className="border-t border-slate-200 pt-8 dark:border-zinc-800"
+      >
+        <WorkspaceActivityFeed
+          workspaceId={workspaceId}
+          role={state.role}
+        />
+      </div>
     </div>
   );
 }

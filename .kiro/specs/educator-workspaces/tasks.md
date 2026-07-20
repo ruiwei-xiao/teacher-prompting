@@ -165,7 +165,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 2.3, 6.1_
 
-- [ ] 6.6 (P) Build activity feed UI
+- [x] 6.6 (P) Build activity feed UI
   - Chronological feed using role-filtered activity API
   - Facilitator sees recent join/place/permission events; Participant feed omits facilitation-only membership management details
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
