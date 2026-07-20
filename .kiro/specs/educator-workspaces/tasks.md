@@ -14,7 +14,7 @@
   - _Requirements: 3.2, 3.3, 3.4, 3.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9_
   - _Boundary: Permissions_
 
-- [ ] 1.3 Persist workspaces and memberships
+- [x] 1.3 Persist workspaces and memberships
   - Dual-store (Postgres + JSON fallback) for Workspace CRUD and memberships; new Workspaces default all building permissions off; creator becomes Owner; support ≥100 members with indexed member queries
   - Creating a Workspace and listing memberships for a user works in both storage modes
   - _Requirements: 1.1, 1.5, 2.6, 3.1, 3.2, 9.1_
@@ -205,3 +205,8 @@
   - Cover Owner vs Facilitator delete, (b)/(c)/(d) Participant matrices, and Publish ungated by (c) from requirements acceptance criteria
   - Deferred until the repository adopts an automated test runner
   - _Requirements: 3.2, 3.3, 5.3, 5.5, 5.7, 5.8_
+
+## Implementation Notes
+
+- Workspace selftests use `npx tsx`; in this environment tsx may need unrestricted sandbox (`all`) due to IPC pipe EPERM.
+- Prefer `npx tsx` over `node --experimental-strip-types` for `lib/workspace-store/*.selftest.ts`.
