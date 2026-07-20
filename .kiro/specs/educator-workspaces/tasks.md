@@ -195,7 +195,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 4.2, 6.1_
 
-- [ ] 7.2 Run end-to-end authz and coexistence checklist
+- [x] 7.2 Run end-to-end authz and coexistence checklist
   - Manually verify roles, building permissions a–d, Publish ungated by (c), placement does not Community-publish, invite sign-in, 100+ member search, and My bots/Community regression
   - Checklist results recorded as pass/fail notes for the above scenarios with no unresolved blockers
   - _Requirements: 1.5, 5.7, 7.1, 7.2, 7.3, 7.4, 7.5, 8.2, 8.4, 9.1, 9.2, 9.3_
