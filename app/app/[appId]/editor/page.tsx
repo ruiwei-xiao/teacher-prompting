@@ -24,6 +24,10 @@ import {
 } from "@/lib/app-store/model-selection";
 import { isDefaultInstructionPrompt } from "@/lib/prompt-defaults";
 import { readStoredPrompt, saveStoredPrompt } from "@/lib/prompt-storage/client";
+import {
+  buildEducatorSharePatchBody,
+  educatorSharePatchErrorMessage,
+} from "@/lib/workspace-api/share-patch-body";
 
 export default function EditorPage({
   params,
@@ -202,25 +206,27 @@ export default function EditorPage({
     setChatbotShareError("");
 
     try {
+      // Editor / My bots share omits workspaceId so permission (c) does not apply.
+      // Workspace hub (task 6.2) will pass workspaceId into ShareDialog + PATCH.
       const res = await fetch(`/api/apps/${appId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shareProject: true,
-          projectShareVisibility:
-            settings?.projectShareVisibility ?? projectShareVisibility,
-          shareAuthorName: settings?.shareAuthorName ?? shareAuthorName,
-          communitySubject,
-          communityTags: communityTagsInput
-            .split(",")
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        }),
+        body: JSON.stringify(
+          buildEducatorSharePatchBody({
+            projectShareVisibility:
+              settings?.projectShareVisibility ?? projectShareVisibility,
+            shareAuthorName: settings?.shareAuthorName ?? shareAuthorName,
+            communitySubject,
+            communityTagsInput,
+          })
+        ),
       });
 
       const body = await res.json();
       if (!res.ok) {
-        throw new Error(body?.error || "Failed to prepare share links");
+        throw new Error(
+          educatorSharePatchErrorMessage(res.status, body?.error)
+        );
       }
 
       const baseUrl =

@@ -112,7 +112,7 @@
   - _Boundary: AppsAPIGates_
   - _Depends: 3.1_
 
-- [ ] 4.3 Pass Workspace context from share UI
+- [x] 4.3 Pass Workspace context from share UI
   - When sharing from a Workspace surface, include Workspace context so permission (c) can apply; show forbidden messaging when blocked
   - Share from Workspace hub with (c) off blocks educator outward share for Participants; share without Workspace context does not apply (c)
   - _Requirements: 5.5, 5.6, 7.4_

@@ -3,6 +3,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  buildEducatorSharePatchBody,
+  educatorSharePatchErrorMessage,
+} from "@/lib/workspace-api/share-patch-body";
 import AppCard from "./AppCard";
 import DeleteBotDialog from "./DeleteBotDialog";
 import ShareDialog from "./ShareDialog";
@@ -23,7 +27,15 @@ type AppSummary = {
   forkedFromAuthorName?: string | null;
 };
 
-export default function AppGrid() {
+export default function AppGrid({
+  workspaceId,
+}: {
+  /**
+   * Optional Workspace context for share PATCH / permission (c).
+   * My bots omits this; Workspace hub (task 6.2) can pass it when reusing share UI.
+   */
+  workspaceId?: string;
+} = {}) {
   const router = useRouter();
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,23 +127,23 @@ export default function AppGrid() {
       const res = await fetch(`/api/apps/${app.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shareProject: true,
-          projectShareVisibility:
-            settings?.projectShareVisibility ?? projectShareVisibility,
-          shareAuthorName:
-            settings?.shareAuthorName ?? shareAuthorName,
-          communitySubject,
-          communityTags: communityTagsInput
-            .split(",")
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        }),
+        body: JSON.stringify(
+          buildEducatorSharePatchBody({
+            projectShareVisibility:
+              settings?.projectShareVisibility ?? projectShareVisibility,
+            shareAuthorName: settings?.shareAuthorName ?? shareAuthorName,
+            communitySubject,
+            communityTagsInput,
+            workspaceId,
+          })
+        ),
       });
       const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body?.error || "Failed to prepare share links.");
+        throw new Error(
+          educatorSharePatchErrorMessage(res.status, body?.error)
+        );
       }
 
       const nextApp: AppSummary = {
@@ -272,6 +284,7 @@ export default function AppGrid() {
         shareAuthorName={shareAuthorName}
         subject={communitySubject}
         tagsInput={communityTagsInput}
+        workspaceId={workspaceId}
         onProjectShareVisibilityChange={setProjectShareVisibility}
         onShareAuthorNameChange={setShareAuthorName}
         onSubjectChange={setCommunitySubject}
