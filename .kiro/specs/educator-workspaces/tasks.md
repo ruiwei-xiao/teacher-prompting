@@ -144,7 +144,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 3.1, 6.1_
 
-- [ ] 6.3 Build Workspace settings UI
+- [x] 6.3 Build Workspace settings UI
   - Facilitators and Owners can rename and edit building permissions; only Owner can delete the Workspace
   - Facilitator save updates permissions for subsequent member actions; Participant cannot open destructive Owner-only delete
   - _Requirements: 1.4, 3.2, 3.3, 3.4, 5.1, 5.10_

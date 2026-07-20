@@ -8,6 +8,7 @@ import type {
 } from "@/lib/workspace-store/types";
 import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
 import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
+import { workspaceSettingsHref } from "@/lib/workspace-ui/settings";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
 
 type HubState =
@@ -102,12 +103,18 @@ export default function WorkspaceHub({
           Your role: {roleLabel}. This list is for bots placed in this Workspace —
           not your personal My bots.
         </p>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-4">
           <Link
             href={MY_BOTS_HREF}
             className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
           >
             ← Back to My bots
+          </Link>
+          <Link
+            href={workspaceSettingsHref(workspaceId)}
+            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+          >
+            Settings
           </Link>
         </div>
       </div>
