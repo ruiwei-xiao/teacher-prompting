@@ -149,13 +149,12 @@ async function main(): Promise<void> {
   );
   const hubSource = await fs.readFile(hubPath, "utf8");
   assert(
-    hubSource.includes("/api/workspaces/"),
-    "minimal hub loads workspace by id"
+    hubSource.includes("WorkspaceHub"),
+    "hub page renders WorkspaceHub"
   );
   assert(
-    hubSource.toLowerCase().includes("temporary") ||
-      hubSource.includes("6.2"),
-    "minimal hub is labeled temporary / pending 6.2"
+    !hubSource.toLowerCase().includes("temporary hub"),
+    "hub page is no longer the temporary 6.1 placeholder"
   );
 
   const homePath = path.join(process.cwd(), "app/page.tsx");

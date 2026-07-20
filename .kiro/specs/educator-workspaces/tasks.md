@@ -137,7 +137,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 2.1_
 
-- [ ] 6.2 Build Workspace hub with filtered bot grid and place/unplace
+- [x] 6.2 Build Workspace hub with filtered bot grid and place/unplace
   - Show Workspace bots distinct from My bots; filter by role × permission (b); allow place/unplace per role and permissions (a)/(d)
   - Participant with (b) off sees only own placements; Facilitator sees all placed bots; place/unplace updates the grid
   - _Requirements: 1.3, 4.2, 4.4, 4.5, 5.2, 5.3, 5.4, 5.8, 5.9_
