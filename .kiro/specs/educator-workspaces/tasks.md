@@ -40,7 +40,7 @@
 
 ## 2. Workspace HTTP APIs
 
-- [ ] 2.1 Expose Workspace list, create, get, update, and delete APIs
+- [x] 2.1 Expose Workspace list, create, get, update, and delete APIs
   - Enforce Owner/Facilitator/Participant rules; Facilitators may rename and update building permissions; only Owner may delete; append activity on rename and permissions change; on delete remove memberships/invites/placements/activity without deleting bots
   - Signed-in Owner can create and later delete; Participant receives forbidden on settings/delete mutations
   - _Requirements: 1.1, 1.4, 2.6, 3.2, 3.3, 3.4, 3.6, 5.10, 6.3, 8.1_
