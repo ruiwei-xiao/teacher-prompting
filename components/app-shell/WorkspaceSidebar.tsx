@@ -1,31 +1,130 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import CreateWorkspaceDialog from "@/components/workspace/CreateWorkspaceDialog";
+import {
+  MY_BOTS_HREF,
+  parseWorkspacesListResponse,
+  workspaceHubHref,
+} from "@/lib/workspace-ui/nav";
+import type { Workspace } from "@/lib/workspace-store/types";
+
 export default function WorkspaceSidebar() {
-    return (
-      <div className="space-y-1 text-slate-700 dark:text-zinc-300">
-        <div className="mb-2 font-semibold text-slate-900 dark:text-zinc-100">My Apps</div>
-        <button className="w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800 dark:hover:bg-zinc-700">
-          My Apps
-        </button>
-        <button className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800">
-          Starred
-        </button>
-        <button className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800">
-          Recently Used
-        </button>
-        <div className="mt-6 text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-500">
-          Workspaces
-        </div>
-        <div className="mt-2">
-          <div className="mb-1 text-[13px] text-slate-500 dark:text-zinc-500">
-            Example Institute AI Collab – Pilot
-          </div>
-          <button className="w-full rounded-lg bg-sky-100/60 px-3.5 py-2 text-left dark:bg-sky-900/40 dark:text-sky-100">
-            Example Institute AI Collab Sandbox
-          </button>
-          <button className="mt-2 w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800">
-            + New workspace
-          </button>
-        </div>
-      </div>
-    );
+  const router = useRouter();
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+
+  async function loadWorkspaces() {
+    setError("");
+    try {
+      const res = await fetch("/api/workspaces");
+      const body = await res.json().catch(() => ({}));
+      const parsed = parseWorkspacesListResponse(res.status, body);
+      if (!parsed.ok) {
+        setWorkspaces([]);
+        setError(parsed.error);
+        return;
+      }
+      setWorkspaces(parsed.workspaces);
+    } catch {
+      setWorkspaces([]);
+      setError("Failed to load workspaces");
+    }
   }
-  
+
+  useEffect(() => {
+    void loadWorkspaces().finally(() => setLoading(false));
+  }, []);
+
+  function handleCreated(workspace: Workspace) {
+    setWorkspaces((prev) => {
+      if (prev.some((w) => w.id === workspace.id)) return prev;
+      return [...prev, workspace];
+    });
+    router.push(workspaceHubHref(workspace.id));
+  }
+
+  return (
+    <div className="space-y-1 text-slate-700 dark:text-zinc-300">
+      <div className="mb-2 font-semibold text-slate-900 dark:text-zinc-100">
+        Library
+      </div>
+      <Link
+        href={MY_BOTS_HREF}
+        className="block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800 dark:hover:bg-zinc-700"
+      >
+        My bots
+      </Link>
+      <button
+        type="button"
+        className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+        disabled
+        title="Coming soon"
+      >
+        Starred
+      </button>
+      <button
+        type="button"
+        className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+        disabled
+        title="Coming soon"
+      >
+        Recently Used
+      </button>
+
+      <div className="mt-6 text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-500">
+        Workspaces
+      </div>
+
+      <div className="mt-2 space-y-1">
+        {loading && (
+          <div className="px-3.5 py-2 text-sm text-slate-500 dark:text-zinc-500">
+            Loading…
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        {!loading &&
+          !error &&
+          workspaces.map((workspace) => (
+            <Link
+              key={workspace.id}
+              href={workspaceHubHref(workspace.id)}
+              className="block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+            >
+              {workspace.name}
+            </Link>
+          ))}
+
+        {!loading && !error && workspaces.length === 0 && (
+          <div className="px-3.5 py-2 text-sm text-slate-500 dark:text-zinc-500">
+            No workspaces yet. Create one to collaborate.
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="mt-2 w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+        >
+          + New workspace
+        </button>
+      </div>
+
+      <CreateWorkspaceDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={handleCreated}
+      />
+    </div>
+  );
+}

@@ -130,7 +130,7 @@
 
 ## 6. Educator Workspace UI
 
-- [ ] 6.1 Replace placeholder navigation with live Workspaces
+- [x] 6.1 Replace placeholder navigation with live Workspaces
   - Primary educator navigation lists memberships, supports create, and opens hubs; remove hard-coded example Workspace names
   - Educator with memberships sees real names; educator with none can still create and use My bots
   - _Requirements: 1.1, 1.2, 1.5_
