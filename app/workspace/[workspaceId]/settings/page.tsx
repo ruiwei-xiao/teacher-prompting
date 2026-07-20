@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import TopNav from "@/components/app-shell/TopNav";
 import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
+import WorkspaceInvitePanel from "@/components/workspace/WorkspaceInvitePanel";
 import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
 import WorkspacePermissionsForm from "@/components/workspace/WorkspacePermissionsForm";
 import type {
@@ -123,8 +124,9 @@ export default function WorkspaceSettingsPage() {
                     {state.name}
                   </h1>
                   <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
-                    Rename this Workspace, edit building permissions, manage
-                    members, or delete it if you are the Owner.
+                    Rename this Workspace, edit building permissions, invite
+                    members, manage the roster, or delete it if you are the
+                    Owner.
                   </p>
                   <div className="mt-4 flex flex-wrap gap-4">
                     <Link
@@ -133,6 +135,12 @@ export default function WorkspaceSettingsPage() {
                     >
                       ← Back to Workspace
                     </Link>
+                    <a
+                      href="#invites"
+                      className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+                    >
+                      Invites
+                    </a>
                     <a
                       href="#members"
                       className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
@@ -154,6 +162,16 @@ export default function WorkspaceSettingsPage() {
                   initialPermissions={state.permissions}
                   role={state.role}
                 />
+
+                <div
+                  id="invites"
+                  className="border-t border-slate-200 pt-8 dark:border-zinc-800"
+                >
+                  <WorkspaceInvitePanel
+                    workspaceId={workspaceId}
+                    role={state.role}
+                  />
+                </div>
 
                 <div
                   id="members"

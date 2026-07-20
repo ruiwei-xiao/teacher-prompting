@@ -117,6 +117,12 @@ export default function WorkspaceHub({
             Settings
           </Link>
           <Link
+            href={`${workspaceSettingsHref(workspaceId)}#invites`}
+            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
+          >
+            Invites
+          </Link>
+          <Link
             href={`${workspaceSettingsHref(workspaceId)}#members`}
             className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
           >

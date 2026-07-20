@@ -158,7 +158,7 @@
   - _Boundary: Workspace UI_
   - _Depends: 2.2, 6.1_
 
-- [ ] 6.5 (P) Build invite UI
+- [x] 6.5 (P) Build invite UI
   - Email pending invite recording and copyable invite links with revoke; clear copy that email is not SMTP-delivered
   - Operator can copy a link and record an email invite from the panel
   - _Requirements: 2.1, 2.2, 2.4, 9.2_
