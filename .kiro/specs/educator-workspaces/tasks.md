@@ -69,7 +69,7 @@
 
 ## 3. Placements, peer inspect, and fork
 
-- [ ] 3.1 Expose placement APIs
+- [x] 3.1 Expose placement APIs
   - Place/unplace/list with ownership and building-permission rules; Facilitators/Owners may remove others’ placements without deleting bots; append place/unplace activity
   - Placing a bot keeps a single personal owner; removing placement leaves the bot in My bots
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.2, 5.8, 5.9, 6.2_
