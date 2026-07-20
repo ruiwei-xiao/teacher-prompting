@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { buildCreateAppRequestBody } from "@/lib/workspace-ui/create";
 
 export default function CreateAppForm({
   onCreate,
   genaiModel,
   genaiApiKey,
+  workspaceId,
 }: {
   onCreate: (id: string) => void;
   genaiModel: string;
   genaiApiKey: string;
+  /** Optional Workspace to place into after create (POST /api/apps workspaceId). */
+  workspaceId?: string;
 }) {
   const [name, setName] = useState("PEDAGOGICAL-AGENT-BUILDER");
   const [desc, setDesc] = useState("Support for course learning objectives");
@@ -30,12 +34,15 @@ export default function CreateAppForm({
       const res = await fetch("/api/apps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description: desc,
-          genaiModel,
-          genaiApiKey,
-        }),
+        body: JSON.stringify(
+          buildCreateAppRequestBody({
+            name,
+            description: desc,
+            genaiModel,
+            genaiApiKey,
+            workspaceId,
+          })
+        ),
       });
 
       const body = await res.json();
@@ -45,8 +52,8 @@ export default function CreateAppForm({
       }
 
       onCreate(body.app.id);
-    } catch (e: any) {
-      setError(e?.message || "Failed to create app");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create app");
     } finally {
       setBusy(false);
     }

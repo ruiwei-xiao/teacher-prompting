@@ -188,7 +188,7 @@
 
 ## 7. Create-flow UI and validation
 
-- [ ] 7.1 Optional place-into-Workspace on create UI
+- [x] 7.1 Optional place-into-Workspace on create UI
   - Create flow can target a Workspace when allowed; does not require a Workspace for personal create
   - Creating into an allowed Workspace shows the bot in that hub; personal create still appears under My bots
   - _Requirements: 1.5, 5.2, 7.1_
