@@ -2,7 +2,7 @@
 
 ## 1. Foundation: types, permissions, and persistence
 
-- [ ] 1.1 Define Workspace domain types
+- [x] 1.1 Define Workspace domain types
   - Capture Workspace, roles (Owner / Facilitator / Participant), building permissions (a–d), membership, invite (email|link), placement, and activity event shapes per design
   - Types compile and are importable by store and permission modules with no `any`
   - _Requirements: 3.1, 5.1_
