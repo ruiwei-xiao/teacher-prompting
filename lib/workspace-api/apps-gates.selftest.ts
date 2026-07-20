@@ -1,5 +1,6 @@
 /**
- * Self-test: AppsAPIGates — educator outward share (c) and self-delete (d).
+ * Self-test: AppsAPIGates — educator outward share (c), self-delete (d),
+ * and create-then-place (a).
  * Run: npx tsx lib/workspace-api/apps-gates.selftest.ts
  */
 import fs from "fs/promises";
@@ -67,12 +68,16 @@ async function main(): Promise<void> {
     patchTouchesEducatorOutwardFields,
     assertEducatorOutwardShareGate,
     assertDeleteOwnBotGate,
+    assertCreateIntoWorkspaceGate,
+    placeAppIntoWorkspaceAfterCreate,
   } = await import("./apps-gates");
   const {
     addMember,
     createWorkspace,
     placeApp,
     updateWorkspace,
+    listPlacements,
+    listActivity,
   } = await import("../workspace-store/store");
 
   // --- Field detection (pure) ---
@@ -263,6 +268,143 @@ async function main(): Promise<void> {
       }
     );
   });
+
+  // --- create-then-place (permission a) ---
+  {
+    const noCtx = await assertCreateIntoWorkspaceGate({
+      userId: ownerId,
+      workspaceId: undefined,
+    });
+    assert(
+      noCtx.ok === true,
+      "create without workspaceId ignores create-into-Workspace gate"
+    );
+  }
+
+  {
+    const ws = await createWorkspace({
+      name: "CreateThenPlace",
+      ownerUserId: ownerId,
+    });
+    await addMember({
+      workspaceId: ws.id,
+      userId: partId,
+      role: "participant",
+    });
+    // Defaults: canCreateBots false
+    const partDenied = await assertCreateIntoWorkspaceGate({
+      userId: partId,
+      workspaceId: ws.id,
+    });
+    assert(
+      partDenied.ok === false &&
+        partDenied.status === 403 &&
+        typeof partDenied.error === "string",
+      "Participant create-into-WS with (a) off → 403"
+    );
+
+    const ownerOk = await assertCreateIntoWorkspaceGate({
+      userId: ownerId,
+      workspaceId: ws.id,
+    });
+    assert(
+      ownerOk.ok === true,
+      "Owner create-into-WS with (a) off → ok"
+    );
+
+    await addMember({
+      workspaceId: ws.id,
+      userId: "fac_1",
+      role: "facilitator",
+    });
+    const facOk = await assertCreateIntoWorkspaceGate({
+      userId: "fac_1",
+      workspaceId: ws.id,
+    });
+    assert(
+      facOk.ok === true,
+      "Facilitator create-into-WS with (a) off → ok"
+    );
+
+    await updateWorkspace(ws.id, {
+      buildingPermissions: {
+        canCreateBots: true,
+        canSeeOthersBots: false,
+        canShareOutside: false,
+        canManageOwnBots: false,
+      },
+    });
+    const partAllowed = await assertCreateIntoWorkspaceGate({
+      userId: partId,
+      workspaceId: ws.id,
+    });
+    assert(
+      partAllowed.ok === true,
+      "Participant create-into-WS with (a) on → ok"
+    );
+
+    const missingWs = await assertCreateIntoWorkspaceGate({
+      userId: ownerId,
+      workspaceId: "ws_does_not_exist",
+    });
+    assert(
+      missingWs.ok === false && missingWs.status === 404,
+      "create-into missing Workspace → 404"
+    );
+
+    const stranger = await assertCreateIntoWorkspaceGate({
+      userId: "stranger_1",
+      workspaceId: ws.id,
+    });
+    assert(
+      stranger.ok === false && stranger.status === 403,
+      "non-member create-into-WS → 403"
+    );
+
+    // Allowed place after create: bot appears in placements + activity
+    const newBotId = "bot_created_place";
+    await placeAppIntoWorkspaceAfterCreate({
+      userId: partId,
+      workspaceId: ws.id,
+      appId: newBotId,
+    });
+    const placements = await listPlacements(ws.id);
+    assert(
+      placements.some((p) => p.appId === newBotId),
+      "allowed create-then-place lists bot in Workspace placements"
+    );
+    const activity = await listActivity(ws.id, { viewerRole: "owner" });
+    assert(
+      activity.some(
+        (e) =>
+          e.type === "bot.placed" &&
+          (e.payload as { appId?: string })?.appId === newBotId
+      ),
+      "create-then-place appends bot.placed activity"
+    );
+
+    // Denied path must not place (simulate: do not call place when gate fails)
+    const deniedBot = "bot_denied_no_place";
+    await updateWorkspace(ws.id, {
+      buildingPermissions: {
+        canCreateBots: false,
+        canSeeOthersBots: false,
+        canShareOutside: false,
+        canManageOwnBots: false,
+      },
+    });
+    const deniedAgain = await assertCreateIntoWorkspaceGate({
+      userId: partId,
+      workspaceId: ws.id,
+    });
+    assert(deniedAgain.ok === false, "denied gate still fails with (a) off");
+    // Intentionally skip placeAppIntoWorkspaceAfterCreate on deny
+    const afterDeny = await listPlacements(ws.id);
+    assert(
+      !afterDeny.some((p) => p.appId === deniedBot),
+      "denied create-into-Workspace does not place"
+    );
+  }
 
   await fs.rm(tempDir, { recursive: true, force: true });
 

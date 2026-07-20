@@ -105,7 +105,7 @@
   - _Boundary: AppsAPIGates_
   - _Depends: 1.2, 1.4_
 
-- [ ] 4.2 Support create-then-place via apps create API
+- [x] 4.2 Support create-then-place via apps create API
   - Optional Workspace context on create places the new bot when role/permission (a) allows
   - Allowed create returns a bot listed in that Workspace placements; denied create-into-Workspace does not place
   - _Requirements: 5.2, 1.3_

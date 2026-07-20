@@ -1,13 +1,16 @@
 /**
- * AppsAPIGates — Workspace permission (c)/(d) for personal apps PATCH/DELETE.
+ * AppsAPIGates — Workspace permission (a)/(c)/(d) for personal apps create/PATCH/DELETE.
  * Playlab-scoped (c): only when request carries workspaceId; never gates publish.
+ * Create-then-place (a): optional workspaceId on POST /api/apps.
  */
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
+  appendActivity,
   getWorkspace,
   listMembers,
   listPlacements,
   listWorkspacesForUser,
+  placeApp,
 } from "@/lib/workspace-store/store";
 import type { WorkspaceMembership } from "@/lib/workspace-store/types";
 
@@ -195,4 +198,67 @@ export async function assertDeleteOwnBotGate(input: {
   }
 
   return { ok: true };
+}
+
+/**
+ * Permission (a): optional create-then-place into a Workspace.
+ * No workspaceId → ok (personal create, no place).
+ * With workspaceId → Owners/Facilitators always; Participants need canCreateBots.
+ * Denied → 403 so the client knows (do not create-then-place).
+ */
+export async function assertCreateIntoWorkspaceGate(input: {
+  userId: string;
+  workspaceId?: string | null;
+}): Promise<GateResult> {
+  const workspaceId = parseWorkspaceId(input.workspaceId);
+  if (!workspaceId) {
+    return { ok: true };
+  }
+
+  const workspace = await getWorkspace(workspaceId);
+  if (!workspace) return notFound("Workspace not found");
+
+  const membership = await getMembership(workspaceId, input.userId);
+  if (!membership) {
+    return forbidden("Missing permission to create bots into this Workspace");
+  }
+
+  const check = assertWorkspaceAction({
+    membership,
+    permissions: workspace.buildingPermissions,
+    action: "bots.createIntoWorkspace",
+  });
+
+  if (!check.ok) {
+    return forbidden(
+      "Creating bots into this Workspace is blocked by Workspace policy"
+    );
+  }
+
+  return { ok: true };
+}
+
+/**
+ * After a successful createApp when create-into-Workspace was authorized:
+ * place the new bot and append bot.placed activity (idempotent place).
+ */
+export async function placeAppIntoWorkspaceAfterCreate(input: {
+  userId: string;
+  workspaceId: string;
+  appId: string;
+}): Promise<void> {
+  const existing = (await listPlacements(input.workspaceId)).find(
+    (p) => p.appId === input.appId
+  );
+
+  await placeApp(input.workspaceId, input.appId, input.userId);
+
+  if (!existing) {
+    await appendActivity({
+      workspaceId: input.workspaceId,
+      type: "bot.placed",
+      actorUserId: input.userId,
+      payload: { appId: input.appId },
+    });
+  }
 }

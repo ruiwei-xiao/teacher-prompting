@@ -7,6 +7,10 @@ import {
   normalizeVariability,
   parseModelSelection,
 } from "@/lib/app-store/model-selection";
+import {
+  assertCreateIntoWorkspaceGate,
+  placeAppIntoWorkspaceAfterCreate,
+} from "@/lib/workspace-api/apps-gates";
 
 function slugify(s: string) {
   return (
@@ -60,11 +64,13 @@ export async function POST(req: NextRequest) {
       description,
       genaiModel,
       genaiApiKey,
+      workspaceId: workspaceIdRaw,
     }: {
       name: string;
       description?: string;
       genaiModel: string;
       genaiApiKey: string;
+      workspaceId?: string;
     } = body;
 
     if (!name?.trim()) {
@@ -75,6 +81,23 @@ export async function POST(req: NextRequest) {
     }
     if (!genaiApiKey?.trim()) {
       return NextResponse.json({ error: "Missing API key" }, { status: 400 });
+    }
+
+    const workspaceId =
+      typeof workspaceIdRaw === "string" && workspaceIdRaw.trim()
+        ? workspaceIdRaw.trim()
+        : null;
+
+    // Permission (a): deny before create when workspaceId is present but not allowed.
+    const createGate = await assertCreateIntoWorkspaceGate({
+      userId,
+      workspaceId,
+    });
+    if (!createGate.ok) {
+      return NextResponse.json(
+        { error: createGate.error },
+        { status: createGate.status }
+      );
     }
 
     const id = slugify(name);
@@ -98,6 +121,15 @@ export async function POST(req: NextRequest) {
     };
 
     const created = await createApp(app);
+
+    if (workspaceId) {
+      await placeAppIntoWorkspaceAfterCreate({
+        userId,
+        workspaceId,
+        appId: created.id,
+      });
+    }
+
     return NextResponse.json({ app: created });
   } catch (e: any) {
     return NextResponse.json(
