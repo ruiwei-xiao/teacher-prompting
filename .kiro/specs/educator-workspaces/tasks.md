@@ -121,7 +121,7 @@
 
 ## 5. Pending email invite acceptance
 
-- [ ] 5.1 Accept pending email invites on sign-in
+- [x] 5.1 Accept pending email invites on sign-in
   - When a session has user email, accept matching pending email invites into memberships automatically
   - User invited by email becomes a Workspace member after sign-in with that email without a separate accept click
   - _Requirements: 2.1, 2.3_

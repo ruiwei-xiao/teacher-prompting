@@ -290,7 +290,7 @@ async function main(): Promise<void> {
       "expired invite token is rejected"
     );
 
-    // --- acceptPendingEmailInvitesForUser (case-insensitive email) ---
+    // --- acceptPendingEmailInvitesForUser (case-insensitive; consume on accept) ---
     const pendingIds = await acceptPendingEmailInvitesForUser(
       "email_user",
       "new.teacher@school.edu"
@@ -301,18 +301,38 @@ async function main(): Promise<void> {
       "facilitator",
       "email invite grants Facilitator role"
     );
+    const consumedInvite = await getInvite(wsInvite.id, emailInvite.id);
+    assert(
+      typeof consumedInvite?.revokedAt === "string",
+      "accepted email invite is revoked/consumed"
+    );
     const pendingAgain = await acceptPendingEmailInvitesForUser(
       "email_user",
       "NEW.TEACHER@SCHOOL.EDU"
     );
-    assert(
-      pendingAgain.includes(wsInvite.id),
-      "acceptPendingEmailInvitesForUser is idempotent"
+    assertEqual(
+      pendingAgain,
+      [],
+      "acceptPendingEmailInvitesForUser returns no workspaces after consume"
     );
     assertEqual(
       (await listMembers(wsInvite.id)).filter((m) => m.userId === "email_user").length,
       1,
       "email accept does not duplicate membership"
+    );
+    await removeMember(wsInvite.id, "email_user");
+    const afterLeave = await acceptPendingEmailInvitesForUser(
+      "email_user",
+      "new.teacher@school.edu"
+    );
+    assertEqual(
+      afterLeave,
+      [],
+      "consumed email invite does not re-add after leave"
+    );
+    assert(
+      !(await listMembers(wsInvite.id)).some((m) => m.userId === "email_user"),
+      "leave stays effective after re-sign-in accept path"
     );
 
     // --- placements: multi-Workspace, unique per Workspace, no AppConfig ---

@@ -618,17 +618,37 @@ async function acceptPendingEmailInvitesForUserInFile(
       normalizeEmail(i.email) === normalized &&
       isInviteAcceptable(i)
   );
+  if (pending.length === 0) {
+    return [];
+  }
+
   const workspaceIds: string[] = [];
+  const now = new Date().toISOString();
   for (const invite of pending) {
-    await addMemberInFile({
-      workspaceId: invite.workspaceId,
-      userId,
-      role: invite.role,
-    });
+    if (!data.workspaces.some((w) => w.id === invite.workspaceId)) {
+      continue;
+    }
+    const existing = data.members.find(
+      (m) => m.workspaceId === invite.workspaceId && m.userId === userId
+    );
+    if (!existing) {
+      data.members.push({
+        workspaceId: invite.workspaceId,
+        userId,
+        role: invite.role,
+        joinedAt: now,
+      });
+    }
+    // Consume email invite so re-sign-in / leave does not re-add membership.
+    const idx = data.invites.findIndex((i) => i.id === invite.id);
+    if (idx !== -1) {
+      data.invites[idx] = { ...data.invites[idx], revokedAt: now };
+    }
     if (!workspaceIds.includes(invite.workspaceId)) {
       workspaceIds.push(invite.workspaceId);
     }
   }
+  await writeFileData(data);
   return workspaceIds;
 }
 
@@ -1051,6 +1071,7 @@ async function acceptPendingEmailInvitesForUserInPostgres(
       AND (expires_at IS NULL OR expires_at > NOW())
   `;
   const workspaceIds: string[] = [];
+  const revokedAt = new Date().toISOString();
   for (const row of result.rows) {
     const invite = rowToInvite(row);
     await addMemberInPostgres({
@@ -1058,6 +1079,12 @@ async function acceptPendingEmailInvitesForUserInPostgres(
       userId,
       role: invite.role,
     });
+    // Consume email invite so re-sign-in / leave does not re-add membership.
+    await sql`
+      UPDATE workspace_invites
+      SET revoked_at = ${revokedAt}
+      WHERE id = ${invite.id}
+    `;
     if (!workspaceIds.includes(invite.workspaceId)) {
       workspaceIds.push(invite.workspaceId);
     }
