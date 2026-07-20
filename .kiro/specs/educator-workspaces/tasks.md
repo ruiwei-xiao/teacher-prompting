@@ -76,7 +76,7 @@
   - _Boundary: WorkspacesAPI_
   - _Depends: 1.4, 1.5, 1.2_
 
-- [ ] 3.2 (P) Extract shared bot fork helper
+- [x] 3.2 (P) Extract shared bot fork helper
   - Shared fork creates a caller-owned copy with attribution metadata and empty provider secret; refactor existing project duplicate to use it without behavior change
   - Project duplicate still produces a new owned bot; Workspace duplicate can call the same helper later
   - _Requirements: 4.7_
