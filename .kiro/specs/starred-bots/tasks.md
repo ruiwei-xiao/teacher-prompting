@@ -32,7 +32,7 @@
 
 ## 3. Starred library and navigation UI
 
-- [ ] 3.1 Build Starred library page
+- [x] 3.1 Build Starred library page
   - Dedicated Starred view loads the list API; empty and error states; Open uses provided open target (editor vs peer)
   - Empty state explains starring from My bots or Workspace lists; failed load is not silently empty
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 5.1_
