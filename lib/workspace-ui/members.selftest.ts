@@ -4,7 +4,7 @@
  */
 import fs from "fs/promises";
 import path from "path";
-import type { WorkspaceMembership, WorkspaceRole } from "@/lib/workspace-store/types";
+import type { WorkspaceRole } from "@/lib/workspace-store/types";
 import {
   buildChangeRoleBody,
   buildRemoveMemberBody,
@@ -15,9 +15,11 @@ import {
   canSelfLeave,
   canTransferOwnership,
   filterMembersByQuery,
+  memberDisplayLabel,
   membersApiHref,
   parseMembersListResponse,
   parseMembersMutationResponse,
+  type WorkspaceMemberListItem,
 } from "./members";
 
 let failures = 0;
@@ -40,13 +42,15 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
 function member(
   userId: string,
   role: WorkspaceRole,
-  joinedAt = "2026-01-01T00:00:00.000Z"
-): WorkspaceMembership {
+  joinedAt = "2026-01-01T00:00:00.000Z",
+  email: string | null = null
+): WorkspaceMemberListItem {
   return {
     workspaceId: "ws_1",
     userId,
     role,
     joinedAt,
+    email,
   };
 }
 
@@ -182,14 +186,14 @@ async function main(): Promise<void> {
   );
 
   // --- Search narrows long roster (Req 9.1, 9.3) ---
-  const roster: WorkspaceMembership[] = [];
+  const roster: WorkspaceMemberListItem[] = [];
   for (let i = 0; i < 120; i += 1) {
     roster.push(
       member(`user_${String(i).padStart(3, "0")}`, "participant")
     );
   }
-  roster.push(member("owner_alice", "owner"));
-  roster.push(member("fac_bob", "facilitator"));
+  roster.push(member("owner_alice", "owner", undefined, "alice@school.edu"));
+  roster.push(member("fac_bob", "facilitator", undefined, "bob@school.edu"));
 
   assert(roster.length >= 100, "roster has at least 100 members");
   const narrowed = filterMembersByQuery(roster, "user_01");
@@ -203,6 +207,11 @@ async function main(): Promise<void> {
     "search finds Owner by userId"
   );
   assertEqual(
+    filterMembersByQuery(roster, "alice@school").map((m) => m.userId),
+    ["owner_alice"],
+    "search finds Owner by email"
+  );
+  assertEqual(
     filterMembersByQuery(roster, "   ").length,
     roster.length,
     "blank search returns full roster"
@@ -211,6 +220,17 @@ async function main(): Promise<void> {
     filterMembersByQuery(roster, "NO_SUCH_MEMBER").length,
     0,
     "non-matching search returns empty"
+  );
+
+  assertEqual(
+    memberDisplayLabel({ userId: "uuid-1", email: "teacher@school.edu" }),
+    "teacher@school.edu",
+    "display prefers email"
+  );
+  assertEqual(
+    memberDisplayLabel({ userId: "uuid-1", email: null }),
+    "uuid-1",
+    "display falls back to userId"
   );
 
   // --- API helpers ---

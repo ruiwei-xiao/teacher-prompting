@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type {
-  WorkspaceMembership,
-  WorkspaceRole,
-} from "@/lib/workspace-store/types";
+import type { WorkspaceRole } from "@/lib/workspace-store/types";
 import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
 import {
   buildChangeRoleBody,
@@ -17,10 +14,12 @@ import {
   canSelfLeave,
   canTransferOwnership,
   filterMembersByQuery,
+  memberDisplayLabel,
   membersApiHref,
   parseMembersListResponse,
   parseMembersMutationResponse,
   type AssignableMemberRole,
+  type WorkspaceMemberListItem,
 } from "@/lib/workspace-ui/members";
 
 function roleLabel(role: WorkspaceRole): string {
@@ -39,7 +38,7 @@ export default function WorkspaceMemberList({
   currentUserId: string;
 }) {
   const router = useRouter();
-  const [members, setMembers] = useState<WorkspaceMembership[]>([]);
+  const [members, setMembers] = useState<WorkspaceMemberListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -47,8 +46,7 @@ export default function WorkspaceMemberList({
   const [search, setSearch] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [transferTargetId, setTransferTargetId] = useState("");
-  const [demoteTo, setDemoteTo] =
-    useState<AssignableMemberRole>("facilitator");
+  const [demoteTo, setDemoteTo] = useState<AssignableMemberRole>("facilitator");
   const [confirmLeave, setConfirmLeave] = useState(false);
 
   const manage = canManageMembers(role);
@@ -117,22 +115,20 @@ export default function WorkspaceMemberList({
 
   const visibleMembers = useMemo(
     () => filterMembersByQuery(members, search),
-    [members, search]
+    [members, search],
   );
 
   const transferCandidates = useMemo(
     () =>
-      members.filter(
-        (m) => m.userId !== currentUserId && m.role !== "owner"
-      ),
-    [members, currentUserId]
+      members.filter((m) => m.userId !== currentUserId && m.role !== "owner"),
+    [members, currentUserId],
   );
 
   async function runMutation(
     targetUserId: string,
     request: () => Promise<Response>,
     successMessage: string,
-    options?: { leftWorkspace?: boolean }
+    options?: { leftWorkspace?: boolean },
   ): Promise<boolean> {
     setBusyUserId(targetUserId);
     setActionError("");
@@ -154,7 +150,7 @@ export default function WorkspaceMemberList({
       return true;
     } catch (e: unknown) {
       setActionError(
-        e instanceof Error ? e.message : "Failed to update members"
+        e instanceof Error ? e.message : "Failed to update members",
       );
       return false;
     } finally {
@@ -163,8 +159,8 @@ export default function WorkspaceMemberList({
   }
 
   async function handleRoleChange(
-    target: WorkspaceMembership,
-    nextRole: AssignableMemberRole
+    target: WorkspaceMemberListItem,
+    nextRole: AssignableMemberRole,
   ) {
     if (
       !canChangeMemberRole({
@@ -177,6 +173,7 @@ export default function WorkspaceMemberList({
     }
     if (target.role === nextRole) return;
 
+    const label = memberDisplayLabel(target);
     await runMutation(
       target.userId,
       () =>
@@ -185,11 +182,11 @@ export default function WorkspaceMemberList({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildChangeRoleBody(target.userId, nextRole)),
         }),
-      `Updated role for ${target.userId} to ${roleLabel(nextRole)}.`
+      `Updated role for ${label} to ${roleLabel(nextRole)}.`,
     );
   }
 
-  async function handleRemove(target: WorkspaceMembership) {
+  async function handleRemove(target: WorkspaceMemberListItem) {
     if (
       !canRemoveMember({
         actorRole: role,
@@ -200,6 +197,7 @@ export default function WorkspaceMemberList({
       return;
     }
 
+    const label = memberDisplayLabel(target);
     await runMutation(
       target.userId,
       () =>
@@ -208,7 +206,7 @@ export default function WorkspaceMemberList({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildRemoveMemberBody(target.userId)),
         }),
-      `Removed ${target.userId}. They no longer have Workspace access.`
+      `Removed ${label}. They no longer have Workspace access.`,
     );
   }
 
@@ -222,10 +220,10 @@ export default function WorkspaceMemberList({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            buildTransferOwnershipBody(transferTargetId, demoteTo)
+            buildTransferOwnershipBody(transferTargetId, demoteTo),
           ),
         }),
-      `Ownership transferred. You are now a ${roleLabel(demoteTo)}.`
+      `Ownership transferred. You are now a ${roleLabel(demoteTo)}.`,
     );
     if (ok) {
       setTransferTargetId("");
@@ -245,7 +243,7 @@ export default function WorkspaceMemberList({
           body: JSON.stringify(buildRemoveMemberBody(currentUserId)),
         }),
       "You left this Workspace.",
-      { leftWorkspace: true }
+      { leftWorkspace: true },
     );
   }
 
@@ -255,10 +253,6 @@ export default function WorkspaceMemberList({
         <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
           Members
         </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-          Search a course-sized roster, change roles, remove members, transfer
-          ownership, or leave this Workspace.
-        </p>
       </div>
 
       <label className="block max-w-xl">
@@ -268,7 +262,7 @@ export default function WorkspaceMemberList({
         <input
           type="search"
           className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-          placeholder="Filter by user id…"
+          placeholder="Filter by email…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Search members"
@@ -297,6 +291,7 @@ export default function WorkspaceMemberList({
             ) : (
               visibleMembers.map((m) => {
                 const isSelf = m.userId === currentUserId;
+                const label = memberDisplayLabel(m);
                 const mayChange = canChangeMemberRole({
                   actorRole: role,
                   targetRole: m.role,
@@ -316,7 +311,7 @@ export default function WorkspaceMemberList({
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-900 dark:text-zinc-100">
-                        {m.userId}
+                        {label}
                         {isSelf ? (
                           <span className="ml-2 text-xs font-normal text-slate-500 dark:text-zinc-400">
                             (you)
@@ -331,7 +326,7 @@ export default function WorkspaceMemberList({
                     <div className="flex flex-wrap items-center gap-2">
                       {mayChange ? (
                         <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-zinc-300">
-                          <span className="sr-only">Role for {m.userId}</span>
+                          <span className="sr-only">Role for {label}</span>
                           <select
                             className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
                             value={m.role}
@@ -339,7 +334,7 @@ export default function WorkspaceMemberList({
                             onChange={(e) =>
                               void handleRoleChange(
                                 m,
-                                e.target.value as AssignableMemberRole
+                                e.target.value as AssignableMemberRole,
                               )
                             }
                           >
@@ -416,7 +411,7 @@ export default function WorkspaceMemberList({
                   <option value="">Select member…</option>
                   {transferCandidates.map((m) => (
                     <option key={m.userId} value={m.userId}>
-                      {m.userId} ({roleLabel(m.role)})
+                      {memberDisplayLabel(m)} ({roleLabel(m.role)})
                     </option>
                   ))}
                 </select>

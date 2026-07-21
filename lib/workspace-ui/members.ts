@@ -13,6 +13,19 @@ export type ParseResult<T> = ParseOk<T> | ParseErr;
 
 export type AssignableMemberRole = "facilitator" | "participant";
 
+/** Membership row enriched for display (from GET members). */
+export type WorkspaceMemberListItem = WorkspaceMembership & {
+  email?: string | null;
+};
+
+/** Prefer email; fall back to user id when unresolved. */
+export function memberDisplayLabel(
+  member: Pick<WorkspaceMemberListItem, "userId" | "email">
+): string {
+  const email = member.email?.trim();
+  return email || member.userId;
+}
+
 function isFacilitationRole(role: WorkspaceRole): boolean {
   return role === "owner" || role === "facilitator";
 }
@@ -43,6 +56,12 @@ function isMembership(value: unknown): value is WorkspaceMembership {
     isWorkspaceRole(m.role) &&
     typeof m.joinedAt === "string"
   );
+}
+
+function isMemberListItem(value: unknown): value is WorkspaceMemberListItem {
+  if (!isMembership(value)) return false;
+  const email = (value as { email?: unknown }).email;
+  return email === undefined || email === null || typeof email === "string";
 }
 
 /** Owners and Facilitators may manage members (except Owner constraints). */
@@ -93,15 +112,19 @@ export function canSelfLeave(role: WorkspaceRole): boolean {
 
 /**
  * Client-side search over a members payload (Req 9.3).
- * Matches store `matchesMemberQuery` semantics (userId substring).
+ * Matches email or userId substring.
  */
 export function filterMembersByQuery(
-  members: WorkspaceMembership[],
+  members: WorkspaceMemberListItem[],
   query: string
-): WorkspaceMembership[] {
+): WorkspaceMemberListItem[] {
   const q = query.trim().toLowerCase();
   if (!q) return members.slice();
-  return members.filter((m) => m.userId.toLowerCase().includes(q));
+  return members.filter((m) => {
+    if (m.userId.toLowerCase().includes(q)) return true;
+    if (m.email?.toLowerCase().includes(q)) return true;
+    return false;
+  });
 }
 
 export function membersApiHref(workspaceId: string, query?: string): string {
@@ -136,7 +159,7 @@ export function buildRemoveMemberBody(userId: string): { userId: string } {
 export function parseMembersListResponse(
   status: number,
   body: unknown
-): ParseResult<{ members: WorkspaceMembership[] }> {
+): ParseResult<{ members: WorkspaceMemberListItem[] }> {
   if (status !== 200) {
     return {
       ok: false,
@@ -147,7 +170,7 @@ export function parseMembersListResponse(
     return { ok: false, error: "Invalid members response" };
   }
   const members = (body as { members?: unknown }).members;
-  if (!Array.isArray(members) || !members.every(isMembership)) {
+  if (!Array.isArray(members) || !members.every(isMemberListItem)) {
     return { ok: false, error: "Invalid members response" };
   }
   return { ok: true, members };

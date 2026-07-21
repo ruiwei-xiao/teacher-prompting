@@ -2,6 +2,7 @@
  * WorkspacesAPI membership handlers (Task 2.2).
  * Session is resolved by route wrappers; these accept userId for testability.
  */
+import { getUserById } from "@/lib/auth/user-store";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
   appendActivity,
@@ -15,6 +16,10 @@ import type {
   WorkspaceMembership,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+
+export type WorkspaceMemberListItem = WorkspaceMembership & {
+  email: string | null;
+};
 
 export type ApiError = { error: string };
 
@@ -50,6 +55,29 @@ async function getMembership(
   return members.find((m) => m.userId === userId) ?? null;
 }
 
+async function withMemberEmails(
+  members: WorkspaceMembership[]
+): Promise<WorkspaceMemberListItem[]> {
+  return Promise.all(
+    members.map(async (member) => {
+      const user = await getUserById(member.userId);
+      return { ...member, email: user?.email ?? null };
+    })
+  );
+}
+
+function matchesMemberListQuery(
+  member: WorkspaceMemberListItem,
+  query?: string
+): boolean {
+  if (!query) return true;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (member.userId.toLowerCase().includes(q)) return true;
+  if (member.email?.toLowerCase().includes(q)) return true;
+  return false;
+}
+
 const DEMOTE_ROLES = new Set(["facilitator", "participant"]);
 const ASSIGNABLE_ROLES = new Set(["facilitator", "participant"]);
 
@@ -57,7 +85,7 @@ export async function listWorkspaceMembers(
   userId: string | null,
   workspaceId: string,
   query?: string
-): Promise<ApiResult<{ members: WorkspaceMembership[] }>> {
+): Promise<ApiResult<{ members: WorkspaceMemberListItem[] }>> {
   if (!userId) return unauthorized();
 
   const workspace = await getWorkspace(workspaceId);
@@ -73,8 +101,11 @@ export async function listWorkspaceMembers(
     return forbidden();
   }
 
-  const members = await listMembers(workspaceId, query);
-  return { ok: true, status: 200, body: { members } };
+  const members = await withMemberEmails(await listMembers(workspaceId));
+  const filtered = query
+    ? members.filter((member) => matchesMemberListQuery(member, query))
+    : members;
+  return { ok: true, status: 200, body: { members: filtered } };
 }
 
 export async function changeMemberRole(

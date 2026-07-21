@@ -10,7 +10,6 @@ import type {
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
 import {
-  EMAIL_INVITE_NO_SMTP_NOTICE,
   buildCreateEmailInviteBody,
   buildCreateLinkInviteBody,
   buildRevokeInviteBody,
@@ -78,13 +77,7 @@ async function main(): Promise<void> {
     "Participant cannot manage invites"
   );
 
-  // --- Email invite recording + no-SMTP copy (Req 2.1) ---
-  assert(
-    EMAIL_INVITE_NO_SMTP_NOTICE.toLowerCase().includes("smtp") ||
-      EMAIL_INVITE_NO_SMTP_NOTICE.toLowerCase().includes("email is not") ||
-      EMAIL_INVITE_NO_SMTP_NOTICE.toLowerCase().includes("not sent"),
-    "no-SMTP notice is explicit that email is not delivered"
-  );
+  // --- Email invite recording success copy (Req 2.1) ---
   assertEqual(
     emailInviteRecordedMessage("teacher@school.edu"),
     "Invite recorded for teacher@school.edu. They join automatically when they next open Workspaces (or sign in) with that address.",
@@ -275,13 +268,6 @@ async function main(): Promise<void> {
       panelSource.includes("Copy") ||
       panelSource.includes("navigator.clipboard"),
     "panel supports copyable invite links"
-  );
-  assert(
-    panelSource.includes("SMTP") ||
-      panelSource.includes("not sent") ||
-      panelSource.includes("not deliver") ||
-      panelSource.includes(EMAIL_INVITE_NO_SMTP_NOTICE.slice(0, 20)),
-    "panel states email is not SMTP-delivered"
   );
   assert(
     panelSource.includes("emailInviteRecordedMessage") ||

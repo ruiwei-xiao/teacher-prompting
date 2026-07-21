@@ -71,11 +71,11 @@ export default function WorkspacePermissionsForm({
       setName(parsed.workspace.name);
       setPermissions(parsed.workspace.buildingPermissions);
       setSuccess(
-        "Settings saved. New building permissions apply to subsequent member actions."
+        "Settings saved. New building permissions apply to subsequent member actions.",
       );
     } catch (e: unknown) {
       setError(
-        e instanceof Error ? e.message : "Failed to update workspace settings"
+        e instanceof Error ? e.message : "Failed to update workspace settings",
       );
     } finally {
       setBusy(false);
@@ -111,8 +111,8 @@ export default function WorkspacePermissionsForm({
     <div className="space-y-8">
       {!canEdit ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300">
-          Participants can view this Workspace but cannot change settings.
-          Ask an Owner or Facilitator to rename the Workspace or update building
+          Participants can view this Workspace but cannot change settings. Ask
+          an Owner or Facilitator to rename the Workspace or update building
           permissions.
         </p>
       ) : null}
@@ -122,13 +122,10 @@ export default function WorkspacePermissionsForm({
           <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
             Name
           </h2>
-          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-            Owners and Facilitators can rename this Workspace for all members.
-          </p>
         </div>
         <label className="block">
           <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-            Workspace name
+            Workspace name:
           </span>
           <input
             className="mt-1 h-11 w-full max-w-xl rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
@@ -145,10 +142,6 @@ export default function WorkspacePermissionsForm({
           <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
             Building permissions
           </h2>
-          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-            Toggle collaboration rules for Participants. Changes apply to
-            subsequent member actions in this Workspace.
-          </p>
         </div>
 
         <ul className="space-y-3">
@@ -187,7 +180,10 @@ export default function WorkspacePermissionsForm({
         </p>
       ) : null}
       {success ? (
-        <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status">
+        <p
+          className="text-sm text-emerald-700 dark:text-emerald-300"
+          role="status"
+        >
           {success}
         </p>
       ) : null}

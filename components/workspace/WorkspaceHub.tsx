@@ -34,11 +34,11 @@ type HubState =
 function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
   switch (tab) {
     case "bots":
-      return `Your role: ${roleLabel}. This list is for bots placed in this Workspace — not your personal My bots.`;
+      return `Your role: ${roleLabel}`;
     case "settings":
       return "Rename this Workspace, edit building permissions, or delete it if you are the Owner.";
     case "invites":
-      return "Invite educators with a copyable link or a pending email (not sent by SMTP).";
+      return "Invite educators with a copyable link or a pending email.";
     case "members":
       return "Search the roster, change roles, remove members, transfer ownership, or leave.";
     case "activity":
@@ -74,9 +74,7 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           return;
         }
         const currentUserId =
-          typeof sessionBody?.user?.id === "string"
-            ? sessionBody.user.id
-            : "";
+          typeof sessionBody?.user?.id === "string" ? sessionBody.user.id : "";
         if (!currentUserId) {
           setState({
             status: "error",
@@ -132,7 +130,7 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
   const activeTab = resolveWorkspaceTab(
     `/workspace/${workspaceId}`,
     tabParam,
-    workspaceId
+    workspaceId,
   );
 
   return (

@@ -80,12 +80,11 @@ export default function WorkspaceBotGrid({
   const [starredIds, setStarredIds] = useState<Set<string>>(() => new Set());
   const [starBusyId, setStarBusyId] = useState<string | null>(null);
 
-  const appOrigin =
-    typeof window !== "undefined" ? window.location.origin : "";
+  const appOrigin = typeof window !== "undefined" ? window.location.origin : "";
 
   const ownedAppIds = useMemo(
     () => new Set(ownedBots.map((b) => b.id)),
-    [ownedBots]
+    [ownedBots],
   );
 
   const visiblePlacements = useMemo(
@@ -96,12 +95,12 @@ export default function WorkspaceBotGrid({
         permissions,
         ownedAppIds,
       }),
-    [placements, role, permissions, ownedAppIds]
+    [placements, role, permissions, ownedAppIds],
   );
 
   const placedAppIds = useMemo(
     () => new Set(placements.map((p) => p.appId)),
-    [placements]
+    [placements],
   );
 
   const placeable = useMemo(
@@ -110,7 +109,7 @@ export default function WorkspaceBotGrid({
         ownedBots,
         placedAppIds,
       }),
-    [ownedBots, placedAppIds]
+    [ownedBots, placedAppIds],
   );
 
   const canPlace = canPlaceIntoWorkspace({ role, permissions });
@@ -126,7 +125,7 @@ export default function WorkspaceBotGrid({
       const placementsBody = await placementsRes.json().catch(() => ({}));
       const parsed = parsePlacementsListResponse(
         placementsRes.status,
-        placementsBody
+        placementsBody,
       );
       if (!parsed.ok) {
         throw new Error(parsed.error);
@@ -151,7 +150,7 @@ export default function WorkspaceBotGrid({
         peerIds.map(async (appId) => {
           try {
             const res = await fetch(
-              `/api/workspaces/${workspaceId}/bots/${appId}`
+              `/api/workspaces/${workspaceId}/bots/${appId}`,
             );
             const body = await res.json().catch(() => ({}));
             if (!res.ok || !body?.app) return null;
@@ -160,7 +159,7 @@ export default function WorkspaceBotGrid({
           } catch {
             return null;
           }
-        })
+        }),
       );
 
       const nextBotById: Record<string, HubBotSummary> = { ...ownedMap };
@@ -172,7 +171,9 @@ export default function WorkspaceBotGrid({
       setOwnedBots(owned);
       setBotById(nextBotById);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load workspace bots");
+      setError(
+        e instanceof Error ? e.message : "Failed to load workspace bots",
+      );
       setPlacements([]);
       setOwnedBots([]);
       setBotById({});
@@ -268,7 +269,7 @@ export default function WorkspaceBotGrid({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          typeof body?.error === "string" ? body.error : "Failed to place bot"
+          typeof body?.error === "string" ? body.error : "Failed to place bot",
         );
       }
       setPlaceSelect("");
@@ -307,13 +308,13 @@ export default function WorkspaceBotGrid({
         throw new Error(
           typeof body?.error === "string"
             ? body.error
-            : "Failed to remove placement"
+            : "Failed to remove placement",
         );
       }
       await load();
     } catch (e: unknown) {
       setActionError(
-        e instanceof Error ? e.message : "Failed to remove placement"
+        e instanceof Error ? e.message : "Failed to remove placement",
       );
     } finally {
       setBusyAppId(null);
@@ -335,7 +336,7 @@ export default function WorkspaceBotGrid({
     settings?: {
       projectShareVisibility?: "private" | "public";
       shareAuthorName?: boolean;
-    }
+    },
   ) {
     setShareBusy(true);
     setShareError("");
@@ -351,13 +352,13 @@ export default function WorkspaceBotGrid({
             communitySubject,
             communityTagsInput,
             workspaceId,
-          })
+          }),
         ),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          educatorSharePatchErrorMessage(res.status, body?.error)
+          educatorSharePatchErrorMessage(res.status, body?.error),
         );
       }
       const nextApp: HubBotSummary = {
@@ -376,7 +377,7 @@ export default function WorkspaceBotGrid({
             ? body.app.shareAuthorName
             : typeof settings?.shareAuthorName === "boolean"
               ? settings.shareAuthorName
-              : app.shareAuthorName ?? false,
+              : (app.shareAuthorName ?? false),
         communitySubject:
           body?.app?.communitySubject ||
           communitySubject ||
@@ -386,12 +387,14 @@ export default function WorkspaceBotGrid({
       };
       setBotById((current) => ({ ...current, [app.id]: nextApp }));
       setOwnedBots((current) =>
-        current.map((item) => (item.id === app.id ? { ...item, ...nextApp } : item))
+        current.map((item) =>
+          item.id === app.id ? { ...item, ...nextApp } : item,
+        ),
       );
       setShareTarget(nextApp);
     } catch (e: unknown) {
       setShareError(
-        e instanceof Error ? e.message : "Failed to prepare share links."
+        e instanceof Error ? e.message : "Failed to prepare share links.",
       );
     } finally {
       setShareBusy(false);
@@ -435,8 +438,6 @@ export default function WorkspaceBotGrid({
             Workspace bots
           </h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-            Bots placed in this Workspace — separate from your personal My bots
-            list.
             {loading
               ? ""
               : gridBots.length
@@ -455,9 +456,7 @@ export default function WorkspaceBotGrid({
             </button>
             <button
               type="button"
-              onClick={() =>
-                router.push(createHrefWithWorkspace(workspaceId))
-              }
+              onClick={() => router.push(createHrefWithWorkspace(workspaceId))}
               className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
             >
               + Create bot
@@ -501,7 +500,9 @@ export default function WorkspaceBotGrid({
                     type="button"
                     onClick={() => void handleToggleStar(bot)}
                     disabled={starBusyId === bot.id}
-                    aria-label={starred ? `Unstar ${bot.name}` : `Star ${bot.name}`}
+                    aria-label={
+                      starred ? `Unstar ${bot.name}` : `Star ${bot.name}`
+                    }
                     aria-pressed={starred}
                     title={starred ? "Unstar" : "Star"}
                     className={[
@@ -565,7 +566,9 @@ export default function WorkspaceBotGrid({
                       disabled={busyAppId === bot.id}
                       className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200"
                     >
-                      {busyAppId === bot.id ? "Removing…" : "Remove from Workspace"}
+                      {busyAppId === bot.id
+                        ? "Removing…"
+                        : "Remove from Workspace"}
                     </button>
                   )}
                 </div>
@@ -669,9 +672,7 @@ export default function WorkspaceBotGrid({
                 type="button"
                 onClick={() => void handlePlace()}
                 disabled={
-                  placeable.length === 0 ||
-                  !placeSelect ||
-                  Boolean(busyAppId)
+                  placeable.length === 0 || !placeSelect || Boolean(busyAppId)
                 }
                 className="pressable inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:opacity-50"
               >

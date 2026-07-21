@@ -14,10 +14,6 @@ export type ParseResult<T> = ParseOk<T> | ParseErr;
 
 export type InviteRole = WorkspaceInviteRole;
 
-/** Clear copy that email invites are not SMTP-delivered (design / Req 2.1). */
-export const EMAIL_INVITE_NO_SMTP_NOTICE =
-  "Email is not SMTP-delivered. Recording an invite stores a pending membership for that address; the educator joins automatically when they next open Workspaces (or sign in) with the same email.";
-
 function errorFromBody(body: unknown, fallback: string): string {
   if (
     body &&

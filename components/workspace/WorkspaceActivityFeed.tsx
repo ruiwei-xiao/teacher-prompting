@@ -67,7 +67,7 @@ export default function WorkspaceActivityFeed({
 
   const chronological = useMemo(
     () => sortActivityNewestFirst(events),
-    [events]
+    [events],
   );
 
   return (
@@ -79,11 +79,6 @@ export default function WorkspaceActivityFeed({
         >
           Activity
         </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-          {facilitation
-            ? "Recent membership, placement, and settings events for this Workspace."
-            : "Recent bot placement events you are allowed to see in this Workspace."}
-        </p>
       </div>
 
       {loading ? (

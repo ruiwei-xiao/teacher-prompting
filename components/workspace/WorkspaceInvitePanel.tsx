@@ -7,7 +7,6 @@ import type {
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
 import {
-  EMAIL_INVITE_NO_SMTP_NOTICE,
   buildCreateEmailInviteBody,
   buildCreateLinkInviteBody,
   buildRevokeInviteBody,
@@ -116,10 +115,7 @@ export default function WorkspaceInvitePanel({
     };
   }, [workspaceId, manage]);
 
-  const activeInvites = useMemo(
-    () => filterActiveInvites(invites),
-    [invites]
-  );
+  const activeInvites = useMemo(() => filterActiveInvites(invites), [invites]);
 
   async function copyInviteLink(urlPath: string): Promise<boolean> {
     const absolute = absoluteInviteUrl(urlPath);
@@ -136,7 +132,7 @@ export default function WorkspaceInvitePanel({
     } catch {
       setLastCopiedUrl(absolute);
       setActionError(
-        `Could not copy automatically. Link: ${absolute || urlPath}`
+        `Could not copy automatically. Link: ${absolute || urlPath}`,
       );
       setActionSuccess("");
       return false;
@@ -172,7 +168,7 @@ export default function WorkspaceInvitePanel({
       await loadInvites();
     } catch (err: unknown) {
       setActionError(
-        err instanceof Error ? err.message : "Failed to record email invite"
+        err instanceof Error ? err.message : "Failed to record email invite",
       );
     } finally {
       setBusy(false);
@@ -203,12 +199,12 @@ export default function WorkspaceInvitePanel({
       const copied = await copyInviteLink(urlPath);
       if (copied) {
         setActionSuccess(
-          `Invite link created and copied (${roleLabel(linkRole)}). Share it with your cohort.`
+          `Invite link created and copied (${roleLabel(linkRole)}). Share it with your cohort.`,
         );
       }
     } catch (err: unknown) {
       setActionError(
-        err instanceof Error ? err.message : "Failed to create invite link"
+        err instanceof Error ? err.message : "Failed to create invite link",
       );
     } finally {
       setBusy(false);
@@ -234,12 +230,12 @@ export default function WorkspaceInvitePanel({
       setActionSuccess(
         invite.kind === "link"
           ? "Invite link revoked. New joins through that link will be rejected."
-          : "Email invite revoked."
+          : "Email invite revoked.",
       );
       await loadInvites();
     } catch (err: unknown) {
       setActionError(
-        err instanceof Error ? err.message : "Failed to revoke invite"
+        err instanceof Error ? err.message : "Failed to revoke invite",
       );
     } finally {
       setBusyInviteId(null);
@@ -265,16 +261,6 @@ export default function WorkspaceInvitePanel({
         <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
           Invites
         </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-          Record an email pending invite or create a copyable invite link for
-          cohort joins. Email invites are not sent by SMTP.
-        </p>
-        <p
-          className="mt-2 text-sm text-slate-600 dark:text-zinc-400"
-          data-testid="email-invite-no-smtp-notice"
-        >
-          {EMAIL_INVITE_NO_SMTP_NOTICE}
-        </p>
       </div>
 
       <form
