@@ -13,8 +13,8 @@ import type { Workspace } from "@/lib/workspace-store/types";
 
 function navItemClass(active: boolean): string {
   return active
-    ? "block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800"
-    : "block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800";
+    ? "pressable block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800"
+    : "pressable block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800";
 }
 
 export default function WorkspaceSidebar({
@@ -146,7 +146,7 @@ export default function WorkspaceSidebar({
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="mt-2 w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+          className="pressable mt-2 w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
         >
           + New workspace
         </button>

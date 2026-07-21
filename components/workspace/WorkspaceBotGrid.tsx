@@ -363,7 +363,7 @@ export default function WorkspaceBotGrid({
             onClick={() =>
               router.push(createHrefWithWorkspace(workspaceId))
             }
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+            className="pressable inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
           >
             + Create bot
           </button>
@@ -408,7 +408,7 @@ export default function WorkspaceBotGrid({
                 type="button"
                 onClick={() => void handlePlace()}
                 disabled={!placeSelect || Boolean(busyAppId)}
-                className="inline-flex h-11 items-center justify-center rounded-2xl bg-sky-600 px-5 text-sm font-medium text-white disabled:opacity-50"
+                className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-sky-600 px-5 text-sm font-medium text-white disabled:opacity-50"
               >
                 {busyAppId && busyAppId === placeSelect
                   ? "Placing…"
@@ -456,7 +456,7 @@ export default function WorkspaceBotGrid({
                     <button
                       type="button"
                       onClick={() => router.push(`/app/${bot.id}/editor`)}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
                     >
                       Open bot
                     </button>
@@ -466,7 +466,7 @@ export default function WorkspaceBotGrid({
                       onClick={() =>
                         router.push(peerBotPreviewHref(workspaceId, bot.id))
                       }
-                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
                     >
                       Inspect
                     </button>
@@ -481,7 +481,7 @@ export default function WorkspaceBotGrid({
                           ? "Publish this bot before sharing."
                           : undefined
                       }
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100"
                     >
                       Share
                     </button>
@@ -491,7 +491,7 @@ export default function WorkspaceBotGrid({
                       type="button"
                       onClick={() => void handleUnplace(bot.id)}
                       disabled={busyAppId === bot.id}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200"
                     >
                       {busyAppId === bot.id ? "Removing…" : "Remove from Workspace"}
                     </button>
@@ -517,7 +517,7 @@ export default function WorkspaceBotGrid({
               onClick={() =>
                 router.push(createHrefWithWorkspace(workspaceId))
               }
-              className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+              className="pressable mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
             >
               + Create bot
             </button>

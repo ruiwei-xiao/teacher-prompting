@@ -209,7 +209,7 @@ export default function AppGrid({
         <button
           type="button"
           onClick={() => router.push("/create")}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700"
+          className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition-[colors,border-color,background-color,box-shadow] duration-200 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700"
         >
           Create new bot
         </button>
@@ -248,7 +248,7 @@ export default function AppGrid({
           <button
             type="button"
             onClick={() => router.push("/create")}
-            className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+            className="pressable mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
           >
             Create your first bot
           </button>

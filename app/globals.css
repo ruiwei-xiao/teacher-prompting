@@ -7,11 +7,23 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --header-h: 64px; /* match h-16 */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-press: 160ms;
+  --duration-ui: 200ms;
+  --duration-drawer: 260ms;
+  --color-accent: #0284c7; /* sky-600 */
+  --color-accent-soft: #e0f2fe; /* sky-100 */
+  --radius-control: 1.1rem;
 }
 
 html.dark {
   --background: #0a0a0a;
   --foreground: #ededed;
+  --color-accent: #0ea5e9; /* sky-500 */
+  --color-accent-soft: rgba(12, 74, 110, 0.5);
 }
 
 @theme inline {
@@ -28,13 +40,64 @@ body {
 }
 
 /* === Full-screen layout helpers === */
-:root {
-  --header-h: 64px; /* match h-16 */
-}
 
 /* Fill the viewport minus header (sticky header is 64px high) */
 .main-viewport {
   height: calc(100vh - var(--header-h));
+}
+
+/* Pressable controls — shared tactile feedback */
+.pressable {
+  transition: transform var(--duration-press) var(--ease-out);
+}
+.pressable:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pressable {
+    transition: none;
+  }
+  .pressable:active {
+    transform: none;
+  }
+
+  .drawer-panel,
+  .drawer-backdrop,
+  .tab-indicator {
+    transition: none !important;
+  }
+}
+
+/* Drawer motion */
+.drawer-backdrop {
+  transition: opacity var(--duration-drawer) var(--ease-out);
+}
+.drawer-backdrop[data-open="false"] {
+  opacity: 0;
+}
+.drawer-backdrop[data-open="true"] {
+  opacity: 1;
+}
+
+.drawer-panel {
+  transition: transform var(--duration-drawer) var(--ease-drawer),
+    opacity var(--duration-drawer) var(--ease-out);
+  will-change: transform, opacity;
+}
+.drawer-panel[data-open="false"] {
+  transform: translateX(-100%);
+  opacity: 0.96;
+}
+.drawer-panel[data-open="true"] {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.tab-indicator {
+  transition: transform var(--duration-ui) var(--ease-out),
+    width var(--duration-ui) var(--ease-out);
+  will-change: transform, width;
 }
 
 /* Optional: subtle page padding that collapses on small screens */

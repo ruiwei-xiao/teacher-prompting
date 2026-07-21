@@ -20,6 +20,7 @@ type SidebarMenuContextValue = {
 };
 
 const SidebarMenuContext = createContext<SidebarMenuContextValue | null>(null);
+const DRAWER_MS = 260;
 
 export function useSidebarMenu(): SidebarMenuContextValue {
   const ctx = useContext(SidebarMenuContext);
@@ -65,6 +66,8 @@ function CloseIcon({ className }: { className?: string }) {
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
 
   const openMenu = useCallback(() => setOpen(true), []);
   const closeMenu = useCallback(() => setOpen(false), []);
@@ -83,6 +86,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      const id = window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => setVisible(true));
+      });
+      return () => window.cancelAnimationFrame(id);
+    }
+
+    setVisible(false);
+    const timeout = window.setTimeout(() => setMounted(false), DRAWER_MS);
+    return () => window.clearTimeout(timeout);
+  }, [open]);
+
   return (
     <SidebarMenuContext.Provider
       value={{ open, openMenu, closeMenu, toggleMenu }}
@@ -93,7 +110,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={toggleMenu}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="pressable inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               aria-label={open ? "Close navigation menu" : "Open navigation menu"}
               aria-expanded={open}
               aria-controls="app-sidebar-drawer"
@@ -103,17 +120,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
           }
         />
 
-        {open && (
+        {mounted && (
           <div className="fixed inset-0 z-40">
             <button
               type="button"
-              className="absolute inset-0 bg-slate-900/40"
+              className="drawer-backdrop absolute inset-0 bg-slate-900/40"
+              data-open={visible ? "true" : "false"}
               aria-label="Close navigation overlay"
               onClick={closeMenu}
             />
             <aside
               id="app-sidebar-drawer"
-              className="absolute inset-y-0 left-0 flex w-[min(18rem,88vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+              className="drawer-panel absolute inset-y-0 left-0 flex w-[min(18rem,88vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+              data-open={visible ? "true" : "false"}
               role="dialog"
               aria-modal="true"
               aria-label="Library and workspaces"
@@ -125,7 +144,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={closeMenu}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  className="pressable inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                   aria-label="Close navigation"
                 >
                   <CloseIcon className="h-5 w-5" />

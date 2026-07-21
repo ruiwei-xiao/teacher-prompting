@@ -44,7 +44,7 @@ export default function TopNav({ menuButton }: { menuButton?: ReactNode }) {
             <button
               type="button"
               onClick={() => void signOut({ callbackUrl: "/" })}
-              className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="pressable inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               Sign out
             </button>
@@ -54,7 +54,7 @@ export default function TopNav({ menuButton }: { menuButton?: ReactNode }) {
           <div className="flex shrink-0 items-center gap-3">
             <a
               href="/"
-              className="inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="pressable inline-flex h-9 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               Sign in
             </a>

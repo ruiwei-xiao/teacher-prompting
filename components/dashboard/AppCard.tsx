@@ -41,7 +41,7 @@ export default function AppCard({
         <button
           type="button"
           onClick={onOpen}
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+          className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
         >
           {ctaLabel}
         </button>
@@ -51,7 +51,7 @@ export default function AppCard({
             onClick={onShare}
             disabled={shareDisabled}
             title={shareDisabled ? "Publish this bot before sharing." : undefined}
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-300 disabled:hover:bg-white dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900 disabled:dark:hover:bg-zinc-900/85"
+            className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition-[colors,border-color,background-color] duration-200 hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-300 disabled:hover:bg-white dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900 disabled:dark:hover:bg-zinc-900/85"
           >
             Share
           </button>
@@ -60,7 +60,7 @@ export default function AppCard({
           <button
             type="button"
             onClick={onDelete}
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 transition hover:translate-y-[-1px] hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
+            className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 transition-[background-color] duration-200 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
           >
             Delete bot
           </button>

@@ -10,18 +10,26 @@ export default function DashboardTabs({
   community: React.ReactNode;
 }) {
   const [activeTab, setActiveTab] = useState<"my-bots" | "community">("my-bots");
+  const activeIndex = activeTab === "my-bots" ? 0 : 1;
 
   return (
     <div className="w-full">
       <div className="rounded-[2rem] border border-slate-200 bg-white/80 p-2 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-none">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <div className="relative grid grid-cols-2 gap-2">
+          <div
+            aria-hidden
+            className="tab-indicator pointer-events-none absolute inset-y-0 left-0 w-[calc(50%-0.25rem)] rounded-[1.25rem] bg-sky-600 shadow-sm"
+            style={{
+              transform: `translateX(calc(${activeIndex} * (100% + 0.5rem)))`,
+            }}
+          />
           <button
             type="button"
             onClick={() => setActiveTab("my-bots")}
-            className={`h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition ${
+            className={`pressable relative z-10 h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition-colors duration-200 ${
               activeTab === "my-bots"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "bg-transparent text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                ? "text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
             }`}
           >
             My bots
@@ -29,10 +37,10 @@ export default function DashboardTabs({
           <button
             type="button"
             onClick={() => setActiveTab("community")}
-            className={`h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition ${
+            className={`pressable relative z-10 h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition-colors duration-200 ${
               activeTab === "community"
-                ? "bg-violet-600 text-white shadow-sm"
-                : "bg-transparent text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                ? "text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
             }`}
           >
             Community
