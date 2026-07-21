@@ -78,7 +78,7 @@
   - _Boundary: star-ui nav, proxy_
   - _Depends: 1.3, 3.2_
 
-- [ ]* 5.3 Manual E2E checklist for starred library
+- [x]* 5.3 Manual E2E checklist for starred library
   - Optional deferred checklist: own star, peer star, (b) off deny, delete/leave eligibility, cross-session persistence, sidebar
   - Checklist document exists for post-MVP manual run
   - _Requirements: 1.1, 1.2, 2.4, 2.5, 3.1, 4.1, 6.1, 6.3, 7.2_
