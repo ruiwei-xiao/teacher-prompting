@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import CreateWorkspaceDialog from "@/components/workspace/CreateWorkspaceDialog";
 import {
   MY_BOTS_HREF,
@@ -11,12 +11,31 @@ import {
 } from "@/lib/workspace-ui/nav";
 import type { Workspace } from "@/lib/workspace-store/types";
 
-export default function WorkspaceSidebar() {
+function navItemClass(active: boolean): string {
+  return active
+    ? "block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800"
+    : "block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800";
+}
+
+export default function WorkspaceSidebar({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
   const router = useRouter();
+  const pathname = usePathname() || "";
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  // Path-based active styles must wait until mount so SSR HTML matches the
+  // first client render (usePathname can disagree across the boundary).
+  const [navReady, setNavReady] = useState(false);
+  const onMyBots =
+    navReady &&
+    (pathname === "/" ||
+      pathname === MY_BOTS_HREF ||
+      pathname.startsWith("/create"));
 
   async function loadWorkspaces() {
     setError("");
@@ -37,6 +56,10 @@ export default function WorkspaceSidebar() {
   }
 
   useEffect(() => {
+    setNavReady(true);
+  }, []);
+
+  useEffect(() => {
     void loadWorkspaces().finally(() => setLoading(false));
   }, []);
 
@@ -45,6 +68,7 @@ export default function WorkspaceSidebar() {
       if (prev.some((w) => w.id === workspace.id)) return prev;
       return [...prev, workspace];
     });
+    onNavigate?.();
     router.push(workspaceHubHref(workspace.id));
   }
 
@@ -55,7 +79,8 @@ export default function WorkspaceSidebar() {
       </div>
       <Link
         href={MY_BOTS_HREF}
-        className="block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800 dark:hover:bg-zinc-700"
+        onClick={() => onNavigate?.()}
+        className={navItemClass(onMyBots)}
       >
         My bots
       </Link>
@@ -95,15 +120,22 @@ export default function WorkspaceSidebar() {
 
         {!loading &&
           !error &&
-          workspaces.map((workspace) => (
-            <Link
-              key={workspace.id}
-              href={workspaceHubHref(workspace.id)}
-              className="block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
-            >
-              {workspace.name}
-            </Link>
-          ))}
+          workspaces.map((workspace) => {
+            const href = workspaceHubHref(workspace.id);
+            const active =
+              navReady &&
+              (pathname === href || pathname.startsWith(`${href}/`));
+            return (
+              <Link
+                key={workspace.id}
+                href={href}
+                onClick={() => onNavigate?.()}
+                className={navItemClass(active)}
+              >
+                {workspace.name}
+              </Link>
+            );
+          })}
 
         {!loading && !error && workspaces.length === 0 && (
           <div className="px-3.5 py-2 text-sm text-slate-500 dark:text-zinc-500">

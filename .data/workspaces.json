@@ -1,0 +1,27 @@
+{
+  "workspaces": [
+    {
+      "id": "80df5a33-f627-4b24-9877-edc49bdf53f5",
+      "name": "test workspace",
+      "buildingPermissions": {
+        "canCreateBots": false,
+        "canSeeOthersBots": false,
+        "canShareOutside": false,
+        "canManageOwnBots": false
+      },
+      "createdAt": "2026-07-20T15:23:50.515Z",
+      "updatedAt": "2026-07-20T15:23:50.515Z"
+    }
+  ],
+  "members": [
+    {
+      "workspaceId": "80df5a33-f627-4b24-9877-edc49bdf53f5",
+      "userId": "03a14061-30b4-419b-8b01-9672cb801de8",
+      "role": "owner",
+      "joinedAt": "2026-07-20T15:23:50.515Z"
+    }
+  ],
+  "invites": [],
+  "placements": [],
+  "activity": []
+}

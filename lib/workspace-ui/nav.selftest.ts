@@ -153,6 +153,12 @@ async function main(): Promise<void> {
     "hub page renders WorkspaceHub"
   );
   assert(
+    hubSource.includes("AppShell") ||
+      hubSource.includes("CollapsibleWorkspaceSidebar") ||
+      hubSource.includes("WorkspaceSidebar"),
+    "hub page wires AppShell navigation"
+  );
+  assert(
     !hubSource.toLowerCase().includes("temporary hub"),
     "hub page is no longer the temporary 6.1 placeholder"
   );
@@ -160,8 +166,25 @@ async function main(): Promise<void> {
   const homePath = path.join(process.cwd(), "app/page.tsx");
   const homeSource = await fs.readFile(homePath, "utf8");
   assert(
-    homeSource.includes("WorkspaceSidebar"),
-    "home dashboard wires WorkspaceSidebar entry"
+    homeSource.includes("AppShell") ||
+      homeSource.includes("CollapsibleWorkspaceSidebar") ||
+      homeSource.includes("WorkspaceSidebar"),
+    "home dashboard wires AppShell navigation"
+  );
+
+  const appShellPath = path.join(
+    process.cwd(),
+    "components/app-shell/AppShell.tsx"
+  );
+  const appShellSource = await fs.readFile(appShellPath, "utf8").catch(() => "");
+  assert(
+    appShellSource.includes("menuButton") ||
+      appShellSource.includes("Open navigation"),
+    "AppShell exposes a header hamburger menu"
+  );
+  assert(
+    appShellSource.includes("WorkspaceSidebar"),
+    "AppShell drawer renders WorkspaceSidebar"
   );
 
   if (failures > 0) {

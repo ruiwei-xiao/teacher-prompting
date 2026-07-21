@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import TopNav from "@/components/app-shell/TopNav";
-import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
+import AppShell from "@/components/app-shell/AppShell";
 import CreateAppForm from "@/components/forms/CreateAppForm";
 import {
   PERSONAL_CREATE_TARGET_VALUE,
@@ -120,15 +119,10 @@ export default function CreateAppPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <TopNav />
+    <AppShell>
       <main className="flex-1 bg-gradient-to-br from-rose-50 via-emerald-50 to-pink-50 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 flex gap-8">
-          <aside className="w-64 shrink-0 hidden md:block">
-            <WorkspaceSidebar />
-          </aside>
-
-          <section className="min-w-0 flex-1">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+          <section className="min-w-0">
             <h1 className="text-3xl font-bold text-slate-900 md:text-4xl dark:text-zinc-100">
               Create a new App
             </h1>
@@ -247,6 +241,6 @@ export default function CreateAppPage() {
           </section>
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }

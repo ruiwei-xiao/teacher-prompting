@@ -11,6 +11,7 @@ import type {
   WorkspacePlacement,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+import { createHrefWithWorkspace } from "@/lib/workspace-ui/create";
 import {
   canPlaceIntoWorkspace,
   canUnplaceFromWorkspace,
@@ -341,19 +342,32 @@ export default function WorkspaceBotGrid({
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-zinc-100">
-          Workspace bots
-        </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-          Bots placed in this Workspace — separate from your personal My bots
-          list.
-          {loading
-            ? ""
-            : gridBots.length
-              ? ` Showing ${gridBots.length} bot${gridBots.length === 1 ? "" : "s"}.`
-              : " No bots are visible here yet."}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-zinc-100">
+            Workspace bots
+          </h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
+            Bots placed in this Workspace — separate from your personal My bots
+            list.
+            {loading
+              ? ""
+              : gridBots.length
+                ? ` Showing ${gridBots.length} bot${gridBots.length === 1 ? "" : "s"}.`
+                : " No bots are visible here yet."}
+          </p>
+        </div>
+        {canPlace && (
+          <button
+            type="button"
+            onClick={() =>
+              router.push(createHrefWithWorkspace(workspaceId))
+            }
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+          >
+            + Create bot
+          </button>
+        )}
       </div>
 
       {actionError && (
@@ -494,9 +508,20 @@ export default function WorkspaceBotGrid({
           </h3>
           <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
             {canPlace
-              ? "Place a bot from My bots above to share it with this Workspace."
+              ? "Create a new bot into this Workspace, or place one from My bots above."
               : "Placed bots you are allowed to see will appear here."}
           </p>
+          {canPlace && (
+            <button
+              type="button"
+              onClick={() =>
+                router.push(createHrefWithWorkspace(workspaceId))
+              }
+              className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+            >
+              + Create bot
+            </button>
+          )}
         </div>
       )}
 

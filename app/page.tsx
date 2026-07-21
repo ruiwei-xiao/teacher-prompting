@@ -1,6 +1,5 @@
 import { auth } from "@/auth";
-import TopNav from "@/components/app-shell/TopNav";
-import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
+import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import AppGrid from "@/components/dashboard/AppGrid";
 import CommunityGrid from "@/components/dashboard/CommunityGrid";
@@ -38,14 +37,10 @@ export default async function DashboardPage({
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <TopNav />
+    <AppShell>
       <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
-        <div className="mx-auto flex max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:px-8">
-          <aside className="hidden w-64 shrink-0 md:block">
-            <WorkspaceSidebar />
-          </aside>
-          <div className="min-w-0 flex-1 flex flex-col items-center py-6">
+        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-10 sm:px-6 lg:px-8">
+          <div className="w-full min-w-0 py-6">
             <DashboardTabs
               myBots={
                 <section className="w-full">
@@ -57,8 +52,8 @@ export default async function DashboardPage({
                       Build and manage your tutoring bots
                     </h1>
                     <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
-                      Open an existing bot, keep iterating on the prompt, or create a
-                      new one for a different course or teaching goal.
+                      Open an existing bot, keep iterating on the prompt, or
+                      create a new one for a different course or teaching goal.
                     </p>
                   </div>
 
@@ -77,9 +72,9 @@ export default async function DashboardPage({
                       Explore published bots
                     </h2>
                     <p className="mt-3 max-w-2xl text-sm text-slate-600 md:text-base dark:text-zinc-300">
-                      Browse bots that have already been published. Open a chatbot
-                      directly, or view the source project when the author shared it
-                      publicly.
+                      Browse bots that have already been published. Open a
+                      chatbot directly, or view the source project when the
+                      author shared it publicly.
                     </p>
                   </div>
                   <CommunityGrid />
@@ -89,6 +84,6 @@ export default async function DashboardPage({
           </div>
         </div>
       </main>
-    </div>
+    </AppShell>
   );
 }

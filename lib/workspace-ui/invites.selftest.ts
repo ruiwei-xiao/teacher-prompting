@@ -302,14 +302,21 @@ async function main(): Promise<void> {
     "panel gates invite management by role"
   );
   assert(
-    pageSource.includes("WorkspaceInvitePanel"),
-    "settings page renders WorkspaceInvitePanel"
+    hubSource.includes("WorkspaceInvitePanel"),
+    "hub renders WorkspaceInvitePanel on invites tab"
   );
   assert(
-    hubSource.includes("Invite") ||
+    pageSource.includes("redirect") ||
+      pageSource.includes("invites") ||
+      hubSource.includes("WorkspaceNavTabs"),
+    "legacy settings route or hub exposes invites"
+  );
+  assert(
+    hubSource.includes("WorkspaceNavTabs") ||
+      hubSource.includes("Invite") ||
       hubSource.includes("invite") ||
       hubSource.includes("WorkspaceInvitePanel"),
-    "hub has invites entry"
+    "hub has invites entry via tabs or panel link"
   );
 
   if (failures > 0) {

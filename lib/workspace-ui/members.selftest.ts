@@ -339,14 +339,21 @@ async function main(): Promise<void> {
     "list supports self-leave"
   );
   assert(
-    pageSource.includes("WorkspaceMemberList"),
-    "settings page renders WorkspaceMemberList"
+    hubSource.includes("WorkspaceMemberList"),
+    "hub renders WorkspaceMemberList on members tab"
   );
   assert(
-    hubSource.includes("Members") ||
+    pageSource.includes("redirect") ||
+      pageSource.includes("members") ||
+      hubSource.includes("WorkspaceNavTabs"),
+    "legacy settings route or hub exposes members"
+  );
+  assert(
+    hubSource.includes("WorkspaceNavTabs") ||
+      hubSource.includes("Members") ||
       hubSource.includes("members") ||
       hubSource.includes("WorkspaceMemberList"),
-    "hub has members entry"
+    "hub has members entry via tabs or list link"
   );
 
   if (failures > 0) {

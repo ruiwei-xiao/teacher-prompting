@@ -225,6 +225,17 @@ async function main(): Promise<void> {
     "create page renders CreateAppForm"
   );
 
+  const gridPath = path.join(
+    process.cwd(),
+    "components/workspace/WorkspaceBotGrid.tsx"
+  );
+  const gridSource = await fs.readFile(gridPath, "utf8").catch(() => "");
+  assert(
+    gridSource.includes("createHrefWithWorkspace") &&
+      gridSource.includes("Create bot"),
+    "Workspace hub offers Create bot into this Workspace"
+  );
+
   if (failures > 0) {
     console.error(`\ncreate.selftest: ${failures} failure(s)`);
     process.exit(1);

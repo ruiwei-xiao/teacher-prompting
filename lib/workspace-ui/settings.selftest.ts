@@ -144,7 +144,7 @@ async function main(): Promise<void> {
 
   assertEqual(
     workspaceSettingsHref("ws_1"),
-    "/workspace/ws_1/settings",
+    "/workspace/ws_1?tab=settings",
     "settings href"
   );
 
@@ -203,16 +203,18 @@ async function main(): Promise<void> {
     "form distinguishes edit vs read-only by role"
   );
   assert(
-    pageSource.includes("WorkspacePermissionsForm"),
-    "settings page renders WorkspacePermissionsForm"
+    hubSource.includes("WorkspacePermissionsForm"),
+    "hub renders WorkspacePermissionsForm on settings tab"
   );
   assert(
-    pageSource.includes("workspaceId") || pageSource.includes("useParams"),
-    "settings page is workspace-scoped"
+    pageSource.includes("redirect") || pageSource.includes("workspaceTabHref"),
+    "legacy settings route redirects to hub ?tab="
   );
   assert(
-    hubSource.includes("settings") || hubSource.includes("workspaceSettingsHref"),
-    "hub links to settings"
+    hubSource.includes("WorkspaceNavTabs") ||
+      hubSource.includes("settings") ||
+      hubSource.includes("workspaceSettingsHref"),
+    "hub links to settings via tabs or direct href"
   );
 
   if (failures > 0) {

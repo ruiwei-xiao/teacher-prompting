@@ -93,8 +93,9 @@ export function canDeleteWorkspace(role: WorkspaceRole): boolean {
   return role === "owner";
 }
 
+/** Settings lives on the workspace hub as `?tab=settings`. */
 export function workspaceSettingsHref(workspaceId: string): string {
-  return `/workspace/${workspaceId}/settings`;
+  return `/workspace/${workspaceId}?tab=settings`;
 }
 
 /** Build PATCH body; null when name is blank after trim. */

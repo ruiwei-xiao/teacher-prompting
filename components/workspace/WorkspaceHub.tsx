@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type {
   BuildingPermissions,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
 import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
 import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
-import { workspaceSettingsHref } from "@/lib/workspace-ui/settings";
+import {
+  resolveWorkspaceTab,
+  type WorkspaceTab,
+} from "@/lib/workspace-ui/tabs";
 import WorkspaceActivityFeed from "@/components/workspace/WorkspaceActivityFeed";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
+import WorkspaceInvitePanel from "@/components/workspace/WorkspaceInvitePanel";
+import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
+import WorkspaceNavTabs from "@/components/workspace/WorkspaceNavTabs";
+import WorkspacePermissionsForm from "@/components/workspace/WorkspacePermissionsForm";
 
 type HubState =
   | { status: "loading" }
@@ -20,13 +28,27 @@ type HubState =
       name: string;
       role: WorkspaceRole;
       permissions: BuildingPermissions;
+      currentUserId: string;
     };
 
-export default function WorkspaceHub({
-  workspaceId,
-}: {
-  workspaceId: string;
-}) {
+function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
+  switch (tab) {
+    case "bots":
+      return `Your role: ${roleLabel}. This list is for bots placed in this Workspace — not your personal My bots.`;
+    case "settings":
+      return "Rename this Workspace, edit building permissions, or delete it if you are the Owner.";
+    case "invites":
+      return "Invite educators with a copyable link or a pending email (not sent by SMTP).";
+    case "members":
+      return "Search the roster, change roles, remove members, transfer ownership, or leave.";
+    case "activity":
+      return "Recent Workspace events for your role.";
+  }
+}
+
+function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab") ?? "";
   const [state, setState] = useState<HubState>({ status: "loading" });
 
   useEffect(() => {
@@ -39,12 +61,27 @@ export default function WorkspaceHub({
 
     async function load() {
       try {
-        const res = await fetch(`/api/workspaces/${workspaceId}`);
-        const body = await res.json().catch(() => ({}));
+        const [workspaceRes, sessionRes] = await Promise.all([
+          fetch(`/api/workspaces/${workspaceId}`),
+          fetch("/api/auth/session"),
+        ]);
+        const body = await workspaceRes.json().catch(() => ({}));
+        const sessionBody = await sessionRes.json().catch(() => ({}));
         if (cancelled) return;
-        const parsed = parseWorkspaceGetResponse(res.status, body);
+        const parsed = parseWorkspaceGetResponse(workspaceRes.status, body);
         if (!parsed.ok) {
           setState({ status: "error", message: parsed.error });
+          return;
+        }
+        const currentUserId =
+          typeof sessionBody?.user?.id === "string"
+            ? sessionBody.user.id
+            : "";
+        if (!currentUserId) {
+          setState({
+            status: "error",
+            message: "Signed-in user id is required",
+          });
           return;
         }
         setState({
@@ -52,6 +89,7 @@ export default function WorkspaceHub({
           name: parsed.workspace.name,
           role: parsed.role,
           permissions: parsed.workspace.buildingPermissions,
+          currentUserId,
         });
       } catch {
         if (!cancelled) {
@@ -91,6 +129,12 @@ export default function WorkspaceHub({
         ? "Facilitator"
         : "Participant";
 
+  const activeTab = resolveWorkspaceTab(
+    `/workspace/${workspaceId}`,
+    tabParam,
+    workspaceId
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -101,58 +145,47 @@ export default function WorkspaceHub({
           {state.name}
         </h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
-          Your role: {roleLabel}. This list is for bots placed in this Workspace —
-          not your personal My bots.
+          {tabDescription(activeTab, roleLabel)}
         </p>
-        <div className="mt-4 flex flex-wrap gap-4">
-          <Link
-            href={MY_BOTS_HREF}
-            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
-          >
-            ← Back to My bots
-          </Link>
-          <Link
-            href={workspaceSettingsHref(workspaceId)}
-            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
-          >
-            Settings
-          </Link>
-          <Link
-            href={`${workspaceSettingsHref(workspaceId)}#invites`}
-            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
-          >
-            Invites
-          </Link>
-          <Link
-            href={`${workspaceSettingsHref(workspaceId)}#members`}
-            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
-          >
-            Members
-          </Link>
-          <a
-            href="#activity"
-            className="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300"
-          >
-            Activity
-          </a>
+        <div className="mt-6">
+          <WorkspaceNavTabs workspaceId={workspaceId} />
         </div>
       </div>
 
-      <WorkspaceBotGrid
-        workspaceId={workspaceId}
-        role={state.role}
-        permissions={state.permissions}
-      />
-
-      <div
-        id="activity"
-        className="border-t border-slate-200 pt-8 dark:border-zinc-800"
-      >
-        <WorkspaceActivityFeed
+      {activeTab === "bots" ? (
+        <WorkspaceBotGrid
           workspaceId={workspaceId}
           role={state.role}
+          permissions={state.permissions}
         />
-      </div>
+      ) : activeTab === "settings" ? (
+        <WorkspacePermissionsForm
+          workspaceId={workspaceId}
+          initialName={state.name}
+          initialPermissions={state.permissions}
+          role={state.role}
+        />
+      ) : activeTab === "invites" ? (
+        <WorkspaceInvitePanel workspaceId={workspaceId} role={state.role} />
+      ) : activeTab === "members" ? (
+        <WorkspaceMemberList
+          workspaceId={workspaceId}
+          role={state.role}
+          currentUserId={state.currentUserId}
+        />
+      ) : (
+        <WorkspaceActivityFeed workspaceId={workspaceId} role={state.role} />
+      )}
     </div>
+  );
+}
+
+export default function WorkspaceHub({ workspaceId }: { workspaceId: string }) {
+  return (
+    <Suspense
+      fallback={<p className="text-slate-600 dark:text-zinc-300">Loading…</p>}
+    >
+      <WorkspaceHubInner workspaceId={workspaceId} />
+    </Suspense>
   );
 }
