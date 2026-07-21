@@ -23,7 +23,7 @@
 
 ## 2. Star HTTP APIs
 
-- [ ] 2. Expose list / star / unstar APIs
+- [x] 2. Expose list / star / unstar APIs
   - Authenticated orchestration + HTTP routes: GET returns only eligible stars ordered by most recently starred with summaries and open targets; PUT stars when eligible; DELETE unstars idempotently; ineligible PUT forbidden
   - Signed-in owner can star owned bot; Participant cannot star hidden peer bot; deleted bots omitted from GET
   - _Requirements: 1.1, 1.2, 1.3, 1.6, 2.1, 2.2, 2.6, 5.2, 5.3, 6.1, 6.2, 6.3, 6.4_
