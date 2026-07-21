@@ -13,7 +13,6 @@ import {
   resolveWorkspaceTab,
   type WorkspaceTab,
 } from "@/lib/workspace-ui/tabs";
-import WorkspaceActivityFeed from "@/components/workspace/WorkspaceActivityFeed";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
 import WorkspaceInvitePanel from "@/components/workspace/WorkspaceInvitePanel";
 import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
@@ -41,8 +40,6 @@ function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
       return "Invite educators with a copyable link or a pending email.";
     case "members":
       return "Search the roster, change roles, remove members, transfer ownership, or leave.";
-    case "activity":
-      return "Recent Workspace events for your role.";
   }
 }
 
@@ -165,14 +162,12 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
         />
       ) : activeTab === "invites" ? (
         <WorkspaceInvitePanel workspaceId={workspaceId} role={state.role} />
-      ) : activeTab === "members" ? (
+      ) : (
         <WorkspaceMemberList
           workspaceId={workspaceId}
           role={state.role}
           currentUserId={state.currentUserId}
         />
-      ) : (
-        <WorkspaceActivityFeed workspaceId={workspaceId} role={state.role} />
       )}
     </div>
   );

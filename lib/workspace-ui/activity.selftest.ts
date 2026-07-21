@@ -262,7 +262,7 @@ async function main(): Promise<void> {
   const listInvalid = parseActivityListResponse(200, { events: "nope" });
   assert(listInvalid.ok === false, "invalid events payload fails");
 
-  // --- UI wiring ---
+  // --- UI intentionally hidden (helpers + API remain for later) ---
   const helpersPath = path.join(process.cwd(), "lib/workspace-ui/activity.ts");
   const feedPath = path.join(
     process.cwd(),
@@ -272,58 +272,25 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/workspace/WorkspaceHub.tsx"
   );
-  const pagePath = path.join(
-    process.cwd(),
-    "app/workspace/[workspaceId]/settings/page.tsx"
-  );
+  const tabsPath = path.join(process.cwd(), "lib/workspace-ui/tabs.ts");
 
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const feedSource = await fs.readFile(feedPath, "utf8").catch(() => "");
   const hubSource = await fs.readFile(hubPath, "utf8").catch(() => "");
-  const pageSource = await fs.readFile(pagePath, "utf8").catch(() => "");
+  const tabsSource = await fs.readFile(tabsPath, "utf8").catch(() => "");
 
   assert(helpersSource.length > 0, "lib/workspace-ui/activity.ts exists");
   assert(
-    feedSource.includes("WorkspaceActivityFeed"),
-    "WorkspaceActivityFeed component exists"
+    feedSource.length === 0,
+    "WorkspaceActivityFeed UI component is removed"
   );
   assert(
-    feedSource.includes("activityApiHref") ||
-      (feedSource.includes("/api/workspaces/") &&
-        feedSource.includes("activity")),
-    "feed calls activity API"
+    !hubSource.includes("WorkspaceActivityFeed"),
+    "hub does not render activity feed"
   );
   assert(
-    feedSource.includes("fetch") || feedSource.includes("method"),
-    "feed loads activity via fetch"
-  );
-  assert(
-    feedSource.includes("parseActivityListResponse") ||
-      feedSource.includes("events"),
-    "feed parses activity events"
-  );
-  assert(
-    feedSource.includes("formatActivitySummary") ||
-      feedSource.includes("member.joined") ||
-      feedSource.includes("Activity"),
-    "feed renders human-readable activity entries"
-  );
-  assert(
-    feedSource.includes("sortActivityNewestFirst") ||
-      feedSource.includes("createdAt") ||
-      feedSource.includes("chronolog"),
-    "feed presents chronological list"
-  );
-  assert(
-    hubSource.includes("WorkspaceActivityFeed") ||
-      pageSource.includes("WorkspaceActivityFeed"),
-    "hub or settings renders WorkspaceActivityFeed"
-  );
-  assert(
-    hubSource.includes("Activity") ||
-      hubSource.includes("activity") ||
-      hubSource.includes("WorkspaceActivityFeed"),
-    "hub has activity entry or panel"
+    !tabsSource.includes('"activity"') && !tabsSource.includes("'activity'"),
+    "nav tabs omit activity"
   );
 
   if (failures > 0) {

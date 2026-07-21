@@ -4,8 +4,7 @@ export type WorkspaceTab =
   | "bots"
   | "settings"
   | "invites"
-  | "members"
-  | "activity";
+  | "members";
 
 export const WORKSPACE_TABS: readonly {
   id: WorkspaceTab;
@@ -15,7 +14,6 @@ export const WORKSPACE_TABS: readonly {
   { id: "settings", label: "Settings" },
   { id: "invites", label: "Invites" },
   { id: "members", label: "Members" },
-  { id: "activity", label: "Activity" },
 ] as const;
 
 const TAB_IDS = new Set<string>(WORKSPACE_TABS.map((t) => t.id));

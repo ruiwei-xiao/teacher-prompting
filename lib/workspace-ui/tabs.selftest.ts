@@ -39,11 +39,6 @@ assertEqual(
   "/workspace/ws_1?tab=members",
   "members href"
 );
-assertEqual(
-  workspaceTabHref("ws_1", "activity"),
-  "/workspace/ws_1?tab=activity",
-  "activity href"
-);
 
 assertEqual(
   resolveWorkspaceTab("/workspace/ws_1", "", "ws_1"),
@@ -52,8 +47,8 @@ assertEqual(
 );
 assertEqual(
   resolveWorkspaceTab("/workspace/ws_1", "activity", "ws_1"),
-  "activity",
-  "?tab=activity"
+  "bots",
+  "legacy ?tab=activity falls back to bots"
 );
 assertEqual(
   resolveWorkspaceTab("/workspace/ws_1", "settings", "ws_1"),
