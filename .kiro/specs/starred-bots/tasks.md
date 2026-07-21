@@ -8,7 +8,7 @@
   - _Requirements: 1.1, 1.3, 4.1, 4.2, 4.3, 4.4_
   - _Boundary: star-store_
 
-- [ ] 1.2 Resolve star eligibility and open targets
+- [x] 1.2 Resolve star eligibility and open targets
   - Owned bots eligible with editor open target; Workspace-visible peer bots eligible with peer non-edit open target using existing visibility rules; inaccessible denied; deleted/inaccessible omitted from eligibility
   - Deterministic behavior for own allowed, peer visible allowed, peer hidden denied, and distinct open targets
   - _Requirements: 1.2, 1.6, 1.7, 2.4, 2.5, 5.3, 6.1, 6.2, 6.3, 6.4_
