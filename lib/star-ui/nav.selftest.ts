@@ -128,6 +128,38 @@ async function main(): Promise<void> {
     "app/starred/page.tsx exists for STARRED_HREF"
   );
 
+  // --- Starred grid: unstar + My-bots-like owned actions ---
+  const starredGridPath = path.join(
+    process.cwd(),
+    "components/starred/StarredBotGrid.tsx"
+  );
+  const starredGridSource = await fs.readFile(starredGridPath, "utf8");
+  assert(
+    starredGridSource.includes("onToggleStar") ||
+      starredGridSource.includes("handleUnstar"),
+    "StarredBotGrid supports unstar"
+  );
+  assert(
+    starredGridSource.includes('method: "DELETE"') &&
+      starredGridSource.includes("/api/stars/"),
+    "StarredBotGrid unstars via DELETE /api/stars/:appId"
+  );
+  assert(
+    starredGridSource.includes("onShare") &&
+      starredGridSource.includes("ShareDialog"),
+    "StarredBotGrid offers Share for owned bots"
+  );
+  assert(
+    starredGridSource.includes("onDelete") &&
+      starredGridSource.includes("DeleteBotDialog"),
+    "StarredBotGrid offers Delete for owned bots"
+  );
+  assert(
+    starredGridSource.includes("star.owned") ||
+      starredGridSource.includes("canManage"),
+    "StarredBotGrid gates manage actions to owned bots"
+  );
+
   if (failures > 0) {
     console.error(`\nnav.selftest: ${failures} failure(s)`);
     process.exit(1);
