@@ -71,7 +71,7 @@
   - _Boundary: star-store, star-api_
   - _Depends: 1.1, 1.2, 2_
 
-- [ ] 5.2 Nav and proxy selftests
+- [x] 5.2 Nav and proxy selftests
   - Cover Starred href/active path helpers and auth matcher gating for Starred page and star API paths
   - `npx tsx` selftests pass for star-ui nav and proxy matcher coverage
   - _Requirements: 3.1, 3.2, 5.1, 5.2_

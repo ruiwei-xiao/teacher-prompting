@@ -16,6 +16,17 @@ function assert(condition: boolean, message: string): void {
   }
 }
 
+/** Extract quoted string entries from a matcher array body. */
+function parseMatcherEntries(matcherBody: string): string[] {
+  const entries: string[] = [];
+  const re = /"([^"]+)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(matcherBody)) !== null) {
+    entries.push(match[1]!);
+  }
+  return entries;
+}
+
 async function main(): Promise<void> {
   const source = await fs.readFile(
     path.join(process.cwd(), "proxy.ts"),
@@ -26,19 +37,32 @@ async function main(): Promise<void> {
   assert(Boolean(matcherMatch), "proxy.ts exports a matcher array");
 
   const matcherBody = matcherMatch?.[1] ?? "";
-  const required = [
+  const entries = parseMatcherEntries(matcherBody);
+  const entrySet = new Set(entries);
+
+  const starredRequired = ["/starred", "/api/stars", "/api/stars/:path*"];
+  for (const entry of starredRequired) {
+    assert(
+      entrySet.has(entry),
+      `matcher includes exact entry "${entry}" for Starred auth gating`
+    );
+  }
+
+  // Nested star API paths must be gated separately from the collection path.
+  assert(
+    entrySet.has("/api/stars") && entrySet.has("/api/stars/:path*"),
+    "matcher gates both /api/stars and /api/stars/:path* (not only one)"
+  );
+
+  const workspaceRequired = [
     "/workspace/:path*",
     "/api/workspaces",
     "/api/workspaces/:path*",
-    "/starred",
-    "/api/stars",
-    "/api/stars/:path*",
   ];
-
-  for (const entry of required) {
+  for (const entry of workspaceRequired) {
     assert(
-      matcherBody.includes(`"${entry}"`),
-      `matcher includes "${entry}"`
+      entrySet.has(entry),
+      `matcher includes exact entry "${entry}"`
     );
   }
 
@@ -50,14 +74,29 @@ async function main(): Promise<void> {
     "/api/apps/:path*",
   ]) {
     assert(
-      matcherBody.includes(`"${entry}"`),
-      `matcher retains "${entry}"`
+      entrySet.has(entry),
+      `matcher retains exact entry "${entry}"`
     );
   }
 
+  // Public home must stay ungated so sign-in redirect target is reachable.
+  assert(
+    !entrySet.has("/"),
+    "matcher does not gate public home / (sign-in landing)"
+  );
+
+  assert(
+    source.includes("auth("),
+    "proxy wraps handler with auth() for session gating"
+  );
   assert(
     source.includes("callbackUrl"),
     "unauthenticated redirect sets callbackUrl for return after sign-in"
+  );
+  assert(
+    source.includes("req.nextUrl.pathname") &&
+      source.includes("req.nextUrl.search"),
+    "callbackUrl preserves pathname and search for return after sign-in"
   );
 
   if (failures > 0) {

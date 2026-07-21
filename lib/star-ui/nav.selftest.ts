@@ -1,5 +1,5 @@
 /**
- * Self-test: Starred Library nav helpers (Task 3.2).
+ * Self-test: Starred Library nav helpers (Tasks 3.2 / 5.2).
  * Run: npx tsx lib/star-ui/nav.selftest.ts
  */
 import fs from "fs/promises";
@@ -24,6 +24,7 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
 }
 
 async function main(): Promise<void> {
+  // --- Href / active path helpers ---
   assertEqual(STARRED_HREF, "/starred", "STARRED_HREF is /starred");
 
   assertEqual(isStarredPath("/starred"), true, "isStarredPath('/starred')");
@@ -50,8 +51,30 @@ async function main(): Promise<void> {
     false,
     "similar prefix path is not Starred"
   );
+  assertEqual(
+    isStarredPath("/starredbots"),
+    false,
+    "concatenated lookalike path is not Starred"
+  );
+  assertEqual(
+    isStarredPath("/api/stars"),
+    false,
+    "star API path is not the Starred library page"
+  );
+  assertEqual(
+    isStarredPath("/api/stars/app_1"),
+    false,
+    "star API item path is not the Starred library page"
+  );
   assertEqual(isStarredPath(""), false, "empty path is not Starred");
 
+  // Starred and My bots helpers stay mutually exclusive for Library active state.
+  assert(
+    !(isStarredPath("/") && isStarredPath(STARRED_HREF)),
+    "My bots root and Starred href are not both active paths"
+  );
+
+  // --- Sidebar wiring ---
   const sidebarPath = path.join(
     process.cwd(),
     "components/app-shell/WorkspaceSidebar.tsx"
@@ -71,6 +94,16 @@ async function main(): Promise<void> {
     "WorkspaceSidebar uses isStarredPath for active state"
   );
   assert(
+    sidebarSource.includes("href={STARRED_HREF}") ||
+      sidebarSource.includes("href={ STARRED_HREF }"),
+    "WorkspaceSidebar Link href uses STARRED_HREF"
+  );
+  assert(
+    sidebarSource.includes("aria-current={onStarred") ||
+      sidebarSource.includes('aria-current={onStarred ? "page"'),
+    "WorkspaceSidebar sets aria-current when Starred is active"
+  );
+  assert(
     sidebarSource.includes("Starred") && sidebarSource.includes("Link"),
     "WorkspaceSidebar still exposes a Starred Link"
   );
@@ -85,6 +118,14 @@ async function main(): Promise<void> {
   assert(
     !sidebarSource.includes('title="Coming soon"'),
     "WorkspaceSidebar has no Coming soon placeholder for Library items"
+  );
+
+  // --- Starred page exists at the nav href ---
+  const starredPagePath = path.join(process.cwd(), "app/starred/page.tsx");
+  const starredPageSource = await fs.readFile(starredPagePath, "utf8");
+  assert(
+    starredPageSource.length > 0,
+    "app/starred/page.tsx exists for STARRED_HREF"
   );
 
   if (failures > 0) {
