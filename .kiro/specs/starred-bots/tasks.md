@@ -64,7 +64,7 @@
 
 ## 5. Validation
 
-- [ ] 5.1 Star domain selftests
+- [x] 5.1 Star domain selftests
   - Runnable selftests for star persistence (order, idempotent unstar), eligibility/open-target cases, and list/star API orchestration filtering ineligible bots
   - `npx tsx` selftests pass for star-store and star-api modules
   - _Requirements: 1.2, 1.6, 2.1, 4.1, 4.2, 6.1, 6.2, 6.3, 6.4_

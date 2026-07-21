@@ -215,6 +215,42 @@ async function main(): Promise<void> {
           );
         }
 
+        // --- Participant can star visible peer bot (permission b on) ---
+        const peerPut = await starBot(partId, ownerBot);
+        assertEqual(
+          peerPut.status,
+          200,
+          "Participant star visible peer → 200"
+        );
+        assert(
+          peerPut.ok === true &&
+            "starred" in peerPut.body &&
+            peerPut.body.starred === true,
+          "Participant star visible peer returns starred: true"
+        );
+
+        const peerListed = await listStars(partId);
+        assertEqual(peerListed.status, 200, "Participant GET after peer star → 200");
+        if (peerListed.ok) {
+          assertEqual(
+            peerListed.body.stars.length,
+            1,
+            "Participant GET has the peer star"
+          );
+          const peerEntry = peerListed.body.stars[0];
+          assertEqual(peerEntry.appId, ownerBot, "peer-starred appId");
+          assertEqual(peerEntry.owned, false, "peer-starred owned flag");
+          assertEqual(
+            peerEntry.open,
+            {
+              kind: "peer",
+              href: peerBotPreviewHref(ws.id, ownerBot),
+              workspaceId: ws.id,
+            },
+            "peer-starred open target is peer preview"
+          );
+        }
+
         // --- Participant cannot star hidden peer bot ---
         await updateWorkspace(ws.id, {
           buildingPermissions: {
@@ -230,6 +266,16 @@ async function main(): Promise<void> {
           403,
           "Participant star hidden peer → 403"
         );
+
+        // --- Ineligible (now-hidden) star omitted from GET ---
+        const hiddenList = await listStars(partId);
+        assertEqual(hiddenList.status, 200, "Participant GET after (b) off → 200");
+        if (hiddenList.ok) {
+          assert(
+            !hiddenList.body.stars.some((s) => s.appId === ownerBot),
+            "ineligible peer star omitted from GET when (b) off"
+          );
+        }
 
         // --- Missing bot → 404 ---
         assertEqual(
