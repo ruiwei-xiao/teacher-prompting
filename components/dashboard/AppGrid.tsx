@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseStarsListResponse } from "@/lib/star-ui/stars-response";
+import { starredAppIdsFromList } from "@/lib/star-ui/starred-ids";
 import {
   buildEducatorSharePatchBody,
   educatorSharePatchErrorMessage,
@@ -51,6 +53,8 @@ export default function AppGrid({
   const [shareAuthorName, setShareAuthorName] = useState(false);
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
+  const [starredIds, setStarredIds] = useState<Set<string>>(() => new Set());
+  const [starBusyId, setStarBusyId] = useState<string | null>(null);
 
   const appOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -82,6 +86,56 @@ export default function AppGrid({
     void loadApps().finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    async function loadStarredIds() {
+      try {
+        const res = await fetch("/api/stars");
+        const body = await res.json().catch(() => ({}));
+        const parsed = parseStarsListResponse(res.status, body);
+        if (parsed.ok) {
+          setStarredIds(starredAppIdsFromList(parsed.stars));
+        }
+      } catch {
+        // Keep empty set; star toggles still attempt PUT/DELETE.
+      }
+    }
+
+    void loadStarredIds();
+  }, []);
+
+  function setStarredForApp(appId: string, nextStarred: boolean) {
+    setStarredIds((current) => {
+      const next = new Set(current);
+      if (nextStarred) next.add(appId);
+      else next.delete(appId);
+      return next;
+    });
+  }
+
+  async function handleToggleStar(app: AppSummary) {
+    if (starBusyId) return;
+
+    const appId = app.id;
+    const wasStarred = starredIds.has(appId);
+    const nextStarred = !wasStarred;
+
+    setStarBusyId(appId);
+    setStarredForApp(appId, nextStarred);
+
+    try {
+      const res = await fetch(`/api/stars/${encodeURIComponent(appId)}`, {
+        method: nextStarred ? "PUT" : "DELETE",
+      });
+      if (!res.ok) {
+        setStarredForApp(appId, wasStarred);
+      }
+    } catch {
+      setStarredForApp(appId, wasStarred);
+    } finally {
+      setStarBusyId(null);
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
 
@@ -105,6 +159,7 @@ export default function AppGrid({
       }
 
       setApps((current) => current.filter((app) => app.id !== deleteTarget.id));
+      setStarredForApp(deleteTarget.id, false);
       setDeleteTarget(null);
     } catch (e: any) {
       setDeleteError(e?.message || "Failed to delete bot.");
@@ -235,6 +290,9 @@ export default function AppGrid({
                 setDeleteError("");
                 setDeleteTarget(app);
               }}
+              starred={starredIds.has(app.id)}
+              starBusy={starBusyId === app.id}
+              onToggleStar={() => void handleToggleStar(app)}
             />
           ))}
         </div>

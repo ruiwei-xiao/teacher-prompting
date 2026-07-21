@@ -48,7 +48,7 @@
 
 ## 4. Star controls on existing bot lists
 
-- [ ] 4.1 (P) Add star toggle on My bots cards
+- [x] 4.1 (P) Add star toggle on My bots cards
   - Star/unstar from My bots without leaving the list; clear starred/not-starred indication; same preference after refresh
   - Toggle calls star APIs and updates card state
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 7.1, 7.3, 7.4_
