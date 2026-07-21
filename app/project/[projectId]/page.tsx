@@ -3,11 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { getUserById } from "@/lib/auth/user-store";
 import SharedProjectEditor from "@/components/project/SharedProjectEditor";
-import {
-  createApp,
-  getAppByProjectShareSlug,
-  listApps,
-} from "@/lib/app-store/store";
+import { forkApp } from "@/lib/app-store/fork";
+import { getAppByProjectShareSlug } from "@/lib/app-store/store";
 
 export default async function SharedProjectPage({
   params,
@@ -51,47 +48,13 @@ export default async function SharedProjectPage({
       ? sourceOwner?.name || sourceOwner?.email || "Unknown author"
       : "Anonymous teacher";
 
-    const allApps = await listApps();
-    const userApps = await listApps(userId);
-    const baseId =
-      `${source.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "") || "project"}-copy`;
-    const usedIds = new Set(allApps.map((item) => item.id));
-    let nextId = baseId;
-    let attempt = 2;
-    while (usedIds.has(nextId)) {
-      nextId = `${baseId}-${attempt}`;
-      attempt += 1;
-    }
-
-    const baseName = `${source.name} Copy`;
-    const usedNames = new Set(userApps.map((item) => item.name));
-    let nextName = baseName;
-    attempt = 2;
-    while (usedNames.has(nextName)) {
-      nextName = `${baseName} ${attempt}`;
-      attempt += 1;
-    }
-
-    const now = new Date().toISOString();
-    await createApp({
-      id: nextId,
+    const forked = await forkApp({
+      source,
       ownerId: userId,
-      name: nextName,
-      description: source.description,
-      provider: source.provider,
-      model: source.model,
-      apiKey: "",
-      variability: source.variability,
-      systemPrompt: source.systemPrompt,
-      builderState: source.builderState,
-      forkedFromProjectName: source.name,
-      forkedFromProjectShareSlug: source.projectShareSlug,
       forkedFromAuthorName: attributionName,
-      createdAt: now,
-      updatedAt: now,
     });
 
-    redirect(`/app/${nextId}/editor`);
+    redirect(`/app/${forked.id}/editor`);
   }
 
   return (

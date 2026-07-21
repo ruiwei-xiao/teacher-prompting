@@ -1,0 +1,22 @@
+{
+  "feature_name": "starred-bots",
+  "created_at": "2026-07-21T16:12:52Z",
+  "updated_at": "2026-07-21T16:40:11Z",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}

@@ -3,6 +3,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseStarsListResponse } from "@/lib/star-ui/stars-response";
+import { starredAppIdsFromList } from "@/lib/star-ui/starred-ids";
+import {
+  buildEducatorSharePatchBody,
+  educatorSharePatchErrorMessage,
+} from "@/lib/workspace-api/share-patch-body";
 import AppCard from "./AppCard";
 import DeleteBotDialog from "./DeleteBotDialog";
 import ShareDialog from "./ShareDialog";
@@ -23,7 +29,15 @@ type AppSummary = {
   forkedFromAuthorName?: string | null;
 };
 
-export default function AppGrid() {
+export default function AppGrid({
+  workspaceId,
+}: {
+  /**
+   * Optional Workspace context for share PATCH / permission (c).
+   * My bots omits this; Workspace hub (task 6.2) can pass it when reusing share UI.
+   */
+  workspaceId?: string;
+} = {}) {
   const router = useRouter();
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +53,8 @@ export default function AppGrid() {
   const [shareAuthorName, setShareAuthorName] = useState(false);
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
+  const [starredIds, setStarredIds] = useState<Set<string>>(() => new Set());
+  const [starBusyId, setStarBusyId] = useState<string | null>(null);
 
   const appOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -70,6 +86,56 @@ export default function AppGrid() {
     void loadApps().finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    async function loadStarredIds() {
+      try {
+        const res = await fetch("/api/stars");
+        const body = await res.json().catch(() => ({}));
+        const parsed = parseStarsListResponse(res.status, body);
+        if (parsed.ok) {
+          setStarredIds(starredAppIdsFromList(parsed.stars));
+        }
+      } catch {
+        // Keep empty set; star toggles still attempt PUT/DELETE.
+      }
+    }
+
+    void loadStarredIds();
+  }, []);
+
+  function setStarredForApp(appId: string, nextStarred: boolean) {
+    setStarredIds((current) => {
+      const next = new Set(current);
+      if (nextStarred) next.add(appId);
+      else next.delete(appId);
+      return next;
+    });
+  }
+
+  async function handleToggleStar(app: AppSummary) {
+    if (starBusyId) return;
+
+    const appId = app.id;
+    const wasStarred = starredIds.has(appId);
+    const nextStarred = !wasStarred;
+
+    setStarBusyId(appId);
+    setStarredForApp(appId, nextStarred);
+
+    try {
+      const res = await fetch(`/api/stars/${encodeURIComponent(appId)}`, {
+        method: nextStarred ? "PUT" : "DELETE",
+      });
+      if (!res.ok) {
+        setStarredForApp(appId, wasStarred);
+      }
+    } catch {
+      setStarredForApp(appId, wasStarred);
+    } finally {
+      setStarBusyId(null);
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
 
@@ -83,10 +149,17 @@ export default function AppGrid() {
       const body = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error(
+            body?.error ||
+              "You do not have permission to delete this bot under Workspace policy."
+          );
+        }
         throw new Error(body?.error || "Failed to delete bot.");
       }
 
       setApps((current) => current.filter((app) => app.id !== deleteTarget.id));
+      setStarredForApp(deleteTarget.id, false);
       setDeleteTarget(null);
     } catch (e: any) {
       setDeleteError(e?.message || "Failed to delete bot.");
@@ -109,23 +182,23 @@ export default function AppGrid() {
       const res = await fetch(`/api/apps/${app.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shareProject: true,
-          projectShareVisibility:
-            settings?.projectShareVisibility ?? projectShareVisibility,
-          shareAuthorName:
-            settings?.shareAuthorName ?? shareAuthorName,
-          communitySubject,
-          communityTags: communityTagsInput
-            .split(",")
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        }),
+        body: JSON.stringify(
+          buildEducatorSharePatchBody({
+            projectShareVisibility:
+              settings?.projectShareVisibility ?? projectShareVisibility,
+            shareAuthorName: settings?.shareAuthorName ?? shareAuthorName,
+            communitySubject,
+            communityTagsInput,
+            workspaceId,
+          })
+        ),
       });
       const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body?.error || "Failed to prepare share links.");
+        throw new Error(
+          educatorSharePatchErrorMessage(res.status, body?.error)
+        );
       }
 
       const nextApp: AppSummary = {
@@ -191,7 +264,7 @@ export default function AppGrid() {
         <button
           type="button"
           onClick={() => router.push("/create")}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:translate-y-[-1px] hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700"
+          className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition-[colors,border-color,background-color,box-shadow] duration-200 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700"
         >
           Create new bot
         </button>
@@ -217,6 +290,9 @@ export default function AppGrid() {
                 setDeleteError("");
                 setDeleteTarget(app);
               }}
+              starred={starredIds.has(app.id)}
+              starBusy={starBusyId === app.id}
+              onToggleStar={() => void handleToggleStar(app)}
             />
           ))}
         </div>
@@ -230,7 +306,7 @@ export default function AppGrid() {
           <button
             type="button"
             onClick={() => router.push("/create")}
-            className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition hover:translate-y-[-1px] hover:from-sky-600 hover:to-sky-700"
+            className="pressable mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
           >
             Create your first bot
           </button>
@@ -266,6 +342,7 @@ export default function AppGrid() {
         shareAuthorName={shareAuthorName}
         subject={communitySubject}
         tagsInput={communityTagsInput}
+        workspaceId={workspaceId}
         onProjectShareVisibilityChange={setProjectShareVisibility}
         onShareAuthorNameChange={setShareAuthorName}
         onSubjectChange={setCommunitySubject}

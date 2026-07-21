@@ -6,6 +6,10 @@ import {
   normalizeVariability,
   parseModelSelection,
 } from "@/lib/app-store/model-selection";
+import {
+  assertDeleteOwnBotGate,
+  assertEducatorOutwardShareGate,
+} from "@/lib/workspace-api/apps-gates";
 
 function slugify(value: string) {
   return (
@@ -118,11 +122,26 @@ export async function PATCH(
       shareAuthorName?: boolean;
       communitySubject?: string;
       communityTags?: string[];
+      workspaceId?: string;
     };
 
     const existing = await getAppById(appId, userId);
     if (!existing) {
       return NextResponse.json({ error: "App not found" }, { status: 404 });
+    }
+
+    // Permission (c): educator-outward fields only, when Workspace context present.
+    // Never gates student-facing publish (Req 5.7).
+    const shareGate = await assertEducatorOutwardShareGate({
+      userId,
+      workspaceId: body.workspaceId,
+      body,
+    });
+    if (!shareGate.ok) {
+      return NextResponse.json(
+        { error: shareGate.error },
+        { status: shareGate.status }
+      );
     }
 
     const patch: {
@@ -284,7 +303,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ appId: string }> }
 ) {
   try {
@@ -293,6 +312,39 @@ export async function DELETE(
     const userId = session?.user?.id;
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const existing = await getAppById(appId, userId);
+    if (!existing) {
+      return NextResponse.json({ error: "App not found" }, { status: 404 });
+    }
+
+    // Permission (d): prefer explicit workspaceId (body or query); else placements.
+    let workspaceId: string | undefined;
+    const queryWorkspaceId = req.nextUrl.searchParams.get("workspaceId");
+    if (queryWorkspaceId?.trim()) {
+      workspaceId = queryWorkspaceId.trim();
+    } else {
+      try {
+        const body = (await req.json()) as { workspaceId?: unknown };
+        if (typeof body?.workspaceId === "string" && body.workspaceId.trim()) {
+          workspaceId = body.workspaceId.trim();
+        }
+      } catch {
+        // DELETE with empty body is valid
+      }
+    }
+
+    const deleteGate = await assertDeleteOwnBotGate({
+      userId,
+      appId,
+      workspaceId,
+    });
+    if (!deleteGate.ok) {
+      return NextResponse.json(
+        { error: deleteGate.error },
+        { status: deleteGate.status }
+      );
     }
 
     const removed = await deleteApp(appId, userId);

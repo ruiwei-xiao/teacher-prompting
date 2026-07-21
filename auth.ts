@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
+import { acceptPendingEmailInvitesOnSignIn } from "@/lib/auth/accept-pending-email-invites";
 import { createUser, getUserByEmail, upsertOAuthUser } from "@/lib/auth/user-store";
 
 const providers = [];
@@ -84,11 +85,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user?.id) {
         token.userId = user.id;
       }
+      if (user?.email) {
+        token.email = user.email;
+      }
 
       if (!token.userId && token.email) {
         const storedUser = await getUserByEmail(String(token.email));
         if (storedUser?.id) {
           token.userId = storedUser.id;
+        }
+      }
+
+      // Task 5.1: on sign-in (user present), accept pending email Workspace invites.
+      if (user && token.userId && token.email) {
+        try {
+          await acceptPendingEmailInvitesOnSignIn(
+            String(token.userId),
+            String(token.email)
+          );
+        } catch (error) {
+          console.error("Failed to accept pending email Workspace invites:", error);
         }
       }
 

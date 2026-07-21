@@ -59,6 +59,12 @@ function ShareLinkCard({
   );
 }
 
+/**
+ * Educator share dialog. Callers PATCH `/api/apps/[appId]` via
+ * `buildEducatorSharePatchBody` and should pass `workspaceId` when opened from a
+ * Workspace surface so permission (c) applies. Dashboard/editor omit it today;
+ * Workspace hub (task 6.2) will pass `workspaceId` when wiring share from the hub.
+ */
 export default function ShareDialog({
   open,
   appName,
@@ -72,6 +78,7 @@ export default function ShareDialog({
   shareAuthorName,
   subject,
   tagsInput,
+  workspaceId,
   onProjectShareVisibilityChange,
   onShareAuthorNameChange,
   onSubjectChange,
@@ -91,6 +98,12 @@ export default function ShareDialog({
   shareAuthorName: boolean;
   subject: string;
   tagsInput: string;
+  /**
+   * Optional Workspace context for AppsAPIGates permission (c).
+   * Presentational today — callers include the same id on share PATCH.
+   * Hub (6.2) should pass this when sharing from a Workspace surface.
+   */
+  workspaceId?: string;
   onProjectShareVisibilityChange: (value: "private" | "public") => void;
   onShareAuthorNameChange: (value: boolean) => void;
   onSubjectChange: (value: string) => void;
@@ -113,7 +126,10 @@ export default function ShareDialog({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4"
+      data-workspace-id={workspaceId || undefined}
+    >
       <div className="w-full max-w-2xl rounded-2xl border bg-white shadow-xl">
         <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
