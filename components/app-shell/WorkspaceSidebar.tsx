@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import CreateWorkspaceDialog from "@/components/workspace/CreateWorkspaceDialog";
+import { isStarredPath, STARRED_HREF } from "@/lib/star-ui/nav";
 import {
   MY_BOTS_HREF,
   parseWorkspacesListResponse,
@@ -39,6 +40,7 @@ export default function WorkspaceSidebar({
     (pathname === "/" ||
       pathname === MY_BOTS_HREF ||
       pathname.startsWith("/create"));
+  const onStarred = navReady && isStarredPath(pathname);
 
   async function loadWorkspaces() {
     setError("");
@@ -88,22 +90,14 @@ export default function WorkspaceSidebar({
       >
         My bots
       </Link>
-      <button
-        type="button"
-        className="w-full rounded-lg px-3.5 py-2 text-left text-slate-400 dark:text-zinc-500"
-        disabled
-        title="Coming soon"
+      <Link
+        href={STARRED_HREF}
+        onClick={() => onNavigate?.()}
+        className={navItemClass(onStarred)}
+        aria-current={onStarred ? "page" : undefined}
       >
         Starred
-      </button>
-      <button
-        type="button"
-        className="w-full rounded-lg px-3.5 py-2 text-left text-slate-400 dark:text-zinc-500"
-        disabled
-        title="Coming soon"
-      >
-        Recently Used
-      </button>
+      </Link>
 
       <div className="mt-6 text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-500">
         Workspaces

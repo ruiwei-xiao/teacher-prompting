@@ -39,7 +39,7 @@
   - _Boundary: Starred page + grid_
   - _Depends: 2_
 
-- [ ] 3.2 Enable Library Starred nav and remove Recently Used
+- [x] 3.2 Enable Library Starred nav and remove Recently Used
   - Nav helper for Starred href/active rules; working Starred link with active state on Starred route; Recently Used control removed; My bots remains distinct
   - Sidebar Starred navigates to the Starred library (not Coming soon)
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
