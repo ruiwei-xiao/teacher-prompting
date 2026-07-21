@@ -45,7 +45,7 @@ export default async function DashboardPage({
               myBots={
                 <section className="w-full">
                   <div className="text-center">
-                    <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl dark:text-zinc-100">
+                    <h1 className="type-display text-4xl text-slate-900 md:text-5xl dark:text-zinc-100">
                       Build and manage your tutoring bots
                     </h1>
                     <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
@@ -62,7 +62,7 @@ export default async function DashboardPage({
               community={
                 <section className="w-full">
                   <div className="mb-6">
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-zinc-100">
+                    <h2 className="type-title text-3xl text-slate-900 dark:text-zinc-100">
                       Explore published bots
                     </h2>
                     <p className="mt-3 max-w-2xl text-sm text-slate-600 md:text-base dark:text-zinc-300">

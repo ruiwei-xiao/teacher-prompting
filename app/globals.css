@@ -2,7 +2,7 @@
 @import '@mdxeditor/editor/style.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
-
+@custom-variant hover-ok (@media (hover: hover) and (pointer: fine));
 
 :root {
   --background: #ffffff;
@@ -17,6 +17,10 @@
   --color-accent: #0284c7; /* sky-600 */
   --color-accent-soft: #e0f2fe; /* sky-100 */
   --radius-control: 1.1rem;
+  --chrome-bg: rgba(255, 255, 255, 0.72);
+  --chrome-border: rgba(15, 23, 42, 0.08);
+  /* Solid surface — glass under chrome caused title bleed-through. */
+  --drawer-bg: #ffffff;
 }
 
 html.dark {
@@ -24,6 +28,9 @@ html.dark {
   --foreground: #ededed;
   --color-accent: #0ea5e9; /* sky-500 */
   --color-accent-soft: rgba(12, 74, 110, 0.5);
+  --chrome-bg: rgba(9, 9, 11, 0.78);
+  --chrome-border: rgba(255, 255, 255, 0.08);
+  --drawer-bg: #09090b;
 }
 
 @theme inline {
@@ -36,12 +43,80 @@ html.dark {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+}
+
+/* Display headings — tighter tracking/leading at large sizes */
+.type-display {
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.type-title {
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  font-weight: 650;
+}
+
+/* Unified keyboard focus — PC primary affordance */
+:where(a, button, input, select, textarea, summary, [role="button"]):focus {
+  outline: none;
+}
+:where(a, button, input, select, textarea, summary, [role="button"]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Floating chrome (header) */
+.app-chrome {
+  background: var(--chrome-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--chrome-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+html.dark .app-chrome {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.app-drawer-surface {
+  background: var(--drawer-bg);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-chrome,
+  .app-drawer-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .app-chrome {
+    background: #ffffff;
+  }
+  html.dark .app-chrome {
+    background: #09090b;
+  }
+  .app-drawer-surface {
+    background: #ffffff;
+  }
+  html.dark .app-drawer-surface {
+    background: #09090b;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .app-chrome,
+  .app-drawer-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--background);
+    border-color: var(--foreground);
+  }
 }
 
 /* === Full-screen layout helpers === */
-
-/* Fill the viewport minus header (sticky header is 64px high) */
 .main-viewport {
   height: calc(100vh - var(--header-h));
 }
@@ -66,6 +141,11 @@ body {
   .drawer-backdrop,
   .tab-indicator {
     transition: none !important;
+  }
+
+  .type-display,
+  .type-title {
+    letter-spacing: 0;
   }
 }
 

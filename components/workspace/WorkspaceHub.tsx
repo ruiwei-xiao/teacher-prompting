@@ -141,7 +141,7 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
         <div className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
           Workspace
         </div>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 dark:text-zinc-100">
+        <h1 className="type-display mt-4 text-3xl text-slate-900 dark:text-zinc-100">
           {state.name}
         </h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">

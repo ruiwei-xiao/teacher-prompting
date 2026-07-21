@@ -29,7 +29,7 @@ export default function DashboardTabs({
             className={`pressable relative z-10 h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition-colors duration-200 ${
               activeTab === "my-bots"
                 ? "text-white"
-                : "text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                : "text-slate-600 hover-ok:text-slate-900 dark:text-zinc-300 dark:hover-ok:text-zinc-100"
             }`}
           >
             My bots
@@ -40,7 +40,7 @@ export default function DashboardTabs({
             className={`pressable relative z-10 h-12 rounded-[1.25rem] px-4 text-sm font-semibold transition-colors duration-200 ${
               activeTab === "community"
                 ? "text-white"
-                : "text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                : "text-slate-600 hover-ok:text-slate-900 dark:text-zinc-300 dark:hover-ok:text-zinc-100"
             }`}
           >
             Community

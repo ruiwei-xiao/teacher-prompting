@@ -90,7 +90,7 @@ export default function WorkspaceNavTabs({
               className={`pressable relative z-10 flex h-11 shrink-0 flex-1 items-center justify-center rounded-[1.1rem] px-3 text-sm font-semibold transition-colors duration-200 ${
                 isActive
                   ? "text-white"
-                  : "text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                  : "text-slate-600 hover-ok:text-slate-900 dark:text-zinc-300 dark:hover-ok:text-zinc-100"
               }`}
             >
               {tab.label}

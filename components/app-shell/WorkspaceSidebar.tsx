@@ -12,9 +12,12 @@ import {
 import type { Workspace } from "@/lib/workspace-store/types";
 
 function navItemClass(active: boolean): string {
-  return active
-    ? "pressable block w-full rounded-lg bg-slate-100 px-3.5 py-2 text-left dark:bg-zinc-800"
-    : "pressable block w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800";
+  const base =
+    "pressable block w-full rounded-lg px-3.5 py-2 text-left transition-colors duration-150";
+  if (active) {
+    return `${base} bg-sky-100 font-semibold text-sky-900 dark:bg-sky-950/60 dark:text-sky-100`;
+  }
+  return `${base} text-slate-700 hover-ok:bg-slate-100 dark:text-zinc-300 dark:hover-ok:bg-zinc-800`;
 }
 
 export default function WorkspaceSidebar({
@@ -81,12 +84,13 @@ export default function WorkspaceSidebar({
         href={MY_BOTS_HREF}
         onClick={() => onNavigate?.()}
         className={navItemClass(onMyBots)}
+        aria-current={onMyBots ? "page" : undefined}
       >
         My bots
       </Link>
       <button
         type="button"
-        className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+        className="w-full rounded-lg px-3.5 py-2 text-left text-slate-400 dark:text-zinc-500"
         disabled
         title="Coming soon"
       >
@@ -94,7 +98,7 @@ export default function WorkspaceSidebar({
       </button>
       <button
         type="button"
-        className="w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+        className="w-full rounded-lg px-3.5 py-2 text-left text-slate-400 dark:text-zinc-500"
         disabled
         title="Coming soon"
       >
@@ -131,6 +135,7 @@ export default function WorkspaceSidebar({
                 href={href}
                 onClick={() => onNavigate?.()}
                 className={navItemClass(active)}
+                aria-current={active ? "page" : undefined}
               >
                 {workspace.name}
               </Link>
@@ -146,7 +151,7 @@ export default function WorkspaceSidebar({
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="pressable mt-2 w-full rounded-lg px-3.5 py-2 text-left hover:bg-slate-100 dark:hover:bg-zinc-800"
+          className="pressable mt-2 w-full rounded-lg px-3.5 py-2 text-left hover-ok:bg-slate-100 dark:hover-ok:bg-zinc-800"
         >
           + New workspace
         </button>

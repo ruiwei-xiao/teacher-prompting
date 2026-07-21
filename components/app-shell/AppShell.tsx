@@ -5,12 +5,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 import TopNav from "@/components/app-shell/TopNav";
 import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
+import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
 
 type SidebarMenuContextValue = {
   open: boolean;
@@ -60,14 +62,27 @@ function CloseIcon({ className }: { className?: string }) {
   );
 }
 
+function workspaceIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/workspace\/([^/]+)/);
+  if (!match) return null;
+  if (pathname.startsWith("/workspace/invite/")) return null;
+  return match[1] || null;
+}
+
 /**
  * App chrome: TopNav hamburger opens Library / Workspaces as a left drawer.
+ * PC-oriented: focus trap, Esc, inert background, wayfinding label.
  */
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
+
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const wasOpenRef = useRef(false);
 
   const openMenu = useCallback(() => setOpen(true), []);
   const closeMenu = useCallback(() => setOpen(false), []);
@@ -78,9 +93,42 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    const workspaceId = workspaceIdFromPath(pathname);
+    if (!workspaceId) {
+      setLocationLabel(null);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadName() {
+      try {
+        const res = await fetch(`/api/workspaces/${workspaceId}`);
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const parsed = parseWorkspaceGetResponse(res.status, body);
+        if (parsed.ok) {
+          setLocationLabel(parsed.workspace.name);
+        } else {
+          setLocationLabel(null);
+        }
+      } catch {
+        if (!cancelled) setLocationLabel(null);
+      }
+    }
+
+    void loadName();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -89,6 +137,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (open) {
       setMounted(true);
+      wasOpenRef.current = true;
       const id = window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => setVisible(true));
       });
@@ -96,55 +145,108 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
 
     setVisible(false);
-    const timeout = window.setTimeout(() => setMounted(false), DRAWER_MS);
+    const timeout = window.setTimeout(() => {
+      setMounted(false);
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        menuButtonRef.current?.focus();
+      }
+    }, DRAWER_MS);
     return () => window.clearTimeout(timeout);
   }, [open]);
+
+  useEffect(() => {
+    if (!visible || !mounted) return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+
+    const selector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const focusables = () =>
+      Array.from(drawer.querySelectorAll<HTMLElement>(selector)).filter(
+        (el) => !el.hasAttribute("disabled") && el.tabIndex !== -1
+      );
+
+    const initial = focusables()[0];
+    initial?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    drawer.addEventListener("keydown", onKeyDown);
+    return () => drawer.removeEventListener("keydown", onKeyDown);
+  }, [visible, mounted]);
 
   return (
     <SidebarMenuContext.Provider
       value={{ open, openMenu, closeMenu, toggleMenu }}
     >
       <div className="min-h-screen flex flex-col">
-        <TopNav
-          menuButton={
-            <button
-              type="button"
-              onClick={toggleMenu}
-              className="pressable inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              aria-label={open ? "Close navigation menu" : "Open navigation menu"}
-              aria-expanded={open}
-              aria-controls="app-sidebar-drawer"
-            >
-              <MenuIcon className="h-5 w-5" />
-            </button>
-          }
-        />
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          inert={open || undefined}
+          aria-hidden={open || undefined}
+        >
+          <TopNav
+            locationLabel={locationLabel}
+            menuButton={
+              <button
+                ref={menuButtonRef}
+                type="button"
+                onClick={toggleMenu}
+                className="pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-600 hover-ok:bg-slate-100 dark:text-zinc-300 dark:hover-ok:bg-zinc-800"
+                aria-label={open ? "Close navigation menu" : "Open navigation menu"}
+                aria-expanded={open}
+                aria-controls="app-sidebar-drawer"
+              >
+                <MenuIcon className="h-5 w-5" />
+              </button>
+            }
+          />
+          {children}
+        </div>
 
         {mounted && (
-          <div className="fixed inset-0 z-40">
+          /* Above app-chrome (z-50) so glass header never composites drawer text. */
+          <div className="fixed inset-0 z-[60]">
             <button
               type="button"
               className="drawer-backdrop absolute inset-0 bg-slate-900/40"
               data-open={visible ? "true" : "false"}
               aria-label="Close navigation overlay"
               onClick={closeMenu}
+              tabIndex={-1}
             />
             <aside
+              ref={drawerRef}
               id="app-sidebar-drawer"
-              className="drawer-panel absolute inset-y-0 left-0 flex w-[min(18rem,88vw)] flex-col border-r border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+              className="app-drawer-surface drawer-panel absolute inset-y-0 left-0 flex w-[min(18rem,88vw)] flex-col border-r border-slate-200 shadow-xl dark:border-zinc-800"
               data-open={visible ? "true" : "false"}
               role="dialog"
               aria-modal="true"
               aria-label="Library and workspaces"
             >
-              <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4 dark:border-zinc-800">
-                <span className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 px-4 dark:border-zinc-800">
+                <span className="type-title text-sm text-slate-900 dark:text-zinc-100">
                   Navigation
                 </span>
                 <button
                   type="button"
                   onClick={closeMenu}
-                  className="pressable inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  className="pressable inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover-ok:bg-slate-100 dark:text-zinc-400 dark:hover-ok:bg-zinc-800"
                   aria-label="Close navigation"
                 >
                   <CloseIcon className="h-5 w-5" />
@@ -156,8 +258,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </aside>
           </div>
         )}
-
-        {children}
       </div>
     </SidebarMenuContext.Provider>
   );
