@@ -21,11 +21,32 @@ import {
   type HubBotSummary,
 } from "@/lib/workspace-ui/hub";
 import { peerBotPreviewHref } from "@/lib/workspace-ui/peer-preview";
+import { parseStarsListResponse } from "@/lib/star-ui/stars-response";
+import { starredAppIdsFromList } from "@/lib/star-ui/starred-ids";
 import ShareDialog from "@/components/dashboard/ShareDialog";
 
 type GridBot = HubBotSummary & {
   isOwned: boolean;
 };
+
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={1.75}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+      />
+    </svg>
+  );
+}
 
 export default function WorkspaceBotGrid({
   workspaceId,
@@ -55,6 +76,8 @@ export default function WorkspaceBotGrid({
   const [shareAuthorName, setShareAuthorName] = useState(false);
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
+  const [starredIds, setStarredIds] = useState<Set<string>>(() => new Set());
+  const [starBusyId, setStarBusyId] = useState<string | null>(null);
 
   const appOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -161,6 +184,56 @@ export default function WorkspaceBotGrid({
     setLoading(true);
     void load();
   }, [load]);
+
+  useEffect(() => {
+    async function loadStarredIds() {
+      try {
+        const res = await fetch("/api/stars");
+        const body = await res.json().catch(() => ({}));
+        const parsed = parseStarsListResponse(res.status, body);
+        if (parsed.ok) {
+          setStarredIds(starredAppIdsFromList(parsed.stars));
+        }
+      } catch {
+        // Keep empty set; star toggles still attempt PUT/DELETE.
+      }
+    }
+
+    void loadStarredIds();
+  }, []);
+
+  function setStarredForApp(appId: string, nextStarred: boolean) {
+    setStarredIds((current) => {
+      const next = new Set(current);
+      if (nextStarred) next.add(appId);
+      else next.delete(appId);
+      return next;
+    });
+  }
+
+  async function handleToggleStar(bot: GridBot) {
+    if (starBusyId) return;
+
+    const appId = bot.id;
+    const wasStarred = starredIds.has(appId);
+    const nextStarred = !wasStarred;
+
+    setStarBusyId(appId);
+    setStarredForApp(appId, nextStarred);
+
+    try {
+      const res = await fetch(`/api/stars/${encodeURIComponent(appId)}`, {
+        method: nextStarred ? "PUT" : "DELETE",
+      });
+      if (!res.ok) {
+        setStarredForApp(appId, wasStarred);
+      }
+    } catch {
+      setStarredForApp(appId, wasStarred);
+    } finally {
+      setStarBusyId(null);
+    }
+  }
 
   const gridBots: GridBot[] = visiblePlacements.map((p) => {
     const summary = botById[p.appId];
@@ -427,20 +500,39 @@ export default function WorkspaceBotGrid({
               permissions,
               isBotOwner: bot.isOwned,
             });
+            const starred = starredIds.has(bot.id);
             return (
               <div
                 key={bot.id}
                 className="flex h-full flex-col rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)] dark:border-zinc-500/80 dark:bg-zinc-800"
               >
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-                  <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-200">
-                    {bot.isOwned ? "Yours" : "Peer"}
-                  </span>
-                  {bot.updatedAt && (
-                    <span>
-                      Updated {new Date(bot.updatedAt).toLocaleDateString()}
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-200">
+                      {bot.isOwned ? "Yours" : "Peer"}
                     </span>
-                  )}
+                    {bot.updatedAt && (
+                      <span>
+                        Updated {new Date(bot.updatedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleStar(bot)}
+                    disabled={starBusyId === bot.id}
+                    aria-label={starred ? `Unstar ${bot.name}` : `Star ${bot.name}`}
+                    aria-pressed={starred}
+                    title={starred ? "Unstar" : "Star"}
+                    className={[
+                      "pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-[colors,border-color,background-color,opacity] duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+                      starred
+                        ? "border-amber-300 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:border-amber-600 dark:hover:bg-amber-950/60"
+                        : "border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-300 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900",
+                    ].join(" ")}
+                  >
+                    <StarIcon filled={starred} />
+                  </button>
                 </div>
                 <h3 className="mt-4 text-2xl font-semibold text-slate-900 dark:text-zinc-100">
                   {bot.name}

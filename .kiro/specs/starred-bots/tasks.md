@@ -55,7 +55,7 @@
   - _Boundary: AppCard / AppGrid_
   - _Depends: 2_
 
-- [ ] 4.2 (P) Add star toggle on Workspace bot cards
+- [x] 4.2 (P) Add star toggle on Workspace bot cards
   - Star/unstar visible Workspace bots including peers; indication matches personal preference across surfaces after refresh
   - Peer bots can be starred when visible under existing rules
   - _Requirements: 1.2, 1.4, 1.5, 7.2, 7.4_
