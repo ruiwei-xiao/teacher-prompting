@@ -10,6 +10,9 @@ export const config = {
     "/workspace/:path*",
     "/api/workspaces",
     "/api/workspaces/:path*",
+    "/starred",
+    "/api/stars",
+    "/api/stars/:path*",
   ],
 };
 

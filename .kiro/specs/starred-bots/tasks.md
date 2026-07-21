@@ -15,7 +15,7 @@
   - _Boundary: star-api eligibility_
   - _Depends: 1.1_
 
-- [ ] 1.3 Protect Starred routes at the auth edge
+- [x] 1.3 Protect Starred routes at the auth edge
   - Require sign-in for Starred page and star APIs with callbackUrl return
   - Unauthenticated access redirects to sign-in rather than showing stars
   - _Requirements: 5.1, 5.2_

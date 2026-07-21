@@ -1,6 +1,6 @@
 /**
- * Self-test: Workspace auth-edge matcher coverage (Task 1.6).
- * Verifies proxy.ts matcher protects Workspace pages/APIs (incl. invite join).
+ * Self-test: Auth-edge matcher coverage for Workspace and Starred routes.
+ * Verifies proxy.ts matcher protects Workspace/Starred pages and APIs.
  *
  * Run: npx tsx proxy.selftest.ts
  */
@@ -30,6 +30,9 @@ async function main(): Promise<void> {
     "/workspace/:path*",
     "/api/workspaces",
     "/api/workspaces/:path*",
+    "/starred",
+    "/api/stars",
+    "/api/stars/:path*",
   ];
 
   for (const entry of required) {
@@ -61,7 +64,9 @@ async function main(): Promise<void> {
     console.error(`\n${failures} failure(s)`);
     process.exit(1);
   }
-  console.log("OK: proxy matcher covers Workspace pages and APIs with callbackUrl");
+  console.log(
+    "OK: proxy matcher covers Workspace and Starred pages/APIs with callbackUrl"
+  );
 }
 
 void main();
