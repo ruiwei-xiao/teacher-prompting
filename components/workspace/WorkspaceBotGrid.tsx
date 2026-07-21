@@ -65,6 +65,7 @@ export default function WorkspaceBotGrid({
   const [error, setError] = useState("");
   const [busyAppId, setBusyAppId] = useState<string | null>(null);
   const [placeSelect, setPlaceSelect] = useState("");
+  const [placeOpen, setPlaceOpen] = useState(false);
   const [actionError, setActionError] = useState("");
 
   const [shareTarget, setShareTarget] = useState<HubBotSummary | null>(null);
@@ -271,12 +272,25 @@ export default function WorkspaceBotGrid({
         );
       }
       setPlaceSelect("");
+      setPlaceOpen(false);
       await load();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Failed to place bot");
     } finally {
       setBusyAppId(null);
     }
+  }
+
+  function openPlaceDialog() {
+    setActionError("");
+    setPlaceSelect("");
+    setPlaceOpen(true);
+  }
+
+  function closePlaceDialog() {
+    if (busyAppId) return;
+    setPlaceOpen(false);
+    setPlaceSelect("");
   }
 
   async function handleUnplace(appId: string) {
@@ -431,64 +445,30 @@ export default function WorkspaceBotGrid({
           </p>
         </div>
         {canPlace && (
-          <button
-            type="button"
-            onClick={() =>
-              router.push(createHrefWithWorkspace(workspaceId))
-            }
-            className="pressable inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
-          >
-            + Create bot
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={openPlaceDialog}
+              className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover-ok:bg-zinc-800"
+            >
+              Add from My bots
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(createHrefWithWorkspace(workspaceId))
+              }
+              className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
+            >
+              + Create bot
+            </button>
+          </div>
         )}
       </div>
 
-      {actionError && (
+      {actionError && !placeOpen && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
           {actionError}
-        </div>
-      )}
-
-      {canPlace && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-            Place a bot from My bots
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
-            Placement keeps personal ownership. Remove it later without deleting
-            the bot.
-          </p>
-          {placeable.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500 dark:text-zinc-400">
-              All of your bots are already placed here, or you have no bots yet.
-            </p>
-          ) : (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <select
-                className="h-11 min-w-[12rem] flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                value={placeSelect}
-                onChange={(e) => setPlaceSelect(e.target.value)}
-                disabled={Boolean(busyAppId)}
-              >
-                <option value="">Select a bot…</option>
-                {placeable.map((bot) => (
-                  <option key={bot.id} value={bot.id}>
-                    {bot.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void handlePlace()}
-                disabled={!placeSelect || Boolean(busyAppId)}
-                className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-sky-600 px-5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {busyAppId && busyAppId === placeSelect
-                  ? "Placing…"
-                  : "Place in Workspace"}
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -600,20 +580,107 @@ export default function WorkspaceBotGrid({
           </h3>
           <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
             {canPlace
-              ? "Create a new bot into this Workspace, or place one from My bots above."
+              ? "Create a new bot, or add an existing one from My bots."
               : "Placed bots you are allowed to see will appear here."}
           </p>
           {canPlace && (
-            <button
-              type="button"
-              onClick={() =>
-                router.push(createHrefWithWorkspace(workspaceId))
-              }
-              className="pressable mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
-            >
-              + Create bot
-            </button>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={openPlaceDialog}
+                className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                Add from My bots
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(createHrefWithWorkspace(workspaceId))
+                }
+                className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover:from-sky-600 hover:to-sky-700"
+              >
+                + Create bot
+              </button>
+            </div>
           )}
+        </div>
+      )}
+
+      {placeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4 dark:bg-black/50">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="place-bot-title"
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <div className="border-b border-slate-200 px-5 py-4 dark:border-zinc-800">
+              <h2
+                id="place-bot-title"
+                className="text-lg font-semibold text-slate-900 dark:text-zinc-100"
+              >
+                Add from My bots
+              </h2>
+              <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
+                Add an existing bot to this Workspace. Ownership stays with you;
+                you can remove it later without deleting the bot.
+              </p>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              {actionError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+                  {actionError}
+                </div>
+              )}
+              {placeable.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-zinc-400">
+                  All of your bots are already here, or you have no bots yet.
+                  Create a bot first from My bots or with + Create bot.
+                </p>
+              ) : (
+                <label className="block text-sm text-slate-700 dark:text-zinc-300">
+                  <span className="mb-1.5 block font-medium">Bot</span>
+                  <select
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    value={placeSelect}
+                    onChange={(e) => setPlaceSelect(e.target.value)}
+                    disabled={Boolean(busyAppId)}
+                  >
+                    <option value="">Select a bot…</option>
+                    {placeable.map((bot) => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={closePlaceDialog}
+                disabled={Boolean(busyAppId)}
+                className="pressable inline-flex h-10 items-center rounded-xl border border-slate-300 px-4 text-sm text-slate-700 dark:border-zinc-600 dark:text-zinc-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePlace()}
+                disabled={
+                  placeable.length === 0 ||
+                  !placeSelect ||
+                  Boolean(busyAppId)
+                }
+                className="pressable inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {busyAppId && busyAppId === placeSelect
+                  ? "Adding…"
+                  : "Add to Workspace"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

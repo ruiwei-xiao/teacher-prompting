@@ -16,7 +16,7 @@ export type InviteRole = WorkspaceInviteRole;
 
 /** Clear copy that email invites are not SMTP-delivered (design / Req 2.1). */
 export const EMAIL_INVITE_NO_SMTP_NOTICE =
-  "Email is not SMTP-delivered. Recording an invite stores a pending membership for that address; the educator joins automatically on their next sign-in with the same email.";
+  "Email is not SMTP-delivered. Recording an invite stores a pending membership for that address; the educator joins automatically when they next open Workspaces (or sign in) with the same email.";
 
 function errorFromBody(body: unknown, fallback: string): string {
   if (
@@ -56,7 +56,7 @@ export function canManageInvites(role: WorkspaceRole): boolean {
 
 /** Success copy after recording an email invite (design UI Layer). */
 export function emailInviteRecordedMessage(email: string): string {
-  return `Invite recorded for ${email}. They join automatically on next sign-in with that address.`;
+  return `Invite recorded for ${email}. They join automatically when they next open Workspaces (or sign in) with that address.`;
 }
 
 /** Matches WorkspacesAPI `inviteUrlForToken`. */

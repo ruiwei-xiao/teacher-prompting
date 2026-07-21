@@ -239,10 +239,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               aria-modal="true"
               aria-label="Library and workspaces"
             >
-              <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 px-4 dark:border-zinc-800">
-                <span className="type-title text-sm text-slate-900 dark:text-zinc-100">
-                  Navigation
-                </span>
+              <div className="flex h-14 shrink-0 items-center justify-end px-3">
                 <button
                   type="button"
                   onClick={closeMenu}
@@ -252,7 +249,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   <CloseIcon className="h-5 w-5" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
                 <WorkspaceSidebar onNavigate={closeMenu} />
               </div>
             </aside>

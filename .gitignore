@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Local dual-store / runtime data (may contain API keys)
+.data/
+
 # vercel
 .vercel
 

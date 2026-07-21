@@ -2,7 +2,14 @@
 @import '@mdxeditor/editor/style.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
-@custom-variant hover-ok (@media (hover: hover) and (pointer: fine));
+/* Fine-pointer hover only — must nest &:hover or utilities apply permanently on desktop. */
+@custom-variant hover-ok {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
 
 :root {
   --background: #ffffff;

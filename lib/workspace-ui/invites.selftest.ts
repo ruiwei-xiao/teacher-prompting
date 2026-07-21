@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   );
   assertEqual(
     emailInviteRecordedMessage("teacher@school.edu"),
-    "Invite recorded for teacher@school.edu. They join automatically on next sign-in with that address.",
+    "Invite recorded for teacher@school.edu. They join automatically when they next open Workspaces (or sign in) with that address.",
     "email recorded success copy matches design"
   );
   assertEqual(
