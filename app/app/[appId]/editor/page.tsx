@@ -28,6 +28,8 @@ import {
   buildEducatorSharePatchBody,
   educatorSharePatchErrorMessage,
 } from "@/lib/workspace-api/share-patch-body";
+import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
+import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
 
 export default function EditorPage({
   params,
@@ -39,6 +41,7 @@ export default function EditorPage({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
+  const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true); // Default to ON
   const [headerModelLabel, setHeaderModelLabel] = useState("Loading model...");
   const [headerVariabilityLabel, setHeaderVariabilityLabel] = useState(
     formatVariabilityLabel()
@@ -107,6 +110,7 @@ export default function EditorPage({
         const body = await res.json();
         if (res.ok && body?.app) {
           setAppName(body.app.name || appId);
+          setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
           if (body.app.provider && body.app.model) {
             setHeaderModelLabel(getModelLabel(body.app.provider, body.app.model));
           }
@@ -148,13 +152,11 @@ export default function EditorPage({
   }, [appId, appVersion]);
 
   async function handlePublish() {
-    if (!testCaseStatus.allPassed) {
+    const gateResult = shouldBlockPublishForTestCases(assistedAuthoringMode, testCaseStatus);
+    
+    if (gateResult.shouldBlock) {
       setPublishUrl("");
-      setPublishError(
-        testCaseStatus.totalCount > 0
-          ? `Mark all test cases as pass before publishing. ${testCaseStatus.passedCount} of ${testCaseStatus.totalCount} passed so far.`
-          : "Add and pass at least one test case before publishing."
-      );
+      setPublishError(gateResult.reason || "Cannot publish at this time.");
       setPublishOpen(true);
       return;
     }

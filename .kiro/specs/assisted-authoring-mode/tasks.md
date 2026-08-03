@@ -47,7 +47,7 @@
 
 ## 3. Integration: editor gating and transitions
 
-- [ ] 3.1 Wire mode-aware publish gating in the editor
+- [x] 3.1 Wire mode-aware publish gating in the editor
   - Load resolved mode in the editor page; while ON keep the all-pass test case publish gate and messages; while OFF skip that gate; keep Final Prompt editing available
   - With mode OFF, publish is not blocked for missing/unpassed test cases; with mode ON, the existing all-pass gate still blocks
   - _Requirements: 2.3, 2.4, 3.4, 3.5, 5.1_
