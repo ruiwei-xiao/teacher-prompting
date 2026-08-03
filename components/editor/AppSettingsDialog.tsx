@@ -116,7 +116,7 @@ export default function AppSettingsDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            className="rounded-lg px-2 py-1 text-slate-500 transition-[background-color,transform,color] duration-150 ease-out hover:bg-slate-100 active:scale-[0.97] dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             Close
           </button>
@@ -141,7 +141,7 @@ export default function AppSettingsDialog({
               Assisted Authoring Mode
             </div>
             <div
-              className="mt-2 flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-zinc-700 dark:bg-zinc-800"
+              className="mt-2 flex items-center gap-0.5 rounded-xl border border-slate-200/90 bg-slate-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-950/60"
               role="group"
               aria-label="Assisted Authoring Mode"
             >
@@ -150,38 +150,50 @@ export default function AppSettingsDialog({
                 onClick={() => setAssistedAuthoringMode(true)}
                 disabled={loading || saving}
                 aria-pressed={assistedAuthoringMode}
-                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                className={[
+                  "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+                  "transition-[color,background-color,box-shadow,transform] duration-150 ease-out",
+                  "active:scale-[0.97]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+                  "disabled:pointer-events-none disabled:opacity-50",
                   assistedAuthoringMode
-                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
-                    : "text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200"
-                }`}
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                    : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+                ].join(" ")}
               >
-                ON
+                On
               </button>
               <button
                 type="button"
                 onClick={() => setAssistedAuthoringMode(false)}
                 disabled={loading || saving}
                 aria-pressed={!assistedAuthoringMode}
-                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                className={[
+                  "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+                  "transition-[color,background-color,box-shadow,transform] duration-150 ease-out",
+                  "active:scale-[0.97]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+                  "disabled:pointer-events-none disabled:opacity-50",
                   !assistedAuthoringMode
-                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
-                    : "text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200"
-                }`}
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                    : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+                ].join(" ")}
               >
-                OFF
+                Off
               </button>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
-              <span className="font-medium text-slate-600 dark:text-zinc-400">ON</span>
-              {" — "}
-              auto test cases, prompt updates from AI edits, publish only when all
-              tests pass.
-              {" "}
-              <span className="font-medium text-slate-600 dark:text-zinc-400">OFF</span>
-              {" — "}
-              write the prompt yourself (training-friendly); no auto test cases or
-              publish gate.
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
+              {assistedAuthoringMode ? (
+                <>
+                  Test cases auto-generate, editing AI replies can revise the
+                  prompt, and publish requires every case to pass.
+                </>
+              ) : (
+                <>
+                  Write the Final Prompt yourself — best for training. No auto
+                  test cases, no prompt rewrite from edits, and no publish gate.
+                </>
+              )}
             </p>
           </div>
 
@@ -265,14 +277,14 @@ export default function AppSettingsDialog({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 transition-[background-color,transform] duration-150 ease-out hover:bg-slate-50 active:scale-[0.97] dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 disabled={saving}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-700 disabled:opacity-50 dark:bg-sky-500 dark:hover:bg-sky-400"
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm text-white transition-[background-color,transform,opacity] duration-150 ease-out hover:bg-sky-700 active:scale-[0.97] disabled:opacity-50 dark:bg-sky-500 dark:hover:bg-sky-400"
                 disabled={loading || saving}
               >
                 {saving ? "Saving..." : "Save settings"}

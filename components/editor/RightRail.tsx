@@ -41,7 +41,9 @@ export default function RightRail({
       onClick={onClick}
       title={label}
       className={[
-        "group relative flex h-14 w-14 items-center justify-center rounded-2xl border transition-all",
+        "group relative flex h-14 w-14 items-center justify-center rounded-2xl border",
+        "transition-[border-color,background-color,box-shadow,transform,color] duration-150 ease-out",
+        "active:scale-[0.97]",
         active
           ? "border-sky-200 bg-sky-50 text-sky-900 shadow-sm dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100"
           : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-600 dark:hover:bg-zinc-800",
@@ -58,7 +60,7 @@ export default function RightRail({
         {icon}
       </div>
 
-      <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left whitespace-nowrap opacity-0 shadow-lg transition-all group-hover:opacity-100 group-focus-visible:opacity-100 dark:border-zinc-600 dark:bg-zinc-900">
+      <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 origin-left scale-[0.97] rounded-xl border border-slate-200 bg-white px-3 py-2 text-left whitespace-nowrap opacity-0 shadow-lg transition-[opacity,transform] duration-150 ease-out group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 dark:border-zinc-600 dark:bg-zinc-900">
         <div className="text-sm font-medium text-slate-800 dark:text-zinc-100">{label}</div>
         <div className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{hint}</div>
       </div>
@@ -86,7 +88,7 @@ export default function RightRail({
               active={settingsOpen}
               onClick={onOpenSettings}
               label="Settings"
-              hint="Model and API key"
+              hint="Model, API key, assisted mode"
               icon={
                 <Icon d="M19.14 12.94a7.48 7.48 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.6 7.6 0 00-1.63-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 00-.6.22L2.71 8.84a.5.5 0 00.12.64l2.03 1.58a7.48 7.48 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32a.5.5 0 00.6.22l2.39-.96c.51.4 1.05.71 1.63.94l.36 2.54a.5.5 0 00.5.42h3.84a.5.5 0 00.5-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 00.6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1112 8a3.5 3.5 0 010 7.5z" />
               }
