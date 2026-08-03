@@ -36,6 +36,47 @@ import { planOnToOffTransition, shouldPersistOnToOffTransition } from "@/lib/ass
 import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
 import { saveAssistedAuthoringSnapshot, planOffToOnTransition } from "@/lib/assisted-authoring/snapshot";
 
+function PanelResizeHandle({
+  label,
+  active,
+  onPointerDown,
+}: {
+  label: string;
+  active: boolean;
+  onPointerDown: () => void;
+}) {
+  return (
+    <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
+      <div
+        className={[
+          "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
+          active
+            ? "bg-sky-400 dark:bg-sky-500"
+            : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
+        ].join(" ")}
+      />
+      <button
+        type="button"
+        aria-label={label}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          onPointerDown();
+        }}
+        className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+      >
+        <span
+          className={[
+            "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
+            active
+              ? "bg-sky-400/80 dark:bg-sky-500/80"
+              : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
+          ].join(" ")}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function EditorPage({
   params,
 }: {
@@ -92,7 +133,11 @@ export default function EditorPage({
   const [forkedFromAuthorName, setForkedFromAuthorName] = useState("");
   const [forkedFromProjectShareSlug, setForkedFromProjectShareSlug] = useState("");
   const [editorPaneWidth, setEditorPaneWidth] = useState(62);
-  const [isResizingPanels, setIsResizingPanels] = useState(false);
+  const [assistantPaneWidth, setAssistantPaneWidth] = useState(40);
+  const [resizingPanel, setResizingPanel] = useState<
+    null | "assistant-main" | "editor-testcases"
+  >(null);
+  const assistantSplitRef = useRef<HTMLDivElement>(null);
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const publishSpotlightRef = useRef<HTMLButtonElement>(null);
   const spotlightPromptRef = useRef<HTMLDivElement>(null);
@@ -120,10 +165,6 @@ export default function EditorPage({
     }),
     []
   );
-
-  const gridCols = assistantOpen
-    ? "grid-cols-1 xl:grid-cols-[56px_1.05fr_minmax(0,1fr)]"
-    : "grid-cols-1 xl:grid-cols-[56px_minmax(0,1fr)]";
 
   // Hide until mode is loaded so OFF bots never flash the test-case rail.
   const showTestCaseRail =
@@ -379,20 +420,27 @@ export default function EditorPage({
   }
 
   useEffect(() => {
-    if (!isResizingPanels) return;
+    if (!resizingPanel) return;
 
     function handlePointerMove(event: PointerEvent) {
-      const container = splitPaneRef.current;
-      if (!container) return;
+      if (resizingPanel === "editor-testcases") {
+        const container = splitPaneRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const nextWidth = ((event.clientX - rect.left) / rect.width) * 100;
+        setEditorPaneWidth(Math.min(75, Math.max(35, nextWidth)));
+        return;
+      }
 
+      const container = assistantSplitRef.current;
+      if (!container) return;
       const rect = container.getBoundingClientRect();
       const nextWidth = ((event.clientX - rect.left) / rect.width) * 100;
-      const clampedWidth = Math.min(75, Math.max(35, nextWidth));
-      setEditorPaneWidth(clampedWidth);
+      setAssistantPaneWidth(Math.min(55, Math.max(22, nextWidth)));
     }
 
     function handlePointerUp() {
-      setIsResizingPanels(false);
+      setResizingPanel(null);
     }
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -402,7 +450,7 @@ export default function EditorPage({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isResizingPanels]);
+  }, [resizingPanel]);
 
   // Wait for mode hydration so OFF bots never start the assisted-only tour as mandatory.
   useLayoutEffect(() => {
@@ -484,6 +532,7 @@ export default function EditorPage({
     editorSpotlightStep,
     spotlightStepId,
     assistantOpen,
+    assistantPaneWidth,
     editorPaneWidth,
     appVersion,
     testCaseStatus.passedCount,
@@ -533,10 +582,8 @@ export default function EditorPage({
           )}
         </div>
       )}
-      <div
-        className={`grid h-full min-h-0 overflow-hidden ${gridCols} gap-0 divide-x divide-slate-200 dark:divide-zinc-800/90`}
-      >
-        <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
+      <div className="flex h-full min-h-0 overflow-hidden">
+        <div className="h-full w-14 shrink-0 overflow-hidden border-r border-slate-200 bg-white dark:border-zinc-800/90 dark:bg-zinc-900">
           <RightRail
             assistantOpen={assistantOpen}
             settingsOpen={settingsOpen}
@@ -545,113 +592,110 @@ export default function EditorPage({
           />
         </div>
 
-        {assistantOpen && (
-          <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
-            <LeftChat appId={appId} appVersion={appVersion} />
-          </div>
-        )}
-
-        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-          {snapshotError && (
-            <div
-              role="alert"
-              className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-            >
-              <p className="leading-relaxed">
-                <span className="font-medium">Couldn’t preserve test cases.</span>{" "}
-                {snapshotError}
-              </p>
-              <button
-                type="button"
-                onClick={() => setSnapshotError("")}
-                className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
+        <div
+          ref={assistantSplitRef}
+          className={[
+            "flex min-h-0 min-w-0 flex-1 overflow-hidden",
+            resizingPanel === "assistant-main" ? "select-none cursor-col-resize" : "",
+          ].join(" ")}
+        >
+          {assistantOpen && (
+            <>
+              <div
+                className="h-full min-h-0 shrink-0 overflow-hidden bg-white dark:bg-zinc-900"
+                style={{ width: `${assistantPaneWidth}%` }}
               >
-                Dismiss
-              </button>
-            </div>
-          )}
-          {offToOnError && (
-            <div
-              role="alert"
-              className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-            >
-              <p className="leading-relaxed">
-                <span className="font-medium">Couldn’t restore test cases.</span>{" "}
-                {offToOnError}
-              </p>
-              <button
-                type="button"
-                onClick={() => setOffToOnError("")}
-                className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-          <div
-            ref={splitPaneRef}
-            className={[
-              "flex h-full min-h-0 w-full overflow-hidden",
-              isResizingPanels ? "select-none cursor-col-resize" : "",
-            ].join(" ")}
-          >
-            <div
-              className="h-full min-h-0 shrink-0 overflow-hidden"
-              style={showTestCaseRail ? { width: `${editorPaneWidth}%` } : { width: "100%" }}
-            >
-              <InstructionDoc
-                spotlightPromptRef={spotlightPromptRef}
-                spotlightAttachmentRef={spotlightAttachmentRef}
-                spotlightAgentRef={spotlightAgentRef}
-                spotlightApplyPromptRef={spotlightApplyPromptRef}
+                <LeftChat appId={appId} appVersion={appVersion} />
+              </div>
+              <PanelResizeHandle
+                label="Resize assistant and prompt panels"
+                active={resizingPanel === "assistant-main"}
+                onPointerDown={() => setResizingPanel("assistant-main")}
               />
-            </div>
-            {showTestCaseRail && (
-              <>
-                <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
-                  <div
-                    className={[
-                      "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
-                      isResizingPanels ? "bg-sky-400 dark:bg-sky-500" : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
-                    ].join(" ")}
-                  />
-                  <button
-                    type="button"
-                    aria-label="Resize editor and test cases panels"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      setIsResizingPanels(true);
-                    }}
-                    className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
-                  >
-                    <span
-                      className={[
-                        "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
-                        isResizingPanels
-                          ? "bg-sky-400/80 dark:bg-sky-500/80"
-                          : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
-                      ].join(" ")}
-                    />
-                  </button>
-                </div>
-                <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
-                  <AssistantPanel
-                    appId={appId}
-                    appName={appName}
-                    appVersion={appVersion}
-                    assistedAuthoringMode={assistedAuthoringMode}
-                    spotlightTargetRefs={spotlightTargetRefs}
-                    onTestCaseStatusChange={setTestCaseStatus}
-                    onTestCasesSnapshotReady={setCurrentTestCasesSnapshot}
-                    offToOnBootstrapAction={offToOnBootstrapAction}
-                    onOffToOnBootstrapComplete={() => setOffToOnBootstrapAction(null)}
-                    onOffToOnError={(error) => setOffToOnError(error)}
-                  />
-                </div>
-              </>
+            </>
+          )}
+
+          <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
+            {snapshotError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              >
+                <p className="leading-relaxed">
+                  <span className="font-medium">Couldn’t preserve test cases.</span>{" "}
+                  {snapshotError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSnapshotError("")}
+                  className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
+                >
+                  Dismiss
+                </button>
+              </div>
             )}
-          </div>
-        </section>
+            {offToOnError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              >
+                <p className="leading-relaxed">
+                  <span className="font-medium">Couldn’t restore test cases.</span>{" "}
+                  {offToOnError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOffToOnError("")}
+                  className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            <div
+              ref={splitPaneRef}
+              className={[
+                "flex h-full min-h-0 w-full overflow-hidden",
+                resizingPanel === "editor-testcases" ? "select-none cursor-col-resize" : "",
+              ].join(" ")}
+            >
+              <div
+                className="h-full min-h-0 shrink-0 overflow-hidden"
+                style={showTestCaseRail ? { width: `${editorPaneWidth}%` } : { width: "100%" }}
+              >
+                <InstructionDoc
+                  spotlightPromptRef={spotlightPromptRef}
+                  spotlightAttachmentRef={spotlightAttachmentRef}
+                  spotlightAgentRef={spotlightAgentRef}
+                  spotlightApplyPromptRef={spotlightApplyPromptRef}
+                />
+              </div>
+              {showTestCaseRail && (
+                <>
+                  <PanelResizeHandle
+                    label="Resize editor and test cases panels"
+                    active={resizingPanel === "editor-testcases"}
+                    onPointerDown={() => setResizingPanel("editor-testcases")}
+                  />
+                  <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
+                    <AssistantPanel
+                      appId={appId}
+                      appName={appName}
+                      appVersion={appVersion}
+                      assistedAuthoringMode={assistedAuthoringMode}
+                      spotlightTargetRefs={spotlightTargetRefs}
+                      onTestCaseStatusChange={setTestCaseStatus}
+                      onTestCasesSnapshotReady={setCurrentTestCasesSnapshot}
+                      offToOnBootstrapAction={offToOnBootstrapAction}
+                      onOffToOnBootstrapComplete={() => setOffToOnBootstrapAction(null)}
+                      onOffToOnError={(error) => setOffToOnError(error)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
 
       <AppSettingsDialog
