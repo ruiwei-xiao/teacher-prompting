@@ -75,7 +75,7 @@
   - _Boundary: AssistantPanelModeGate_
   - _Depends: 2.2, 3.2, 3.3_
 
-- [ ] 3.5 Handle OFF→ON restore or regenerate
+- [x] 3.5 Handle OFF→ON restore or regenerate
   - When mode changes from OFF to ON, use the snapshot plan: restore when fingerprints match; regenerate when they differ or snapshot is missing; on regenerate failure show an error, keep mode ON, and do not present stale preserved cases as current
   - Unchanged Final Prompt restores prior cases; changed prompt regenerates; failed regen shows error without stale cases
   - _Requirements: 4.2, 4.3, 4.4_

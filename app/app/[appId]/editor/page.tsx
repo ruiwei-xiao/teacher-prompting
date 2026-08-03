@@ -32,7 +32,8 @@ import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
 import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
 import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
 import { planOnToOffTransition, shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
-import { saveAssistedAuthoringSnapshot } from "@/lib/assisted-authoring/snapshot";
+import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
+import { saveAssistedAuthoringSnapshot, planOffToOnTransition } from "@/lib/assisted-authoring/snapshot";
 
 export default function EditorPage({
   params,
@@ -67,6 +68,13 @@ export default function EditorPage({
     finalPromptText: string;
   }>({ testCases: [], finalPromptText: "" });
   const [snapshotError, setSnapshotError] = useState("");
+  // Bootstrap data for OFF→ON transition restore or regenerate (Task 3.5)
+  const [offToOnBootstrapAction, setOffToOnBootstrapAction] = useState<
+    | { action: "restore"; testCases: unknown[] }
+    | { action: "regenerate" }
+    | null
+  >(null);
+  const [offToOnError, setOffToOnError] = useState("");
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
@@ -98,7 +106,7 @@ export default function EditorPage({
   const [editorSpotlightStep, setEditorSpotlightStep] = useState<number | null>(null);
   const [editorSpotlightRect, setEditorSpotlightRect] = useState<SpotlightHoleRect | null>(null);
 
-  // Track previous assistedAuthoringMode for ON→OFF transition detection (Task 3.4)
+  // Track previous assistedAuthoringMode for transition detection (Task 3.4, 3.5)
   const previousAssistedAuthoringModeRef = useRef<boolean | null>(null);
 
   const spotlightTargetRefs = useMemo<AssistantPanelSpotlightTargetRefs>(
@@ -167,18 +175,21 @@ export default function EditorPage({
     void loadApp();
   }, [appId, appVersion]);
 
-  // Handle ON→OFF transition: save snapshot before mode becomes false (Task 3.4).
-  // Sequencing: ignore pre-hydration runs; seed ref with the first hydrated value
-  // without persisting; only persist on a later real ON→OFF from that baseline.
+  // Unified mode transition handler: ON→OFF persist, OFF→ON restore/regenerate (Tasks 3.4, 3.5).
+  // Sequencing: ignore pre-hydration runs; seed ref with the first hydrated value without
+  // any action; only handle real transitions (ON→OFF or OFF→ON) from that baseline.
   useEffect(() => {
     if (!modeHydrated) return;
 
     const previousMode = previousAssistedAuthoringModeRef.current;
+
+    // First hydration: seed ref without action
     if (previousMode === null) {
       previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
       return;
     }
 
+    // Handle ON→OFF transition: save snapshot before mode becomes false
     if (shouldPersistOnToOffTransition(true, previousMode, assistedAuthoringMode)) {
       const plan = planOnToOffTransition({
         appId,
@@ -200,6 +211,31 @@ export default function EditorPage({
       }
     }
 
+    // Handle OFF→ON transition: restore or regenerate test cases
+    if (shouldPersistOffToOnTransition(true, previousMode, assistedAuthoringMode)) {
+      const currentFinalPrompt = readStoredPrompt(appId);
+      const plan = planOffToOnTransition({
+        appId,
+        currentFinalPrompt,
+      });
+
+      setOffToOnError("");
+
+      if (plan.action === "restore") {
+        // Restore preserved test cases from snapshot
+        setOffToOnBootstrapAction({
+          action: "restore",
+          testCases: plan.snapshot.testCases,
+        });
+      } else {
+        // Regenerate test cases (fingerprint mismatch or missing snapshot)
+        setOffToOnBootstrapAction({
+          action: "regenerate",
+        });
+      }
+    }
+
+    // Update ref after handling all transitions
     previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
   }, [assistedAuthoringMode, modeHydrated, appId, currentTestCasesSnapshot]);
 
@@ -207,6 +243,8 @@ export default function EditorPage({
     setModeHydrated(false);
     previousAssistedAuthoringModeRef.current = null;
     setCurrentTestCasesSnapshot({ testCases: [], finalPromptText: "" });
+    setOffToOnBootstrapAction(null);
+    setOffToOnError("");
   }, [appId]);
 
   async function handlePublish() {
@@ -502,6 +540,18 @@ export default function EditorPage({
               </button>
             </div>
           )}
+          {offToOnError && (
+            <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
+              <strong>Failed to restore test cases:</strong> {offToOnError}
+              <button
+                type="button"
+                onClick={() => setOffToOnError("")}
+                className="ml-2 underline hover:no-underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div
             ref={splitPaneRef}
             className={[
@@ -557,6 +607,9 @@ export default function EditorPage({
                     spotlightTargetRefs={spotlightTargetRefs}
                     onTestCaseStatusChange={setTestCaseStatus}
                     onTestCasesSnapshotReady={setCurrentTestCasesSnapshot}
+                    offToOnBootstrapAction={offToOnBootstrapAction}
+                    onOffToOnBootstrapComplete={() => setOffToOnBootstrapAction(null)}
+                    onOffToOnError={(error) => setOffToOnError(error)}
                   />
                 </div>
               </>

@@ -4328,6 +4328,9 @@ export default function AssistantPanel({
   spotlightTargetRefs,
   onTestCaseStatusChange,
   onTestCasesSnapshotReady,
+  offToOnBootstrapAction,
+  onOffToOnBootstrapComplete,
+  onOffToOnError,
 }: {
   appId: string;
   appName: string;
@@ -4342,6 +4345,12 @@ export default function AssistantPanel({
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
   /** Callback with current test cases and final prompt for snapshot preservation (Task 3.4). */
   onTestCasesSnapshotReady?: (snapshot: { testCases: unknown[]; finalPromptText: string }) => void;
+  /** Bootstrap action for OFF→ON transition (Task 3.5): restore or regenerate test cases. */
+  offToOnBootstrapAction?: { action: "restore"; testCases: unknown[] } | { action: "regenerate" } | null;
+  /** Callback when OFF→ON bootstrap completes successfully (Task 3.5). */
+  onOffToOnBootstrapComplete?: () => void;
+  /** Callback when OFF→ON bootstrap fails (Task 3.5). */
+  onOffToOnError?: (error: string) => void;
 }) {
   const displayName = appName.trim() || appId;
   const [input, setInput] = useState("");
@@ -4382,6 +4391,8 @@ export default function AssistantPanel({
   const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
   /** One-shot auto-run of scripted testcase dialogue when a new app already has a prompt but user has not clicked Apply yet. */
   const didBootstrapSimulatedDialogueRef = useRef(false);
+  /** Track in-progress OFF→ON bootstrap action to prevent double-fire on testCases changes (Task 3.5). */
+  const offToOnBootstrapInProgressRef = useRef<string | null>(null);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -5099,6 +5110,130 @@ export default function AssistantPanel({
     serverSystemPrompt,
     testCases,
     fetchAndApplyScriptedDialogues,
+  ]);
+
+  // Handle OFF→ON bootstrap: restore or regenerate test cases (Task 3.5)
+  useEffect(() => {
+    if (!offToOnBootstrapAction) return;
+    if (readOnly) return;
+    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
+
+    // Prevent double-fire on testCases changes mid-flight
+    const actionId = JSON.stringify(offToOnBootstrapAction);
+    if (offToOnBootstrapInProgressRef.current === actionId) return;
+    offToOnBootstrapInProgressRef.current = actionId;
+
+    const action = offToOnBootstrapAction.action;
+
+    if (action === "restore") {
+      // Restore test cases from snapshot
+      try {
+        const restoredCases = offToOnBootstrapAction.testCases as TestCaseSet[];
+        if (Array.isArray(restoredCases) && restoredCases.length > 0) {
+          setTestCases(restoredCases);
+          setActiveTestCaseId(restoredCases[0]?.id || "");
+          setApplySummary("Restored test cases from when mode was last ON.");
+          onOffToOnBootstrapComplete?.();
+        } else {
+          throw new Error("Restored snapshot contained invalid test case data.");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        onOffToOnError?.(msg);
+        onOffToOnBootstrapComplete?.();
+      } finally {
+        offToOnBootstrapInProgressRef.current = null;
+      }
+    } else if (action === "regenerate") {
+      // Regenerate test cases using current Final Prompt
+      const base = resolveAssistantSystemPrompt({
+        promptMarkdown,
+        appId,
+        serverSystemPrompt,
+      }).trim();
+
+      if (!base) {
+        onOffToOnError?.(
+          "Cannot regenerate test cases without a Final Prompt. Please add a prompt on the left."
+        );
+        onOffToOnBootstrapComplete?.();
+        offToOnBootstrapInProgressRef.current = null;
+        return;
+      }
+
+      // Get or create scripted cases to regenerate
+      let scriptedCases = testCases.filter((tc) => tc.warmStart === "scripted" && tc.studentProfile);
+      
+      // If no test cases exist (e.g., just after switching modes), bootstrap initial cases
+      if (!testCases.length) {
+        const initialCases = createInitialTestCases(displayName, readOnly);
+        scriptedCases = initialCases.filter((tc) => tc.warmStart === "scripted" && tc.studentProfile);
+        
+        // Set empty test cases immediately (clear old fingerprint-mismatched cases)
+        setTestCases(scriptedCases.map((tc) => ({
+          ...tc,
+          messages: [], // Clear visible messages before regenerate
+        })));
+      } else {
+        // Clear visible messages from scripted cases before regenerate
+        setTestCases((current) =>
+          current.map((tc) => {
+            if (tc.warmStart !== "scripted") return tc;
+            return { ...tc, messages: [] };
+          })
+        );
+      }
+
+      if (!scriptedCases.length) {
+        onOffToOnBootstrapComplete?.();
+        offToOnBootstrapInProgressRef.current = null;
+        return;
+      }
+
+      void (async () => {
+        try {
+          await fetchAndApplyScriptedDialogues(scriptedCases);
+          setApplyError("");
+          setApplySummary("Regenerated test cases with current Final Prompt.");
+          onOffToOnBootstrapComplete?.();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          onOffToOnError?.(
+            `Failed to regenerate test cases: ${msg}. Check your API key or Final Prompt.`
+          );
+          // On failure, keep empty/error state — never leave old fingerprint-mismatched cases
+          setTestCases((current) =>
+            current.map((tc) => {
+              if (tc.warmStart !== "scripted") return tc;
+              return {
+                ...tc,
+                messages: [
+                  createMessage(
+                    "assistant",
+                    `Could not regenerate simulated dialogue (${msg}). Check the API key in settings or the Final Prompt.`
+                  ),
+                ],
+              };
+            })
+          );
+          onOffToOnBootstrapComplete?.();
+        } finally {
+          offToOnBootstrapInProgressRef.current = null;
+        }
+      })();
+    }
+  }, [
+    offToOnBootstrapAction,
+    readOnly,
+    assistedAuthoringMode,
+    appId,
+    displayName,
+    promptMarkdown,
+    serverSystemPrompt,
+    testCases,
+    fetchAndApplyScriptedDialogues,
+    onOffToOnBootstrapComplete,
+    onOffToOnError,
   ]);
 
   useEffect(() => {
