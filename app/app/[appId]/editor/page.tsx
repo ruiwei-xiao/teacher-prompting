@@ -125,7 +125,9 @@ export default function EditorPage({
     ? "grid-cols-1 xl:grid-cols-[56px_1.05fr_minmax(0,1fr)]"
     : "grid-cols-1 xl:grid-cols-[56px_minmax(0,1fr)]";
 
-  const showTestCaseRail = shouldShowTestCaseRail(assistedAuthoringMode);
+  // Hide until mode is loaded so OFF bots never flash the test-case rail.
+  const showTestCaseRail =
+    modeHydrated && shouldShowTestCaseRail(assistedAuthoringMode);
 
   // Mode-aware spotlight tour: while OFF, omit assisted-only steps (Task 3.6)
   const spotlightSteps = useMemo(
