@@ -122,8 +122,8 @@ export default function EditorPage({
   );
 
   const gridCols = assistantOpen
-    ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_minmax(0,1fr)]"
-    : "grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]";
+    ? "grid-cols-1 xl:grid-cols-[56px_1.05fr_minmax(0,1fr)]"
+    : "grid-cols-1 xl:grid-cols-[56px_minmax(0,1fr)]";
 
   const showTestCaseRail = shouldShowTestCaseRail(assistedAuthoringMode);
 
