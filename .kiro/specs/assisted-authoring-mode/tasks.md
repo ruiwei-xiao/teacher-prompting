@@ -15,7 +15,7 @@
   - _Boundary: AppConfig app-store_
   - _Depends: 1.1_
 
-- [ ] 1.3 Expose Assisted Authoring Mode on apps HTTP APIs
+- [x] 1.3 Expose Assisted Authoring Mode on apps HTTP APIs
   - New bot creation stores OFF; GET returns the stored value; PATCH accepts a boolean and rejects non-booleans; responses remain owner-scoped as today
   - POST create yields OFF; PATCH true/false round-trips on GET; invalid PATCH type does not silently coerce
   - _Requirements: 1.2, 1.3, 1.6_

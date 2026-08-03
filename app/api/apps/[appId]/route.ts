@@ -10,6 +10,7 @@ import {
   assertDeleteOwnBotGate,
   assertEducatorOutwardShareGate,
 } from "@/lib/workspace-api/apps-gates";
+import { validateAssistedAuthoringMode } from "@/lib/app-store/patch-validation";
 
 function slugify(value: string) {
   return (
@@ -88,6 +89,7 @@ export async function GET(
       projectSharedAt: app.projectSharedAt || null,
       projectShareVisibility: app.projectShareVisibility || "private",
       shareAuthorName: app.shareAuthorName ?? false,
+      assistedAuthoringMode: app.assistedAuthoringMode,
       forkedFromProjectName: app.forkedFromProjectName || null,
       forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
       forkedFromAuthorName: app.forkedFromAuthorName || null,
@@ -120,6 +122,7 @@ export async function PATCH(
       builderState?: PromptBuilderState;
       projectShareVisibility?: "private" | "public";
       shareAuthorName?: boolean;
+      assistedAuthoringMode?: unknown;
       communitySubject?: string;
       communityTags?: string[];
       workspaceId?: string;
@@ -160,6 +163,7 @@ export async function PATCH(
       projectSharedAt?: string;
       projectShareVisibility?: "private" | "public";
       shareAuthorName?: boolean;
+      assistedAuthoringMode?: boolean;
     } = {};
 
     if (typeof body.name === "string") {
@@ -215,6 +219,17 @@ export async function PATCH(
 
     if (typeof body.shareAuthorName === "boolean") {
       patch.shareAuthorName = body.shareAuthorName;
+    }
+
+    const assistedAuthoringValidation = validateAssistedAuthoringMode(body);
+    if (!assistedAuthoringValidation.ok) {
+      return NextResponse.json(
+        { error: assistedAuthoringValidation.error },
+        { status: assistedAuthoringValidation.status }
+      );
+    }
+    if (assistedAuthoringValidation.value !== undefined) {
+      patch.assistedAuthoringMode = assistedAuthoringValidation.value;
     }
 
     if (body.publish) {
@@ -287,6 +302,7 @@ export async function PATCH(
         projectSharedAt: app.projectSharedAt || null,
         projectShareVisibility: app.projectShareVisibility || "private",
         shareAuthorName: app.shareAuthorName ?? false,
+        assistedAuthoringMode: app.assistedAuthoringMode,
         forkedFromProjectName: app.forkedFromProjectName || null,
         forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
         forkedFromAuthorName: app.forkedFromAuthorName || null,
