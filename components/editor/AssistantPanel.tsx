@@ -27,6 +27,7 @@ import {
   type StudentProfile,
 } from "@/lib/test-case-students";
 import { extractPlottableRhs } from "@/lib/math/function-plot";
+import { isAssistedBehaviorEnabled } from "@/lib/assisted-authoring/mode-gate";
 
 type ChatMessage = {
   id: string;
@@ -4323,6 +4324,7 @@ export default function AssistantPanel({
   readOnly = false,
   promptOverride,
   modelLabelOverride,
+  assistedAuthoringMode = true,
   spotlightTargetRefs,
   onTestCaseStatusChange,
 }: {
@@ -4332,6 +4334,8 @@ export default function AssistantPanel({
   readOnly?: boolean;
   promptOverride?: string;
   modelLabelOverride?: string;
+  /** Assisted authoring mode flag: true = ON (auto-gen, prompt revision), false = OFF. Defaults to true. */
+  assistedAuthoringMode?: boolean;
   /** Refs on testcase UI regions for the editor-page spotlight tour (optional). */
   spotlightTargetRefs?: AssistantPanelSpotlightTargetRefs;
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
@@ -4397,12 +4401,13 @@ export default function AssistantPanel({
     .find((message) => message.role === "assistant")?.content;
   const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
   const editedMessageCount = messages.filter(messageHasEdits).length;
-  /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. */
+  /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. Gate when assisted mode is off. */
   const showApplyPromptStrip =
-    editedMessageCount > 0 ||
+    isAssistedBehaviorEnabled(assistedAuthoringMode) &&
+    (editedMessageCount > 0 ||
     applyBusy ||
     Boolean(applyError) ||
-    Boolean(pipelineResult);
+    Boolean(pipelineResult));
   const panelBlockingProgress = batchRunProgress ?? dialogueGenProgress;
 
   useEffect(() => {
@@ -4829,7 +4834,7 @@ export default function AssistantPanel({
 
     setTestCaseEditDraft(null);
 
-    if (scriptedReady && finalPrompt) {
+    if (scriptedReady && finalPrompt && isAssistedBehaviorEnabled(assistedAuthoringMode)) {
       void (async () => {
         try {
           await fetchAndApplyScriptedDialogues([scriptedReady]);
@@ -5040,6 +5045,7 @@ export default function AssistantPanel({
   useEffect(() => {
     if (readOnly) return;
     if (didBootstrapSimulatedDialogueRef.current) return;
+    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
 
     const base = resolveAssistantSystemPrompt({
       promptMarkdown,
@@ -5085,6 +5091,7 @@ export default function AssistantPanel({
   }, [
     readOnly,
     appId,
+    assistedAuthoringMode,
     promptMarkdown,
     serverSystemPrompt,
     testCases,
@@ -5143,7 +5150,7 @@ export default function AssistantPanel({
       if (customEvent.detail?.appId && customEvent.detail.appId !== appId) return;
       const nextPrompt = customEvent.detail?.markdown || "";
       setPromptMarkdown(nextPrompt);
-      if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim()) {
+      if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim() && isAssistedBehaviorEnabled(assistedAuthoringMode)) {
         setComposerError("");
         setApplyError("");
         flushSync(() => {
@@ -5206,7 +5213,7 @@ export default function AssistantPanel({
       window.removeEventListener("instruction-doc-updated", onPromptUpdate);
       window.removeEventListener("focus", syncPrompt);
     };
-  }, [appId, promptOverride, readOnly, fetchAndApplyScriptedDialogues]);
+  }, [appId, promptOverride, readOnly, fetchAndApplyScriptedDialogues, assistedAuthoringMode]);
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
@@ -5348,6 +5355,7 @@ export default function AssistantPanel({
   }
 
   async function runPromptUpdatePipeline() {
+    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
     if (!editedMessageCount || busy || applyBusy || !activeTestCase) return;
 
     const currentPrompt = resolveAssistantSystemPrompt({
@@ -5817,7 +5825,9 @@ export default function AssistantPanel({
                   />
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-[11px] text-slate-500 dark:text-zinc-400">
-                      Save, then use Update prompt below.
+                      {isAssistedBehaviorEnabled(assistedAuthoringMode)
+                        ? "Save, then use Update prompt below."
+                        : "Save to keep this edit."}
                     </div>
                     <div className="flex items-center gap-2">
                       <button

@@ -486,6 +486,7 @@ export default function EditorPage({
                     appId={appId}
                     appName={appName}
                     appVersion={appVersion}
+                    assistedAuthoringMode={assistedAuthoringMode}
                     spotlightTargetRefs={spotlightTargetRefs}
                     onTestCaseStatusChange={setTestCaseStatus}
                   />

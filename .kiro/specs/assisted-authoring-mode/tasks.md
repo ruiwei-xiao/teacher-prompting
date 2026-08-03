@@ -61,7 +61,7 @@
   - _Boundary: EditorChrome, AssistantPanelModeGate_
   - _Depends: 3.1_
 
-- [ ] 3.3 Gate AssistantPanel auto-generation and prompt revision by mode
+- [x] 3.3 Gate AssistantPanel auto-generation and prompt revision by mode
   - While ON keep auto-generation and bubble-edit prompt revision available; while OFF disable auto-generation and do not offer/apply prompt revision from AI response edits
   - OFF offers no auto-generate path and no Update-prompt-from-edits path; ON retains current assisted entry points
   - _Requirements: 2.1, 2.2, 3.1, 3.2_
