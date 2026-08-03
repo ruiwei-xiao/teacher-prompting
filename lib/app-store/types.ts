@@ -35,6 +35,7 @@ export type AppConfig = {
   projectSharedAt?: string;
   projectShareVisibility?: ProjectShareVisibility;
   shareAuthorName?: boolean;
+  assistedAuthoringMode?: boolean;
   forkedFromProjectName?: string;
   forkedFromProjectShareSlug?: string;
   forkedFromAuthorName?: string;

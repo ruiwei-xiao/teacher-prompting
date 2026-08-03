@@ -30,6 +30,7 @@ type AppRow = {
   project_shared_at: string | Date | null;
   project_share_visibility: string | null;
   share_author_name: boolean | null;
+  assisted_authoring_mode: boolean | null;
   forked_from_project_name: string | null;
   forked_from_project_share_slug: string | null;
   forked_from_author_name: string | null;
@@ -100,6 +101,7 @@ function rowToApp(row: AppRow): AppConfig {
     projectShareVisibility:
       parseProjectShareVisibility(row.project_share_visibility) || "private",
     shareAuthorName: row.share_author_name ?? false,
+    assistedAuthoringMode: row.assisted_authoring_mode ?? undefined,
     forkedFromProjectName: row.forked_from_project_name || undefined,
     forkedFromProjectShareSlug: row.forked_from_project_share_slug || undefined,
     forkedFromAuthorName: row.forked_from_author_name || undefined,
@@ -215,6 +217,11 @@ async function ensurePostgresStore() {
 
       await sql`
         ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS assisted_authoring_mode BOOLEAN
+      `;
+
+      await sql`
+        ALTER TABLE apps
         ADD COLUMN IF NOT EXISTS forked_from_project_name TEXT
       `;
 
@@ -267,6 +274,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
       project_shared_at,
       project_share_visibility,
       share_author_name,
+      assisted_authoring_mode,
       forked_from_project_name,
       forked_from_project_share_slug,
       forked_from_author_name,
@@ -291,6 +299,7 @@ async function insertAppIntoPostgres(app: AppConfig) {
       ${app.projectSharedAt ?? null},
       ${app.projectShareVisibility ?? "private"},
       ${app.shareAuthorName ?? false},
+      ${app.assistedAuthoringMode ?? null},
       ${app.forkedFromProjectName ?? null},
       ${app.forkedFromProjectShareSlug ?? null},
       ${app.forkedFromAuthorName ?? null},
@@ -334,6 +343,7 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           project_shared_at,
           project_share_visibility,
           share_author_name,
+          assisted_authoring_mode,
           forked_from_project_name,
           forked_from_project_share_slug,
           forked_from_author_name,
@@ -363,6 +373,7 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           project_shared_at,
           project_share_visibility,
           share_author_name,
+          assisted_authoring_mode,
           forked_from_project_name,
           forked_from_project_share_slug,
           forked_from_author_name,
@@ -400,6 +411,7 @@ async function listAppsFromPostgres(ownerId?: string) {
           project_shared_at,
           project_share_visibility,
           share_author_name,
+          assisted_authoring_mode,
           forked_from_project_name,
           forked_from_project_share_slug,
           forked_from_author_name,
@@ -429,6 +441,7 @@ async function listAppsFromPostgres(ownerId?: string) {
           project_shared_at,
           project_share_visibility,
           share_author_name,
+          assisted_authoring_mode,
           forked_from_project_name,
           forked_from_project_share_slug,
           forked_from_author_name,
@@ -476,6 +489,7 @@ async function updateAppInPostgres(
       project_shared_at = ${next.projectSharedAt ?? null},
       project_share_visibility = ${next.projectShareVisibility ?? "private"},
       share_author_name = ${next.shareAuthorName ?? false},
+      assisted_authoring_mode = ${next.assistedAuthoringMode ?? null},
       forked_from_project_name = ${next.forkedFromProjectName ?? null},
       forked_from_project_share_slug = ${next.forkedFromProjectShareSlug ?? null},
       forked_from_author_name = ${next.forkedFromAuthorName ?? null},
@@ -529,6 +543,7 @@ async function getAppByPublicSlugFromPostgres(publicSlug: string) {
       project_shared_at,
       project_share_visibility,
       share_author_name,
+      assisted_authoring_mode,
       forked_from_project_name,
       forked_from_project_share_slug,
       forked_from_author_name,
@@ -570,6 +585,7 @@ async function getAppByProjectShareSlugFromPostgres(projectShareSlug: string) {
       project_shared_at,
       project_share_visibility,
       share_author_name,
+      assisted_authoring_mode,
       forked_from_project_name,
       forked_from_project_share_slug,
       forked_from_author_name,

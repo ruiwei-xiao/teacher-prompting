@@ -8,7 +8,7 @@
   - _Requirements: 1.4_
   - _Boundary: resolveAssistedAuthoringMode_
 
-- [ ] 1.2 Persist Assisted Authoring Mode in the app store
+- [x] 1.2 Persist Assisted Authoring Mode in the app store
   - Add the optional bot field and dual-store mapping (including Postgres `ADD COLUMN IF NOT EXISTS` / JSON fallback) so stored false is OFF and absent values remain resolvable as ON
   - After store updates, create/update/read paths can carry the field without losing false, and absent legacy rows still resolve ON via 1.1
   - _Requirements: 1.2, 1.3, 1.4_
@@ -109,3 +109,7 @@
   - Optional deferred checklist covering: new bot defaults OFF; legacy/ON assisted path; ON→OFF hide+preserve; OFF→ON restore; OFF→ON regenerate after prompt change; regen failure; publish gating ON vs OFF; Settings save error; Create a new App has no mode control
   - Checklist document exists for post-MVP manual run and explicitly includes Create-page exclusion
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 1.6, 2.3, 2.4, 3.1, 3.4, 4.1, 4.2, 4.3, 4.4_
+
+## Implementation Notes
+- Selftests: run with `npx tsx <path>` (requires non-sandbox / full permissions in this environment).
+- Store mapping for booleans: follow `shareAuthorName` — preserve `false` vs `undefined` (`?? undefined` on read, do not coerce missing to false).
