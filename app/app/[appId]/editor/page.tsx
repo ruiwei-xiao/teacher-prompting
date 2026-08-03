@@ -30,6 +30,7 @@ import {
 } from "@/lib/workspace-api/share-patch-body";
 import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
 import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
+import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
 
 export default function EditorPage({
   params,
@@ -102,6 +103,8 @@ export default function EditorPage({
   const gridCols = assistantOpen
     ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_minmax(0,1fr)]"
     : "grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]";
+
+  const showTestCaseRail = shouldShowTestCaseRail(assistedAuthoringMode);
 
   useEffect(() => {
     async function loadApp() {
@@ -426,7 +429,12 @@ export default function EditorPage({
           </div>
         )}
 
-        <section className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-950">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-zinc-950">
+          {!showTestCaseRail && (
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+              Assisted authoring is off — write your Final Prompt on the left. Turn it on in Settings.
+            </div>
+          )}
           <div
             ref={splitPaneRef}
             className={[
@@ -436,7 +444,7 @@ export default function EditorPage({
           >
             <div
               className="h-full min-h-0 shrink-0 overflow-hidden"
-              style={{ width: `${editorPaneWidth}%` }}
+              style={showTestCaseRail ? { width: `${editorPaneWidth}%` } : { width: "100%" }}
             >
               <InstructionDoc
                 spotlightPromptRef={spotlightPromptRef}
@@ -445,41 +453,45 @@ export default function EditorPage({
                 spotlightApplyPromptRef={spotlightApplyPromptRef}
               />
             </div>
-            <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
-              <div
-                className={[
-                  "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
-                  isResizingPanels ? "bg-sky-400 dark:bg-sky-500" : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
-                ].join(" ")}
-              />
-              <button
-                type="button"
-                aria-label="Resize editor and test cases panels"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setIsResizingPanels(true);
-                }}
-                className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
-              >
-                <span
-                  className={[
-                    "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
-                    isResizingPanels
-                      ? "bg-sky-400/80 dark:bg-sky-500/80"
-                      : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
-                  ].join(" ")}
-                />
-              </button>
-            </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
-              <AssistantPanel
-                appId={appId}
-                appName={appName}
-                appVersion={appVersion}
-                spotlightTargetRefs={spotlightTargetRefs}
-                onTestCaseStatusChange={setTestCaseStatus}
-              />
-            </div>
+            {showTestCaseRail && (
+              <>
+                <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
+                  <div
+                    className={[
+                      "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
+                      isResizingPanels ? "bg-sky-400 dark:bg-sky-500" : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
+                    ].join(" ")}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Resize editor and test cases panels"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      setIsResizingPanels(true);
+                    }}
+                    className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+                  >
+                    <span
+                      className={[
+                        "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
+                        isResizingPanels
+                          ? "bg-sky-400/80 dark:bg-sky-500/80"
+                          : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
+                      ].join(" ")}
+                    />
+                  </button>
+                </div>
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
+                  <AssistantPanel
+                    appId={appId}
+                    appName={appName}
+                    appVersion={appVersion}
+                    spotlightTargetRefs={spotlightTargetRefs}
+                    onTestCaseStatusChange={setTestCaseStatus}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </section>
       </div>

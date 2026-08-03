@@ -54,7 +54,7 @@
   - _Boundary: EditorPublishGate_
   - _Depends: 1.1, 1.3_
 
-- [ ] 3.2 Hide the test-case rail while mode is OFF
+- [x] 3.2 Hide the test-case rail while mode is OFF
   - While OFF, hide or collapse the editor test-case rail/panel host so preserved cases are not visible; while ON show the rail as today
   - OFF editor layout does not display the test-case panel; switching back to ON restores panel visibility for subsequent panel content wiring
   - _Requirements: 3.3_
