@@ -7,6 +7,7 @@ import {
   normalizeVariability,
   toModelSelection,
 } from "@/lib/app-store/model-selection";
+import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
 export default function AppSettingsDialog({
   appId,
   open,
@@ -24,6 +25,7 @@ export default function AppSettingsDialog({
   const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0]?.value ?? "");
   const [variability, setVariability] = useState(DEFAULT_VARIABILITY);
   const [apiKey, setApiKey] = useState("");
+  const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -47,6 +49,7 @@ export default function AppSettingsDialog({
         setSelectedModel(toModelSelection(body.app.provider, body.app.model));
         setVariability(normalizeVariability(body.app.variability));
         setApiKey("");
+        setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
       } catch (e: any) {
         setError(e?.message || "Failed to load app settings");
       } finally {
@@ -74,6 +77,7 @@ export default function AppSettingsDialog({
           genaiModel: selectedModel,
           variability,
           genaiApiKey: apiKey,
+          assistedAuthoringMode,
         }),
       });
 
@@ -130,6 +134,55 @@ export default function AppSettingsDialog({
               placeholder="Enter app name"
               disabled={loading || saving}
             />
+          </div>
+
+          <div>
+            <div className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+              Assisted Authoring Mode
+            </div>
+            <div
+              className="mt-2 flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-zinc-700 dark:bg-zinc-800"
+              role="group"
+              aria-label="Assisted Authoring Mode"
+            >
+              <button
+                type="button"
+                onClick={() => setAssistedAuthoringMode(true)}
+                disabled={loading || saving}
+                aria-pressed={assistedAuthoringMode}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                  assistedAuthoringMode
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                ON
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssistedAuthoringMode(false)}
+                disabled={loading || saving}
+                aria-pressed={!assistedAuthoringMode}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                  !assistedAuthoringMode
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                OFF
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-zinc-500">
+              <span className="font-medium text-slate-600 dark:text-zinc-400">ON</span>
+              {" — "}
+              auto test cases, prompt updates from AI edits, publish only when all
+              tests pass.
+              {" "}
+              <span className="font-medium text-slate-600 dark:text-zinc-400">OFF</span>
+              {" — "}
+              write the prompt yourself (training-friendly); no auto test cases or
+              publish gate.
+            </p>
           </div>
 
           <div>

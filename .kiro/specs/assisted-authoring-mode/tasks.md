@@ -31,7 +31,7 @@
 
 ## 2. Core: settings UI and client snapshot
 
-- [ ] 2.1 (P) Add Assisted Authoring Mode control in bot Settings
+- [x] 2.1 (P) Add Assisted Authoring Mode control in bot Settings
   - Show a clear ON/OFF control in bot Settings with short help text; load current stored/resolved mode; save through the apps PATCH path; on save failure show an error and do not leave the UI implying success
   - Settings shows and persists the mode; failed saves surface an error without silently applying the new mode
   - _Requirements: 1.1, 1.2, 1.6_
