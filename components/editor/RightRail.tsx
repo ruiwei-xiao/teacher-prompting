@@ -39,24 +39,24 @@ export default function RightRail({
     <button
       type="button"
       onClick={onClick}
-      title={label}
-      aria-label={label}
+      aria-label={`${label}. ${hint}`}
       aria-pressed={active}
       className={[
-        "group relative flex h-11 w-11 items-center justify-center rounded-xl",
-        "transition-[background-color,color,transform] duration-150 ease-out",
+        "group relative flex h-10 w-10 items-center justify-center rounded-xl",
+        "transition-[background-color,color,transform,box-shadow] duration-150 ease-out",
         "active:scale-[0.97]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/35",
         active
           ? "bg-sky-600 text-white dark:bg-sky-500"
-          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+          : "bg-slate-200/80 text-slate-700 hover:bg-slate-300/70 hover:text-slate-900 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
       ].join(" ")}
     >
       {icon}
 
-      <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 origin-left scale-[0.97] rounded-xl border border-slate-200 bg-white px-3 py-2 text-left whitespace-nowrap opacity-0 shadow-lg transition-[opacity,transform] duration-150 ease-out group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 dark:border-zinc-600 dark:bg-zinc-900">
-        <div className="text-sm font-medium text-slate-800 dark:text-zinc-100">{label}</div>
-        <div className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">{hint}</div>
+      {/* Label tooltip — delayed so it doesn’t feel like chrome popping out */}
+      <div className="pointer-events-none absolute left-full top-1/2 z-20 ml-2.5 -translate-y-1/2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-left whitespace-nowrap opacity-0 shadow-md transition-opacity duration-100 delay-0 group-hover:opacity-100 group-hover:delay-300 group-focus-visible:opacity-100 group-focus-visible:delay-0 dark:bg-zinc-100">
+        <div className="text-xs font-medium text-white dark:text-zinc-900">{label}</div>
+        <div className="mt-0.5 text-[11px] text-slate-300 dark:text-zinc-500">{hint}</div>
       </div>
     </button>
   );
