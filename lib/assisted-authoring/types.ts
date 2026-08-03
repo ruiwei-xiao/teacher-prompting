@@ -19,3 +19,22 @@ export type AssistedAuthoringMode = boolean;
 export type AppWithAssistedAuthoring = {
   assistedAuthoringMode?: boolean;
 };
+
+/**
+ * Client snapshot for preserved test cases when mode is OFF.
+ * Stored in browser localStorage, scoped by appId.
+ */
+export type AssistedAuthoringSnapshot = {
+  appId: string;
+  promptFingerprint: string;
+  testCases: unknown; // serializable test case data as used by AssistantPanel
+  savedAt: string; // ISO 8601 timestamp
+};
+
+/**
+ * Plan for OFF→ON transition based on Final Prompt fingerprint comparison.
+ */
+export type OffToOnPlan =
+  | { action: "restore"; snapshot: AssistedAuthoringSnapshot }
+  | { action: "regenerate" }
+  | { action: "regenerate"; reason: "missing-snapshot" };

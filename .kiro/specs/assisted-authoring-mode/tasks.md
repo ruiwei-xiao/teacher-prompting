@@ -38,7 +38,7 @@
   - _Boundary: AppSettingsDialog_
   - _Depends: 1.3_
 
-- [ ] 2.2 (P) Build client snapshot for preserved test cases
+- [x] 2.2 (P) Build client snapshot for preserved test cases
   - Implement app-scoped client snapshot save/read/clear, Final Prompt fingerprinting aligned with editor prompt resolution, and OFF→ON planning that restores when fingerprints match and regenerates when they differ or the snapshot is missing
   - Matching fingerprints plan restore; mismatch or missing snapshot plans regenerate; clear removes that bot’s snapshot
   - _Requirements: 3.3, 4.1, 4.2, 4.3, 4.5_
