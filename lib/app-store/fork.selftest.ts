@@ -40,6 +40,7 @@ function stubApp(overrides: Partial<AppConfig> & Pick<AppConfig, "id">): AppConf
     builderState: overrides.builderState,
     projectShareSlug: overrides.projectShareSlug,
     shareAuthorName: overrides.shareAuthorName,
+    assistedAuthoringMode: overrides.assistedAuthoringMode,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };
@@ -188,6 +189,79 @@ async function main(): Promise<void> {
     });
     assertEqual(forked.id, "project-copy", "fallback id for non-alphanumeric name");
     assertEqual(forked.name, "!!! Copy", "keeps original name for display copy");
+  });
+
+  // Task 1.4: Copy assistedAuthoringMode on fork
+  // OFF bot yields OFF fork
+  const offBot = stubApp({
+    id: "training-bot",
+    name: "Training Bot",
+    ownerId: "teacher-a",
+    apiKey: "secret",
+    assistedAuthoringMode: false,
+  });
+  await withTempApps([offBot], async () => {
+    const forked = await forkApp({
+      source: offBot,
+      ownerId: "teacher-d",
+      forkedFromAuthorName: "Training Author",
+    });
+    assertEqual(
+      forked.assistedAuthoringMode,
+      false,
+      "fork of OFF bot is OFF"
+    );
+  });
+
+  // ON bot yields ON fork
+  const onBot = stubApp({
+    id: "assisted-bot",
+    name: "Assisted Bot",
+    ownerId: "teacher-a",
+    apiKey: "secret",
+    assistedAuthoringMode: true,
+  });
+  await withTempApps([onBot], async () => {
+    const forked = await forkApp({
+      source: onBot,
+      ownerId: "teacher-e",
+      forkedFromAuthorName: "Assisted Author",
+    });
+    assertEqual(
+      forked.assistedAuthoringMode,
+      true,
+      "fork of explicit ON bot is ON"
+    );
+  });
+
+  // Legacy bot (undefined) yields undefined fork that resolves to ON
+  const legacyBot = stubApp({
+    id: "legacy-bot",
+    name: "Legacy Bot",
+    ownerId: "teacher-a",
+    apiKey: "secret",
+    // assistedAuthoringMode is undefined
+  });
+  await withTempApps([legacyBot], async () => {
+    const forked = await forkApp({
+      source: legacyBot,
+      ownerId: "teacher-f",
+      forkedFromAuthorName: "Legacy Author",
+    });
+    assert(
+      forked.assistedAuthoringMode === undefined,
+      "fork of legacy bot has undefined assistedAuthoringMode"
+    );
+    
+    // Verify it resolves to ON via the resolver
+    const { resolveAssistedAuthoringMode } = await import(
+      "../assisted-authoring/resolve"
+    );
+    assertEqual(
+      resolveAssistedAuthoringMode(forked),
+      true,
+      "fork of legacy bot resolves to ON"
+    );
   });
 
   if (failures > 0) {

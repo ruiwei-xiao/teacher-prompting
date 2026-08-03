@@ -22,7 +22,7 @@
   - _Boundary: AppConfig + apps API_
   - _Depends: 1.2_
 
-- [ ] 1.4 Copy Assisted Authoring Mode on fork/duplicate
+- [x] 1.4 Copy Assisted Authoring Mode on fork/duplicate
   - When forking/duplicating a bot, copy the source stored mode when present; if the source has no stored value, the fork behaves as ON under the resolver
   - Forking an OFF bot yields an OFF bot; forking a legacy ON-resolved bot remains ON after resolve
   - _Requirements: 1.2, 1.4_
