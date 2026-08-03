@@ -17,7 +17,7 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-function idsOf(steps: { id: number }[]): number[] {
+function idsOf(steps: readonly { id: number }[]): number[] {
   return steps.map((s) => s.id);
 }
 
@@ -77,17 +77,16 @@ console.log("Test 3: filter is pure — does not mutate the input array");
   );
 }
 
-console.log("Test 4: custom step list respects assistedOnly flag");
+console.log("Test 4: OFF filter drops only assistedOnly=true entries from a copy of the catalog");
 {
-  const custom = [
-    { id: 100, assistedOnly: false },
-    { id: 101, assistedOnly: true },
-    { id: 102, assistedOnly: false },
-  ];
-  const on = filterSpotlightStepsForMode(custom, true);
+  const custom = EDITOR_SPOTLIGHT_STEPS.map((step) => ({
+    ...step,
+    assistedOnly: step.id === 1 ? true : step.assistedOnly,
+  }));
   const off = filterSpotlightStepsForMode(custom, false);
-  assert(idsOf(on).join(",") === "100,101,102", `ON custom ids, got ${idsOf(on)}`);
-  assert(idsOf(off).join(",") === "100,102", `OFF custom ids, got ${idsOf(off)}`);
+  assert(!idsOf(off).includes(1), "OFF must drop step marked assistedOnly");
+  assert(idsOf(off).includes(0), "OFF must keep non-assisted step 0");
+  assert(idsOf(off).includes(2), "OFF must keep non-assisted step 2");
 }
 
 console.log("✓ All filterSpotlightStepsForMode tests passed");

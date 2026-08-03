@@ -270,6 +270,9 @@ async function main(): Promise<void> {
     const patchBody = { name: "Updated Name" };
     const validation = validateAssistedAuthoringMode(patchBody);
     assert(validation.ok, "validation passes when field absent");
+    if (!validation.ok) {
+      throw new Error("expected validation.ok");
+    }
     assertEqual(validation.value, undefined, "value is undefined");
 
     const updated = await updateApp(botNoChange.id, { name: "Updated Name" });

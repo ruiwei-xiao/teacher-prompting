@@ -27,7 +27,7 @@ export type AppWithAssistedAuthoring = {
 export type AssistedAuthoringSnapshot = {
   appId: string;
   promptFingerprint: string;
-  testCases: unknown; // serializable test case data as used by AssistantPanel
+  testCases: unknown[]; // serializable TestCaseSet[] as used by AssistantPanel
   savedAt: string; // ISO 8601 timestamp
 };
 
