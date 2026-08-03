@@ -31,6 +31,8 @@ import {
 import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
 import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
 import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
+import { planOnToOffTransition, shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
+import { saveAssistedAuthoringSnapshot } from "@/lib/assisted-authoring/snapshot";
 
 export default function EditorPage({
   params,
@@ -43,6 +45,7 @@ export default function EditorPage({
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
   const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true); // Default to ON
+  const [modeHydrated, setModeHydrated] = useState(false); // Track if mode loaded from server
   const [headerModelLabel, setHeaderModelLabel] = useState("Loading model...");
   const [headerVariabilityLabel, setHeaderVariabilityLabel] = useState(
     formatVariabilityLabel()
@@ -58,6 +61,12 @@ export default function EditorPage({
     allPassed: false,
     chatLayoutKey: "",
   });
+  // Snapshot data for ON→OFF transition preservation (Task 3.4)
+  const [currentTestCasesSnapshot, setCurrentTestCasesSnapshot] = useState<{
+    testCases: unknown[];
+    finalPromptText: string;
+  }>({ testCases: [], finalPromptText: "" });
+  const [snapshotError, setSnapshotError] = useState("");
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
@@ -89,6 +98,9 @@ export default function EditorPage({
   const [editorSpotlightStep, setEditorSpotlightStep] = useState<number | null>(null);
   const [editorSpotlightRect, setEditorSpotlightRect] = useState<SpotlightHoleRect | null>(null);
 
+  // Track previous assistedAuthoringMode for ON→OFF transition detection (Task 3.4)
+  const previousAssistedAuthoringModeRef = useRef<boolean | null>(null);
+
   const spotlightTargetRefs = useMemo<AssistantPanelSpotlightTargetRefs>(
     () => ({
       simulatedChat: spotlightSimulatedChatRef,
@@ -114,6 +126,7 @@ export default function EditorPage({
         if (res.ok && body?.app) {
           setAppName(body.app.name || appId);
           setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
+          setModeHydrated(true); // Mark as hydrated after first successful load
           if (body.app.provider && body.app.model) {
             setHeaderModelLabel(getModelLabel(body.app.provider, body.app.model));
           }
@@ -153,6 +166,48 @@ export default function EditorPage({
 
     void loadApp();
   }, [appId, appVersion]);
+
+  // Handle ON→OFF transition: save snapshot before mode becomes false (Task 3.4).
+  // Sequencing: ignore pre-hydration runs; seed ref with the first hydrated value
+  // without persisting; only persist on a later real ON→OFF from that baseline.
+  useEffect(() => {
+    if (!modeHydrated) return;
+
+    const previousMode = previousAssistedAuthoringModeRef.current;
+    if (previousMode === null) {
+      previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
+      return;
+    }
+
+    if (shouldPersistOnToOffTransition(true, previousMode, assistedAuthoringMode)) {
+      const plan = planOnToOffTransition({
+        appId,
+        testCases: currentTestCasesSnapshot.testCases,
+        finalPromptText: currentTestCasesSnapshot.finalPromptText,
+      });
+
+      if (plan.action === "save-and-hide") {
+        try {
+          saveAssistedAuthoringSnapshot(plan.snapshot);
+          setSnapshotError("");
+        } catch (error) {
+          setSnapshotError(
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      } else if (plan.action === "error") {
+        setSnapshotError(plan.reason);
+      }
+    }
+
+    previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
+  }, [assistedAuthoringMode, modeHydrated, appId, currentTestCasesSnapshot]);
+
+  useEffect(() => {
+    setModeHydrated(false);
+    previousAssistedAuthoringModeRef.current = null;
+    setCurrentTestCasesSnapshot({ testCases: [], finalPromptText: "" });
+  }, [appId]);
 
   async function handlePublish() {
     const gateResult = shouldBlockPublishForTestCases(assistedAuthoringMode, testCaseStatus);
@@ -435,6 +490,18 @@ export default function EditorPage({
               Assisted authoring is off — write your Final Prompt on the left. Turn it on in Settings.
             </div>
           )}
+          {snapshotError && (
+            <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
+              <strong>Failed to preserve test cases:</strong> {snapshotError}
+              <button
+                type="button"
+                onClick={() => setSnapshotError("")}
+                className="ml-2 underline hover:no-underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div
             ref={splitPaneRef}
             className={[
@@ -489,6 +556,7 @@ export default function EditorPage({
                     assistedAuthoringMode={assistedAuthoringMode}
                     spotlightTargetRefs={spotlightTargetRefs}
                     onTestCaseStatusChange={setTestCaseStatus}
+                    onTestCasesSnapshotReady={setCurrentTestCasesSnapshot}
                   />
                 </div>
               </>

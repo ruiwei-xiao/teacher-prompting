@@ -4327,6 +4327,7 @@ export default function AssistantPanel({
   assistedAuthoringMode = true,
   spotlightTargetRefs,
   onTestCaseStatusChange,
+  onTestCasesSnapshotReady,
 }: {
   appId: string;
   appName: string;
@@ -4339,6 +4340,8 @@ export default function AssistantPanel({
   /** Refs on testcase UI regions for the editor-page spotlight tour (optional). */
   spotlightTargetRefs?: AssistantPanelSpotlightTargetRefs;
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
+  /** Callback with current test cases and final prompt for snapshot preservation (Task 3.4). */
+  onTestCasesSnapshotReady?: (snapshot: { testCases: unknown[]; finalPromptText: string }) => void;
 }) {
   const displayName = appName.trim() || appId;
   const [input, setInput] = useState("");
@@ -5115,6 +5118,22 @@ export default function AssistantPanel({
       chatLayoutKey,
     });
   }, [onTestCaseStatusChange, passedCaseCount, testCases]);
+
+  // Notify parent of current test cases and final prompt for snapshot preservation (Task 3.4)
+  useEffect(() => {
+    if (!onTestCasesSnapshotReady) return;
+
+    const finalPromptText = resolveAssistantSystemPrompt({
+      promptMarkdown,
+      appId,
+      serverSystemPrompt,
+    }).trim();
+
+    onTestCasesSnapshotReady({
+      testCases,
+      finalPromptText,
+    });
+  }, [onTestCasesSnapshotReady, testCases, promptMarkdown, appId, serverSystemPrompt]);
 
   useEffect(() => {
     listRef.current?.scrollTo({

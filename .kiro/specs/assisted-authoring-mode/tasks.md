@@ -68,7 +68,7 @@
   - _Boundary: AssistantPanelModeGate_
   - _Depends: 3.1_
 
-- [ ] 3.4 Handle ON→OFF transition with snapshot preserve
+- [x] 3.4 Handle ON→OFF transition with snapshot preserve
   - When mode changes from ON to OFF, write a client snapshot of current test cases plus Final Prompt fingerprint, then hide cases rather than deleting them; if snapshot write fails, show an error and do not claim preservation succeeded or treat the hide/preserve transition as complete
   - After a successful ON→OFF, cases are not visible and a snapshot exists for later restore/regenerate planning
   - _Requirements: 3.3, 4.1, 4.5_
@@ -113,3 +113,4 @@
 ## Implementation Notes
 - Selftests: run with `npx tsx <path>` (requires non-sandbox / full permissions in this environment).
 - Store mapping for booleans: follow `shareAuthorName` — preserve `false` vs `undefined` (`?? undefined` on read, do not coerce missing to false).
+- ON→OFF snapshot: wait for `modeHydrated` and keep `previousMode` null until first hydrated value; never treat default ON→loaded OFF as a real transition.
