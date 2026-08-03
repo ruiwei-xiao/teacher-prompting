@@ -550,20 +550,6 @@ export default function EditorPage({
         )}
 
         <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-          {!showTestCaseRail && (
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50/90 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/80">
-              <p className="text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
-                Assisted authoring is off. Focus on writing your Final Prompt.
-              </p>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-sky-700 transition-[background-color,transform,color] duration-150 ease-out hover:bg-sky-50 active:scale-[0.97] dark:text-sky-300 dark:hover:bg-sky-950/50"
-              >
-                Settings
-              </button>
-            </div>
-          )}
           {snapshotError && (
             <div
               role="alert"
