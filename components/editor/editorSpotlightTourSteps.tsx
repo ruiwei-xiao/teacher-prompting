@@ -1,6 +1,50 @@
 import type { ReactNode } from "react";
 
-export const EDITOR_SPOTLIGHT_STEP_COUNT = 11;
+/** Canonical spotlight step id (matches title/body/target switch cases). */
+export type EditorSpotlightStepId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+export type EditorSpotlightStepDef = {
+  id: EditorSpotlightStepId;
+  /**
+   * When true, the step requires test cases, mark-pass, or all-pass publish
+   * and is omitted while Assisted Authoring Mode is OFF (Requirements 5.1, 5.2).
+   */
+  assistedOnly: boolean;
+};
+
+/**
+ * Full ON-mode tour definition. Indices in title/body/target resolvers use `id`.
+ */
+export const EDITOR_SPOTLIGHT_STEPS: readonly EditorSpotlightStepDef[] = [
+  { id: 0, assistedOnly: false }, // Final prompt
+  { id: 1, assistedOnly: false }, // Attachment
+  { id: 2, assistedOnly: false }, // Agent — teaching templates
+  { id: 3, assistedOnly: true }, // Simulated learner chat
+  { id: 4, assistedOnly: true }, // Case 1
+  { id: 5, assistedOnly: true }, // Case 2
+  { id: 6, assistedOnly: true }, // Chat panel — edit bubbles & update prompt
+  { id: 7, assistedOnly: true }, // Apply current prompt
+  { id: 8, assistedOnly: true }, // Add your own cases
+  { id: 9, assistedOnly: true }, // Mark pass
+  { id: 10, assistedOnly: true }, // Publish & share (all-pass)
+] as const;
+
+/** Full tour length when Assisted Authoring Mode is ON. */
+export const EDITOR_SPOTLIGHT_STEP_COUNT = EDITOR_SPOTLIGHT_STEPS.length;
+
+/**
+ * Pure helper: while mode is OFF, drop assisted-only steps so the tour only
+ * covers Final Prompt / settings-relevant guidance.
+ */
+export function filterSpotlightStepsForMode(
+  steps: readonly EditorSpotlightStepDef[],
+  assistedAuthoringMode: boolean
+): EditorSpotlightStepDef[] {
+  if (assistedAuthoringMode) {
+    return steps.map((step) => ({ ...step }));
+  }
+  return steps.filter((step) => !step.assistedOnly).map((step) => ({ ...step }));
+}
 
 export const editorSpotlightTourStorageKey = (appId: string) =>
   `editorSpotlightTourV6:${appId}`;

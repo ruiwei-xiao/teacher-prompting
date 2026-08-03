@@ -4,10 +4,11 @@ import EditorChrome from "@/components/editor/EditorChrome";
 import EditorTestcaseSpotlight from "@/components/editor/EditorTestcaseSpotlight";
 import type { SpotlightHoleRect } from "@/components/editor/EditorTestcaseSpotlight";
 import {
-  EDITOR_SPOTLIGHT_STEP_COUNT,
+  EDITOR_SPOTLIGHT_STEPS,
   editorSpotlightTourBody,
   editorSpotlightTourStorageKey,
   editorSpotlightTourTitle,
+  filterSpotlightStepsForMode,
 } from "@/components/editor/editorSpotlightTourSteps";
 import type { AssistantPanelSpotlightTargetRefs } from "@/components/editor/AssistantPanel";
 import LeftChat from "@/components/editor/LeftChat";
@@ -125,6 +126,17 @@ export default function EditorPage({
     : "grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]";
 
   const showTestCaseRail = shouldShowTestCaseRail(assistedAuthoringMode);
+
+  // Mode-aware spotlight tour: while OFF, omit assisted-only steps (Task 3.6)
+  const spotlightSteps = useMemo(
+    () => filterSpotlightStepsForMode(EDITOR_SPOTLIGHT_STEPS, assistedAuthoringMode),
+    [assistedAuthoringMode]
+  );
+  const spotlightStepCount = spotlightSteps.length;
+  const spotlightStepId =
+    editorSpotlightStep !== null
+      ? spotlightSteps[editorSpotlightStep]?.id ?? null
+      : null;
 
   useEffect(() => {
     async function loadApp() {
@@ -390,22 +402,36 @@ export default function EditorPage({
     };
   }, [isResizingPanels]);
 
+  // Wait for mode hydration so OFF bots never start the assisted-only tour as mandatory.
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+    if (!modeHydrated) return;
     if (window.localStorage.getItem(editorSpotlightTourStorageKey(appId)) === "done") {
       setEditorSpotlightStep(null);
       return;
     }
     setEditorSpotlightStep(0);
-  }, [appId]);
+  }, [appId, modeHydrated]);
+
+  // If the filtered tour shrinks (e.g. mode → OFF), clamp the tour index.
+  useEffect(() => {
+    if (editorSpotlightStep === null) return;
+    if (spotlightStepCount === 0) {
+      setEditorSpotlightStep(null);
+      return;
+    }
+    if (editorSpotlightStep >= spotlightStepCount) {
+      setEditorSpotlightStep(spotlightStepCount - 1);
+    }
+  }, [editorSpotlightStep, spotlightStepCount]);
 
   useLayoutEffect(() => {
-    if (editorSpotlightStep === null) {
+    if (editorSpotlightStep === null || spotlightStepId === null) {
       setEditorSpotlightRect(null);
       return;
     }
     const resolveNode = (): HTMLElement | null => {
-      switch (editorSpotlightStep) {
+      switch (spotlightStepId) {
         case 0:
           return spotlightPromptRef.current;
         case 1:
@@ -454,6 +480,7 @@ export default function EditorPage({
     };
   }, [
     editorSpotlightStep,
+    spotlightStepId,
     assistantOpen,
     editorPaneWidth,
     appVersion,
@@ -663,22 +690,24 @@ export default function EditorPage({
         }}
       />
 
-      {editorSpotlightStep !== null && (
+      {editorSpotlightStep !== null &&
+        spotlightStepId !== null &&
+        spotlightStepCount > 0 && (
         <EditorTestcaseSpotlight
           show
           holeRect={editorSpotlightRect}
-          title={editorSpotlightTourTitle(editorSpotlightStep)}
-          body={editorSpotlightTourBody(editorSpotlightStep)}
+          title={editorSpotlightTourTitle(spotlightStepId)}
+          body={editorSpotlightTourBody(spotlightStepId)}
           stepIndex={editorSpotlightStep}
-          stepCount={EDITOR_SPOTLIGHT_STEP_COUNT}
+          stepCount={spotlightStepCount}
           primaryLabel={
-            editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1
+            editorSpotlightStep < spotlightStepCount - 1
               ? "Next"
               : "Okay, I understand"
           }
           onPrimary={() => {
             if (editorSpotlightStep === null) return;
-            if (editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1) {
+            if (editorSpotlightStep < spotlightStepCount - 1) {
               setEditorSpotlightStep(editorSpotlightStep + 1);
             } else {
               window.localStorage.setItem(editorSpotlightTourStorageKey(appId), "done");

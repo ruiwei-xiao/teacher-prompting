@@ -82,7 +82,7 @@
   - _Boundary: AssistantPanelModeGate_
   - _Depends: 3.4_
 
-- [ ] 3.6 Adapt editor spotlight guidance for OFF mode
+- [x] 3.6 Adapt editor spotlight guidance for OFF mode
   - While OFF, skip or mark non-mandatory any onboarding/spotlight steps that require test cases or all-pass publish
   - Opening the editor with mode OFF does not force assisted-only spotlight steps as mandatory
   - _Requirements: 5.1, 5.2_
