@@ -91,21 +91,21 @@
 
 ## 4. Validation
 
-- [ ] 4.1 (P) Add mode resolver selftests
+- [x] 4.1 (P) Add mode resolver selftests
   - Runnable checks that undefined/true/false resolve to ON/ON/OFF
   - Resolver selftests pass
   - _Requirements: 1.4_
   - _Boundary: resolveAssistedAuthoringMode_
   - _Depends: 1.1_
 
-- [ ] 4.2 (P) Add snapshot planning selftests
+- [x] 4.2 (P) Add snapshot planning selftests
   - Runnable checks for restore vs regenerate planning including missing-snapshot behavior
   - Snapshot planning selftests pass
   - _Requirements: 4.2, 4.3, 4.5_
   - _Boundary: AssistedAuthoringSnapshotStore_
   - _Depends: 2.2_
 
-- [ ]* 4.3 Manual E2E checklist for Assisted Authoring Mode
+- [x]* 4.3 Manual E2E checklist for Assisted Authoring Mode
   - Optional deferred checklist covering: new bot defaults OFF; legacy/ON assisted path; ON→OFF hide+preserve; OFF→ON restore; OFF→ON regenerate after prompt change; regen failure; publish gating ON vs OFF; Settings save error; Create a new App has no mode control
   - Checklist document exists for post-MVP manual run and explicitly includes Create-page exclusion
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 1.6, 2.3, 2.4, 3.1, 3.4, 4.1, 4.2, 4.3, 4.4_
