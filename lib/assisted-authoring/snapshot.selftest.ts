@@ -1,14 +1,14 @@
 /**
- * Runtime self-test for Assisted Authoring Snapshot Store (Task 2.2).
+ * Self-test for assisted-authoring snapshot helpers (regenerate-only OFF→ON).
  * Run: npx tsx lib/assisted-authoring/snapshot.selftest.ts
  */
 
 import {
-  fingerprintFinalPrompt,
-  saveAssistedAuthoringSnapshot,
-  readAssistedAuthoringSnapshot,
   clearAssistedAuthoringSnapshot,
+  fingerprintFinalPrompt,
   planOffToOnTransition,
+  readAssistedAuthoringSnapshot,
+  saveAssistedAuthoringSnapshot,
 } from "./snapshot";
 import type { AssistedAuthoringSnapshot } from "./types";
 
@@ -21,9 +21,8 @@ function assert(condition: boolean, message: string): void {
   }
 }
 
-// Mock storage for testing under Node/tsx
 const mockStorage = new Map<string, string>();
-const mockStorageAPI = {
+(globalThis as { localStorage?: Storage }).localStorage = {
   getItem: (key: string) => mockStorage.get(key) ?? null,
   setItem: (key: string, value: string) => {
     mockStorage.set(key, value);
@@ -31,181 +30,64 @@ const mockStorageAPI = {
   removeItem: (key: string) => {
     mockStorage.delete(key);
   },
-  clear: () => {
-    mockStorage.clear();
+  clear: () => mockStorage.clear(),
+  key: () => null,
+  get length() {
+    return mockStorage.size;
   },
-};
+} as Storage;
 
-// Inject mock storage into global (for Node environment)
-if (typeof window === "undefined") {
-  (global as any).localStorage = mockStorageAPI;
-}
-
-// Test 1: fingerprintFinalPrompt normalizes whitespace
-const fp1 = fingerprintFinalPrompt("  hello world  ");
-const fp2 = fingerprintFinalPrompt("hello world");
-assert(
-  fp1 === fp2,
-  `fingerprints should match after whitespace normalization: "${fp1}" vs "${fp2}"`
-);
-
-// Test 2: fingerprintFinalPrompt produces different hashes for different content
-const fp3 = fingerprintFinalPrompt("hello world");
-const fp4 = fingerprintFinalPrompt("goodbye world");
-assert(
-  fp3 !== fp4,
-  `different prompts should produce different fingerprints: "${fp3}" vs "${fp4}"`
-);
-
-// Test 3: saveAssistedAuthoringSnapshot and readAssistedAuthoringSnapshot round-trip
 mockStorage.clear();
-const testSnapshot: AssistedAuthoringSnapshot = {
-  appId: "test-app-1",
-  promptFingerprint: "abc123",
-  testCases: [{ id: "tc1", input: "test input", expectedOutput: "test output" }],
+
+const fpA = fingerprintFinalPrompt("hello");
+const fpB = fingerprintFinalPrompt("hello");
+const fpC = fingerprintFinalPrompt("hello world");
+assert(fpA === fpB, "same prompt should fingerprint equal");
+assert(fpA !== fpC, "different prompts should fingerprint differently");
+
+const snapshot: AssistedAuthoringSnapshot = {
+  appId: "app-1",
+  promptFingerprint: fpA,
+  testCases: [{ id: "1" }],
   savedAt: new Date().toISOString(),
 };
-
-saveAssistedAuthoringSnapshot(testSnapshot);
-const retrieved = readAssistedAuthoringSnapshot("test-app-1");
+saveAssistedAuthoringSnapshot(snapshot);
+const readBack = readAssistedAuthoringSnapshot("app-1");
+assert(readBack?.appId === "app-1", "snapshot should round-trip");
 assert(
-  retrieved !== null,
-  "readAssistedAuthoringSnapshot should return snapshot after save"
-);
-assert(
-  retrieved?.appId === "test-app-1",
-  `retrieved appId should match: ${retrieved?.appId}`
-);
-assert(
-  retrieved?.promptFingerprint === "abc123",
-  `retrieved fingerprint should match: ${retrieved?.promptFingerprint}`
-);
-assert(
-  Array.isArray(retrieved?.testCases) && retrieved.testCases.length === 1,
-  `retrieved test cases should match: ${JSON.stringify(retrieved?.testCases)}`
+  Array.isArray(readBack?.testCases) && readBack!.testCases.length === 1,
+  "snapshot test cases should round-trip"
 );
 
-// Test 4: readAssistedAuthoringSnapshot returns null when no snapshot exists
-mockStorage.clear();
-const missing = readAssistedAuthoringSnapshot("nonexistent-app");
+clearAssistedAuthoringSnapshot("app-1");
 assert(
-  missing === null,
-  `readAssistedAuthoringSnapshot should return null for missing snapshot, got ${missing}`
+  readAssistedAuthoringSnapshot("app-1") === null,
+  "clear should remove snapshot"
 );
 
-// Test 5: clearAssistedAuthoringSnapshot removes snapshot
-mockStorage.clear();
-saveAssistedAuthoringSnapshot(testSnapshot);
-clearAssistedAuthoringSnapshot("test-app-1");
-const cleared = readAssistedAuthoringSnapshot("test-app-1");
-assert(
-  cleared === null,
-  `snapshot should be null after clear, got ${cleared}`
-);
-
-// Test 6: planOffToOnTransition returns "restore" when fingerprints match
-mockStorage.clear();
-const currentPrompt = "hello teacher";
-const matchingSnapshot: AssistedAuthoringSnapshot = {
-  appId: "test-app-2",
-  promptFingerprint: fingerprintFinalPrompt(currentPrompt),
-  testCases: [{ id: "tc2" }],
-  savedAt: new Date().toISOString(),
-};
-saveAssistedAuthoringSnapshot(matchingSnapshot);
-
-const restorePlan = planOffToOnTransition({
-  appId: "test-app-2",
-  currentFinalPrompt: currentPrompt,
+const plan = planOffToOnTransition({
+  appId: "app-1",
+  currentFinalPrompt: "anything",
 });
 assert(
-  restorePlan.action === "restore",
-  `plan should be restore when fingerprints match, got ${restorePlan.action}`
+  plan.action === "regenerate",
+  `OFF→ON plan should always regenerate, got ${plan.action}`
 );
-if (restorePlan.action === "restore") {
-  assert(
-    restorePlan.snapshot.appId === "test-app-2",
-    `restored snapshot appId should match: ${restorePlan.snapshot.appId}`
-  );
-}
 
-// Test 7: planOffToOnTransition returns "regenerate" when fingerprints differ
-mockStorage.clear();
-const oldPrompt = "old prompt";
-const newPrompt = "new prompt";
-const mismatchSnapshot: AssistedAuthoringSnapshot = {
-  appId: "test-app-3",
-  promptFingerprint: fingerprintFinalPrompt(oldPrompt),
-  testCases: [{ id: "tc3" }],
-  savedAt: new Date().toISOString(),
-};
-saveAssistedAuthoringSnapshot(mismatchSnapshot);
-
-const regenPlan = planOffToOnTransition({
-  appId: "test-app-3",
-  currentFinalPrompt: newPrompt,
+// Even with a leftover snapshot, plan must regenerate (no restore).
+saveAssistedAuthoringSnapshot(snapshot);
+const planWithSnapshot = planOffToOnTransition({
+  appId: "app-1",
+  currentFinalPrompt: "hello",
 });
 assert(
-  regenPlan.action === "regenerate",
-  `plan should be regenerate when fingerprints differ, got ${regenPlan.action}`
-);
-
-// Test 8: planOffToOnTransition returns "regenerate" when snapshot is missing
-mockStorage.clear();
-const missingPlan = planOffToOnTransition({
-  appId: "test-app-4",
-  currentFinalPrompt: "some prompt",
-});
-assert(
-  missingPlan.action === "regenerate",
-  `plan should be regenerate when snapshot is missing, got ${missingPlan.action}`
-);
-if (missingPlan.action === "regenerate" && "reason" in missingPlan) {
-  assert(
-    missingPlan.reason === "missing-snapshot",
-    `reason should be missing-snapshot, got ${missingPlan.reason}`
-  );
-}
-
-// Test 9: snapshots are scoped by appId
-mockStorage.clear();
-const snap1: AssistedAuthoringSnapshot = {
-  appId: "app-a",
-  promptFingerprint: "fp-a",
-  testCases: [{ id: "a" }],
-  savedAt: new Date().toISOString(),
-};
-const snap2: AssistedAuthoringSnapshot = {
-  appId: "app-b",
-  promptFingerprint: "fp-b",
-  testCases: [{ id: "b" }],
-  savedAt: new Date().toISOString(),
-};
-saveAssistedAuthoringSnapshot(snap1);
-saveAssistedAuthoringSnapshot(snap2);
-
-const retrievedA = readAssistedAuthoringSnapshot("app-a");
-const retrievedB = readAssistedAuthoringSnapshot("app-b");
-assert(
-  retrievedA?.appId === "app-a" && retrievedA?.promptFingerprint === "fp-a",
-  `app-a snapshot should be isolated: ${retrievedA?.appId}`
-);
-assert(
-  retrievedB?.appId === "app-b" && retrievedB?.promptFingerprint === "fp-b",
-  `app-b snapshot should be isolated: ${retrievedB?.appId}`
-);
-
-// Test 10: fingerprint handles empty and whitespace-only strings
-const fpEmpty = fingerprintFinalPrompt("");
-const fpWhitespace = fingerprintFinalPrompt("   \n\t  ");
-assert(
-  fpEmpty === fpWhitespace,
-  `empty and whitespace-only should produce same fingerprint: "${fpEmpty}" vs "${fpWhitespace}"`
+  planWithSnapshot.action === "regenerate",
+  "matching leftover snapshot must not restore"
 );
 
 if (failures > 0) {
-  console.error(`\nsnapshot.selftest: ${failures} failure(s)`);
+  console.error(`\n${failures} failure(s)`);
   process.exit(1);
 }
 
-console.log("snapshot.selftest: all assertions passed");
+console.log("OK: assisted-authoring snapshot helpers");

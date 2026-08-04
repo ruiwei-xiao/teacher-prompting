@@ -21,20 +21,17 @@ export type AppWithAssistedAuthoring = {
 };
 
 /**
- * Client snapshot for preserved test cases when mode is OFF.
- * Stored in browser localStorage, scoped by appId.
+ * Legacy client snapshot shape (old preserve/restore design).
+ * May still exist in localStorage; cleared on ON→OFF. Not used for restore.
  */
 export type AssistedAuthoringSnapshot = {
   appId: string;
   promptFingerprint: string;
-  testCases: unknown[]; // serializable TestCaseSet[] as used by AssistantPanel
-  savedAt: string; // ISO 8601 timestamp
+  testCases: unknown[];
+  savedAt: string;
 };
 
 /**
- * Plan for OFF→ON transition based on Final Prompt fingerprint comparison.
+ * Plan for OFF→ON transition. Always regenerate after discard-on-OFF.
  */
-export type OffToOnPlan =
-  | { action: "restore"; snapshot: AssistedAuthoringSnapshot }
-  | { action: "regenerate" }
-  | { action: "regenerate"; reason: "missing-snapshot" };
+export type OffToOnPlan = { action: "regenerate" };

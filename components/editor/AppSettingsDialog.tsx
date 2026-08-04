@@ -191,7 +191,9 @@ export default function AppSettingsDialog({
               ) : (
                 <>
                   Write the Final Prompt yourself — best for training. No auto
-                  test cases, no prompt rewrite from edits, and no publish gate.
+                  test cases or prompt rewrite from edits. Try your bot in the
+                  right-panel chat (Clear to start over). Publish is not gated
+                  on test cases.
                 </>
               )}
             </p>

@@ -88,31 +88,18 @@ function runOffToOnPlanningTests() {
   const testAppId = "test-off-to-on-app";
   clearAssistedAuthoringSnapshot(testAppId);
 
-  // Test 1: Missing snapshot → regenerate
   const plan1 = planOffToOnTransition({
     appId: testAppId,
     currentFinalPrompt: "Test prompt",
   });
-  assert(
-    plan1.action === "regenerate",
-    "Missing snapshot should plan regenerate"
-  );
-  assert(
-    plan1.reason === "missing-snapshot",
-    "Missing snapshot should include reason"
-  );
+  assert(plan1.action === "regenerate", "Missing snapshot should plan regenerate");
   console.log("✅ Test 1: Missing snapshot → regenerate");
 
-  // Test 2: Matching fingerprint → restore
   const savedPrompt = "This is my teaching prompt.";
-  const savedTestCases = [
-    { id: "case-1", name: "Case 1", passed: true },
-    { id: "case-2", name: "Case 2", passed: false },
-  ];
   const snapshot: AssistedAuthoringSnapshot = {
     appId: testAppId,
     promptFingerprint: fingerprintFinalPrompt(savedPrompt),
-    testCases: savedTestCases,
+    testCases: [{ id: "case-1" }],
     savedAt: new Date().toISOString(),
   };
   saveAssistedAuthoringSnapshot(snapshot);
@@ -121,46 +108,19 @@ function runOffToOnPlanningTests() {
     appId: testAppId,
     currentFinalPrompt: savedPrompt,
   });
-  assert(plan2.action === "restore", "Matching fingerprint should plan restore");
-  if (plan2.action === "restore") {
-    assert(
-      plan2.snapshot.appId === testAppId,
-      "Restored snapshot should have correct appId"
-    );
-    assert(
-      JSON.stringify(plan2.snapshot.testCases) === JSON.stringify(savedTestCases),
-      "Restored snapshot should have correct testCases"
-    );
-  }
-  console.log("✅ Test 2: Matching fingerprint → restore");
+  assert(
+    plan2.action === "regenerate",
+    "Leftover matching snapshot must still regenerate (no restore)"
+  );
+  console.log("✅ Test 2: Leftover snapshot → regenerate (discard policy)");
 
-  // Test 3: Changed prompt → regenerate
   const plan3 = planOffToOnTransition({
     appId: testAppId,
     currentFinalPrompt: "Different prompt now",
   });
-  assert(
-    plan3.action === "regenerate",
-    "Changed prompt should plan regenerate"
-  );
-  assert(
-    !("reason" in plan3) || plan3.reason === undefined,
-    "Changed prompt regenerate should not include 'missing-snapshot' reason"
-  );
+  assert(plan3.action === "regenerate", "Changed prompt should plan regenerate");
   console.log("✅ Test 3: Changed prompt → regenerate");
 
-  // Test 4: Whitespace normalization
-  const plan4 = planOffToOnTransition({
-    appId: testAppId,
-    currentFinalPrompt: "  This   is  my   teaching   prompt.  ",
-  });
-  assert(
-    plan4.action === "restore",
-    "Whitespace differences should normalize to restore"
-  );
-  console.log("✅ Test 4: Whitespace normalization → restore");
-
-  // Cleanup
   clearAssistedAuthoringSnapshot(testAppId);
   console.log("✅ All OFF→ON planning tests passed");
 }

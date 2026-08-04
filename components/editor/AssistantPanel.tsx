@@ -331,6 +331,37 @@ function createInitialTestCases(appName: string, readOnly = false) {
   });
 }
 
+const TRY_CHAT_PRESET: TestCasePreset = {
+  purposeLabel: "Try your bot",
+  scenarioSummary: "Chat as a student to try your Final Prompt.",
+  round1User: "Can you help me get started?",
+  round1Assistant: "Sure — let's begin.",
+  round2User: "I want to try another angle.",
+  round2Assistant: "Okay, let's look at it another way.",
+  round3User: "Can I check my understanding?",
+};
+
+function getTryChatStartMessages(appName: string): ChatMessage[] {
+  return [
+    createMessage(
+      "assistant",
+      `Hi! I'm ${appName}. Chat here to try your Final Prompt. Use **Clear conversation** when you want to start over.`
+    ),
+  ];
+}
+
+/** Single try-chat thread used while Assisted Authoring Mode is OFF. */
+function createTryChatCase(appName: string): TestCaseSet {
+  const base = createTestCaseSet("Try chat", appName, false, null, TRY_CHAT_PRESET, {
+    warmStart: "teacher",
+    teacherEntry: "scratch",
+  });
+  return {
+    ...base,
+    messages: getTryChatStartMessages(appName),
+  };
+}
+
 export type VisualizationState =
   | {
       mode: "code-tracing";
@@ -4327,9 +4358,8 @@ export default function AssistantPanel({
   assistedAuthoringMode = true,
   spotlightTargetRefs,
   onTestCaseStatusChange,
-  onTestCasesSnapshotReady,
-  offToOnBootstrapAction,
-  onOffToOnBootstrapComplete,
+  modePanelBootstrapAction,
+  onModePanelBootstrapComplete,
   onOffToOnError,
 }: {
   appId: string;
@@ -4343,19 +4373,25 @@ export default function AssistantPanel({
   /** Refs on testcase UI regions for the editor-page spotlight tour (optional). */
   spotlightTargetRefs?: AssistantPanelSpotlightTargetRefs;
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
-  /** Callback with current test cases and final prompt for snapshot preservation (Task 3.4). */
-  onTestCasesSnapshotReady?: (snapshot: { testCases: unknown[]; finalPromptText: string }) => void;
-  /** Bootstrap action for OFF→ON transition (Task 3.5): restore or regenerate test cases. */
-  offToOnBootstrapAction?: { action: "restore"; testCases: unknown[] } | { action: "regenerate" } | null;
-  /** Callback when OFF→ON bootstrap completes successfully (Task 3.5). */
-  onOffToOnBootstrapComplete?: () => void;
-  /** Callback when OFF→ON bootstrap fails (Task 3.5). */
+  /** Mode transition bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON). */
+  modePanelBootstrapAction?:
+    | { action: "enter-try-chat" }
+    | { action: "regenerate" }
+    | null;
+  /** Callback when mode panel bootstrap completes successfully. */
+  onModePanelBootstrapComplete?: () => void;
+  /** Callback when OFF→ON regenerate fails. */
   onOffToOnError?: (error: string) => void;
 }) {
   const displayName = appName.trim() || appId;
+  const assistedOn = isAssistedBehaviorEnabled(assistedAuthoringMode);
   const [input, setInput] = useState("");
   const [testCases, setTestCases] = useState<TestCaseSet[]>(() =>
-    createInitialTestCases(displayName, readOnly)
+    readOnly
+      ? createInitialTestCases(displayName, true)
+      : assistedOn
+        ? createInitialTestCases(displayName, false)
+        : [createTryChatCase(displayName)]
   );
   const [activeTestCaseId, setActiveTestCaseId] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -4391,8 +4427,8 @@ export default function AssistantPanel({
   const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
   /** One-shot auto-run of scripted testcase dialogue when a new app already has a prompt but user has not clicked Apply yet. */
   const didBootstrapSimulatedDialogueRef = useRef(false);
-  /** Track in-progress OFF→ON bootstrap action to prevent double-fire on testCases changes (Task 3.5). */
-  const offToOnBootstrapInProgressRef = useRef<string | null>(null);
+  /** Track in-progress mode panel bootstrap to prevent double-fire. */
+  const modePanelBootstrapInProgressRef = useRef<string | null>(null);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -4417,7 +4453,7 @@ export default function AssistantPanel({
   const editedMessageCount = messages.filter(messageHasEdits).length;
   /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. Gate when assisted mode is off. */
   const showApplyPromptStrip =
-    isAssistedBehaviorEnabled(assistedAuthoringMode) &&
+    assistedOn &&
     (editedMessageCount > 0 ||
     applyBusy ||
     Boolean(applyError) ||
@@ -4615,12 +4651,7 @@ export default function AssistantPanel({
     }
   }
 
-  function resetSession() {
-    didBootstrapSimulatedDialogueRef.current = false;
-    const nextCases = createInitialTestCases(displayName, readOnly);
-    setTestCases(nextCases);
-    setActiveTestCaseId(nextCases[0]?.id || "");
-    setExpandedStudentDetailIds(new Set());
+  function clearComposerAttachments() {
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
@@ -4630,6 +4661,33 @@ export default function AssistantPanel({
     setEditingDraft("");
     setApplyBusy(false);
     clearPromptUpdateState();
+  }
+
+  function applyTryChatSession() {
+    didBootstrapSimulatedDialogueRef.current = false;
+    const next = createTryChatCase(displayName);
+    setTestCases([next]);
+    setActiveTestCaseId(next.id);
+    setExpandedStudentDetailIds(new Set());
+    clearComposerAttachments();
+  }
+
+  function clearTryConversation() {
+    applyTryChatSession();
+    setApplySummary("Conversation cleared. Start a new try whenever you’re ready.");
+  }
+
+  function resetSession() {
+    didBootstrapSimulatedDialogueRef.current = false;
+    if (!readOnly && !isAssistedBehaviorEnabled(assistedAuthoringMode)) {
+      applyTryChatSession();
+      return;
+    }
+    const nextCases = createInitialTestCases(displayName, readOnly);
+    setTestCases(nextCases);
+    setActiveTestCaseId(nextCases[0]?.id || "");
+    setExpandedStudentDetailIds(new Set());
+    clearComposerAttachments();
   }
 
   function resetActiveTestCase() {
@@ -5112,85 +5170,64 @@ export default function AssistantPanel({
     fetchAndApplyScriptedDialogues,
   ]);
 
-  // Handle OFF→ON bootstrap: restore or regenerate test cases (Task 3.5)
+  // Mode panel bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON).
   useEffect(() => {
-    if (!offToOnBootstrapAction) return;
+    if (!modePanelBootstrapAction) return;
     if (readOnly) return;
-    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
 
-    // Prevent double-fire on testCases changes mid-flight
-    const actionId = JSON.stringify(offToOnBootstrapAction);
-    if (offToOnBootstrapInProgressRef.current === actionId) return;
-    offToOnBootstrapInProgressRef.current = actionId;
+    const actionId = JSON.stringify(modePanelBootstrapAction);
+    if (modePanelBootstrapInProgressRef.current === actionId) return;
+    modePanelBootstrapInProgressRef.current = actionId;
 
-    const action = offToOnBootstrapAction.action;
+    const action = modePanelBootstrapAction.action;
 
-    if (action === "restore") {
-      // Restore test cases from snapshot
-      try {
-        const restoredCases = offToOnBootstrapAction.testCases as TestCaseSet[];
-        // Empty array is a valid preserved state (ON→OFF planner allows it).
-        if (!Array.isArray(restoredCases)) {
-          throw new Error("Restored snapshot contained invalid test case data.");
-        }
-        setTestCases(restoredCases);
-        setActiveTestCaseId(restoredCases[0]?.id || "");
-        setApplySummary(
-          restoredCases.length > 0
-            ? "Restored test cases from when mode was last ON."
-            : "Restored empty test-case set from when mode was last ON."
-        );
-        onOffToOnBootstrapComplete?.();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        onOffToOnError?.(msg);
-        onOffToOnBootstrapComplete?.();
-      } finally {
-        offToOnBootstrapInProgressRef.current = null;
+    if (action === "enter-try-chat") {
+      applyTryChatSession();
+      setApplySummary("Assisted test cases discarded. Try your bot in this chat.");
+      onModePanelBootstrapComplete?.();
+      modePanelBootstrapInProgressRef.current = null;
+      return;
+    }
+
+    if (action === "regenerate") {
+      if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) {
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
+        return;
       }
-    } else if (action === "regenerate") {
-      // Regenerate test cases using current Final Prompt
+
       const base = resolveAssistantSystemPrompt({
         promptMarkdown,
         appId,
         serverSystemPrompt,
       }).trim();
 
+      // Always replace try-chat / prior state with a fresh assisted suite.
+      const initialCases = createInitialTestCases(displayName, readOnly);
+      const scriptedCases = initialCases.filter(
+        (tc) => tc.warmStart === "scripted" && tc.studentProfile
+      );
+      setTestCases(
+        scriptedCases.map((tc) => ({
+          ...tc,
+          messages: [],
+        }))
+      );
+      setActiveTestCaseId(scriptedCases[0]?.id || "");
+      setExpandedStudentDetailIds(new Set());
+
       if (!base) {
         onOffToOnError?.(
           "Cannot regenerate test cases without a Final Prompt. Please add a prompt on the left."
         );
-        onOffToOnBootstrapComplete?.();
-        offToOnBootstrapInProgressRef.current = null;
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
         return;
       }
 
-      // Get or create scripted cases to regenerate
-      let scriptedCases = testCases.filter((tc) => tc.warmStart === "scripted" && tc.studentProfile);
-      
-      // If no test cases exist (e.g., just after switching modes), bootstrap initial cases
-      if (!testCases.length) {
-        const initialCases = createInitialTestCases(displayName, readOnly);
-        scriptedCases = initialCases.filter((tc) => tc.warmStart === "scripted" && tc.studentProfile);
-        
-        // Set empty test cases immediately (clear old fingerprint-mismatched cases)
-        setTestCases(scriptedCases.map((tc) => ({
-          ...tc,
-          messages: [], // Clear visible messages before regenerate
-        })));
-      } else {
-        // Clear visible messages from scripted cases before regenerate
-        setTestCases((current) =>
-          current.map((tc) => {
-            if (tc.warmStart !== "scripted") return tc;
-            return { ...tc, messages: [] };
-          })
-        );
-      }
-
       if (!scriptedCases.length) {
-        onOffToOnBootstrapComplete?.();
-        offToOnBootstrapInProgressRef.current = null;
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
         return;
       }
 
@@ -5198,14 +5235,13 @@ export default function AssistantPanel({
         try {
           await fetchAndApplyScriptedDialogues(scriptedCases);
           setApplyError("");
-          setApplySummary("Regenerated test cases with current Final Prompt.");
-          onOffToOnBootstrapComplete?.();
+          setApplySummary("Generated test cases with current Final Prompt.");
+          onModePanelBootstrapComplete?.();
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           onOffToOnError?.(
             `Failed to regenerate test cases: ${msg}. Check your API key or Final Prompt.`
           );
-          // On failure, keep empty/error state — never leave old fingerprint-mismatched cases
           setTestCases((current) =>
             current.map((tc) => {
               if (tc.warmStart !== "scripted") return tc;
@@ -5220,23 +5256,22 @@ export default function AssistantPanel({
               };
             })
           );
-          onOffToOnBootstrapComplete?.();
+          onModePanelBootstrapComplete?.();
         } finally {
-          offToOnBootstrapInProgressRef.current = null;
+          modePanelBootstrapInProgressRef.current = null;
         }
       })();
     }
   }, [
-    offToOnBootstrapAction,
+    modePanelBootstrapAction,
     readOnly,
     assistedAuthoringMode,
     appId,
     displayName,
     promptMarkdown,
     serverSystemPrompt,
-    testCases,
     fetchAndApplyScriptedDialogues,
-    onOffToOnBootstrapComplete,
+    onModePanelBootstrapComplete,
     onOffToOnError,
   ]);
 
@@ -5257,22 +5292,6 @@ export default function AssistantPanel({
       chatLayoutKey,
     });
   }, [onTestCaseStatusChange, passedCaseCount, testCases]);
-
-  // Notify parent of current test cases and final prompt for snapshot preservation (Task 3.4)
-  useEffect(() => {
-    if (!onTestCasesSnapshotReady) return;
-
-    const finalPromptText = resolveAssistantSystemPrompt({
-      promptMarkdown,
-      appId,
-      serverSystemPrompt,
-    }).trim();
-
-    onTestCasesSnapshotReady({
-      testCases,
-      finalPromptText,
-    });
-  }, [onTestCasesSnapshotReady, testCases, promptMarkdown, appId, serverSystemPrompt]);
 
   useEffect(() => {
     listRef.current?.scrollTo({
@@ -5666,7 +5685,29 @@ export default function AssistantPanel({
         key={activeTestCase?.id || "preview"}
         className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)] dark:border dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
       >
-      {!readOnly && (
+      {!readOnly && !assistedOn && (
+        <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700 dark:text-zinc-200">
+                Try your bot
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                Chat as a student against your Final Prompt. Clear to start over.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={clearTryConversation}
+              disabled={busy || applyBusy}
+              className="shrink-0 rounded-xl bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-600 dark:hover:bg-zinc-700"
+            >
+              Clear conversation
+            </button>
+          </div>
+        </div>
+      )}
+      {!readOnly && assistedOn && (
         <div className="shrink-0 overflow-hidden bg-white dark:bg-zinc-950">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div>
@@ -5836,7 +5877,7 @@ export default function AssistantPanel({
           </h3>
         </div>
 
-        {!readOnly && (
+        {!readOnly && assistedOn && (
           <div className="flex shrink-0 items-center gap-2">
             <button
               ref={spotlightTargetRefs?.markPass}
@@ -5867,7 +5908,11 @@ export default function AssistantPanel({
 
       <div ref={spotlightTargetRefs?.simulatedChat} className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-rose-100 bg-white/80 px-4 py-2 text-[11px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-        {readOnly ? "Read-only shared preview." : "Chat · edit bubbles · update prompt."}
+        {readOnly
+          ? "Read-only shared preview."
+          : assistedOn
+            ? "Chat · edit bubbles · update prompt."
+            : "Try chat · your messages use the Final Prompt on the left."}
       </div>
 
       <div
@@ -5951,9 +5996,13 @@ export default function AssistantPanel({
                 </div>
               )}
               <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
-                {message.role === "assistant" ? `${displayName} preview` : "Test user"}
+                {message.role === "assistant"
+                  ? `${displayName} preview`
+                  : assistedOn
+                    ? "Test user"
+                    : "You"}
               </div>
-              {isEdited && (
+              {assistedOn && isEdited && (
                 <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
                   Edited
                 </span>
@@ -5973,7 +6022,7 @@ export default function AssistantPanel({
                   : "border-sky-200 bg-sky-100/90 text-sky-950 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
               ].join(" ")}
             >
-              {isEditing ? (
+              {isEditing && assistedOn ? (
                 <div className="space-y-3">
                   <textarea
                     value={editingDraft}
@@ -5983,9 +6032,7 @@ export default function AssistantPanel({
                   />
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-[11px] text-slate-500 dark:text-zinc-400">
-                      {isAssistedBehaviorEnabled(assistedAuthoringMode)
-                        ? "Save, then use Update prompt below."
-                        : "Save to keep this edit."}
+                      Save, then use Update prompt below.
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -6019,7 +6066,7 @@ export default function AssistantPanel({
                     content={message.content}
                     className="text-[15px] leading-7 text-slate-800 dark:text-zinc-100"
                   />
-                  {!readOnly && (
+                  {!readOnly && assistedOn && (
                     <div className="flex items-center justify-end">
                       <button
                         type="button"

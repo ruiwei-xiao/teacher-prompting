@@ -1,23 +1,34 @@
 /**
  * Self-test for shouldShowTestCaseRail helper.
- * 
- * Tests the visibility logic for test-case rail based on assisted authoring mode.
- * 
  * Run: npx tsx lib/assisted-authoring/test-case-rail.selftest.ts
  */
 
 import { shouldShowTestCaseRail } from "./test-case-rail";
 
-// Test case: Mode ON → rail should be visible
-const onResult = shouldShowTestCaseRail(true);
-if (onResult !== true) {
-  throw new Error(`Expected shouldShowTestCaseRail(true) to return true (show rail when mode is ON), got ${onResult}`);
+let failures = 0;
+
+function assert(condition: boolean, message: string): void {
+  if (!condition) {
+    failures += 1;
+    console.error(`FAIL: ${message}`);
+  }
 }
 
-// Test case: Mode OFF → rail should be hidden
-const offResult = shouldShowTestCaseRail(false);
-if (offResult !== false) {
-  throw new Error(`Expected shouldShowTestCaseRail(false) to return false (hide rail when mode is OFF), got ${offResult}`);
+const beforeHydrate = shouldShowTestCaseRail(false);
+assert(
+  beforeHydrate === false,
+  `Expected shouldShowTestCaseRail(false) to hide panel before hydrate, got ${beforeHydrate}`
+);
+
+const afterHydrate = shouldShowTestCaseRail(true);
+assert(
+  afterHydrate === true,
+  `Expected shouldShowTestCaseRail(true) to show panel after hydrate (ON or OFF), got ${afterHydrate}`
+);
+
+if (failures > 0) {
+  console.error(`\n${failures} failure(s)`);
+  process.exit(1);
 }
 
-console.log("✓ All test-case rail visibility tests passed");
+console.log("OK: shouldShowTestCaseRail");

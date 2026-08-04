@@ -32,9 +32,9 @@ import {
 import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
 import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
 import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
-import { planOnToOffTransition, shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
+import { shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
 import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
-import { saveAssistedAuthoringSnapshot, planOffToOnTransition } from "@/lib/assisted-authoring/snapshot";
+import { clearAssistedAuthoringSnapshot } from "@/lib/assisted-authoring/snapshot";
 
 function PanelResizeHandle({
   label,
@@ -104,15 +104,9 @@ export default function EditorPage({
     allPassed: false,
     chatLayoutKey: "",
   });
-  // Snapshot data for ON→OFF transition preservation (Task 3.4)
-  const [currentTestCasesSnapshot, setCurrentTestCasesSnapshot] = useState<{
-    testCases: unknown[];
-    finalPromptText: string;
-  }>({ testCases: [], finalPromptText: "" });
-  const [snapshotError, setSnapshotError] = useState("");
-  // Bootstrap data for OFF→ON transition restore or regenerate (Task 3.5)
-  const [offToOnBootstrapAction, setOffToOnBootstrapAction] = useState<
-    | { action: "restore"; testCases: unknown[] }
+  // Mode panel bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON)
+  const [modePanelBootstrapAction, setModePanelBootstrapAction] = useState<
+    | { action: "enter-try-chat" }
     | { action: "regenerate" }
     | null
   >(null);
@@ -166,9 +160,8 @@ export default function EditorPage({
     []
   );
 
-  // Hide until mode is loaded so OFF bots never flash the test-case rail.
-  const showTestCaseRail =
-    modeHydrated && shouldShowTestCaseRail(assistedAuthoringMode);
+  // Mount right panel only after mode hydrate (avoids wrong ON/OFF surface flash).
+  const showTestCaseRail = shouldShowTestCaseRail(modeHydrated);
 
   // Mode-aware spotlight tour: while OFF, omit assisted-only steps (Task 3.6)
   const spotlightSteps = useMemo(
@@ -234,75 +227,36 @@ export default function EditorPage({
     void loadApp();
   }, [appId, appVersion]);
 
-  // Unified mode transition handler: ON→OFF persist, OFF→ON restore/regenerate (Tasks 3.4, 3.5).
-  // Sequencing: ignore pre-hydration runs; seed ref with the first hydrated value without
-  // any action; only handle real transitions (ON→OFF or OFF→ON) from that baseline.
+  // Mode transitions: ON→OFF discard assisted suite → try-chat; OFF→ON regenerate only.
+  // Ignore pre-hydration; seed ref with first hydrated value without action.
   useEffect(() => {
     if (!modeHydrated) return;
 
     const previousMode = previousAssistedAuthoringModeRef.current;
 
-    // First hydration: seed ref without action
     if (previousMode === null) {
       previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
       return;
     }
 
-    // Handle ON→OFF transition: save snapshot before mode becomes false
     if (shouldPersistOnToOffTransition(true, previousMode, assistedAuthoringMode)) {
-      const plan = planOnToOffTransition({
-        appId,
-        testCases: currentTestCasesSnapshot.testCases,
-        finalPromptText: currentTestCasesSnapshot.finalPromptText,
-      });
-
-      if (plan.action === "save-and-hide") {
-        try {
-          saveAssistedAuthoringSnapshot(plan.snapshot);
-          setSnapshotError("");
-        } catch (error) {
-          setSnapshotError(
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-      } else if (plan.action === "error") {
-        setSnapshotError(plan.reason);
-      }
-    }
-
-    // Handle OFF→ON transition: restore or regenerate test cases
-    if (shouldPersistOffToOnTransition(true, previousMode, assistedAuthoringMode)) {
-      const currentFinalPrompt = readStoredPrompt(appId);
-      const plan = planOffToOnTransition({
-        appId,
-        currentFinalPrompt,
-      });
-
+      clearAssistedAuthoringSnapshot(appId);
+      setModePanelBootstrapAction({ action: "enter-try-chat" });
       setOffToOnError("");
-
-      if (plan.action === "restore") {
-        // Restore preserved test cases from snapshot
-        setOffToOnBootstrapAction({
-          action: "restore",
-          testCases: plan.snapshot.testCases,
-        });
-      } else {
-        // Regenerate test cases (fingerprint mismatch or missing snapshot)
-        setOffToOnBootstrapAction({
-          action: "regenerate",
-        });
-      }
     }
 
-    // Update ref after handling all transitions
+    if (shouldPersistOffToOnTransition(true, previousMode, assistedAuthoringMode)) {
+      setOffToOnError("");
+      setModePanelBootstrapAction({ action: "regenerate" });
+    }
+
     previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
-  }, [assistedAuthoringMode, modeHydrated, appId, currentTestCasesSnapshot]);
+  }, [assistedAuthoringMode, modeHydrated, appId]);
 
   useEffect(() => {
     setModeHydrated(false);
     previousAssistedAuthoringModeRef.current = null;
-    setCurrentTestCasesSnapshot({ testCases: [], finalPromptText: "" });
-    setOffToOnBootstrapAction(null);
+    setModePanelBootstrapAction(null);
     setOffToOnError("");
   }, [appId]);
 
@@ -620,31 +574,13 @@ export default function EditorPage({
           )}
 
           <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-            {snapshotError && (
-              <div
-                role="alert"
-                className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-              >
-                <p className="leading-relaxed">
-                  <span className="font-medium">Couldn’t preserve test cases.</span>{" "}
-                  {snapshotError}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setSnapshotError("")}
-                  className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
             {offToOnError && (
               <div
                 role="alert"
                 className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
               >
                 <p className="leading-relaxed">
-                  <span className="font-medium">Couldn’t restore test cases.</span>{" "}
+                  <span className="font-medium">Couldn’t regenerate test cases.</span>{" "}
                   {offToOnError}
                 </p>
                 <button
@@ -689,9 +625,8 @@ export default function EditorPage({
                       assistedAuthoringMode={assistedAuthoringMode}
                       spotlightTargetRefs={spotlightTargetRefs}
                       onTestCaseStatusChange={setTestCaseStatus}
-                      onTestCasesSnapshotReady={setCurrentTestCasesSnapshot}
-                      offToOnBootstrapAction={offToOnBootstrapAction}
-                      onOffToOnBootstrapComplete={() => setOffToOnBootstrapAction(null)}
+                      modePanelBootstrapAction={modePanelBootstrapAction}
+                      onModePanelBootstrapComplete={() => setModePanelBootstrapAction(null)}
                       onOffToOnError={(error) => setOffToOnError(error)}
                     />
                   </div>

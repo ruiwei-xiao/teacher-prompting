@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature adds a per-bot **Assisted Authoring Mode** so educator-builders can turn assisted authoring behaviors on or off. ON preserves today’s workflow: automatic test case generation, prompt revision from AI response edits, and publish blocked until all test cases pass. OFF supports AI training: educators write the Final Prompt manually, test cases stay hidden/preserved, response edits do not rewrite the prompt, and publish is not gated on test cases.
+This feature adds a per-bot **Assisted Authoring Mode** so educator-builders can turn assisted authoring behaviors on or off. ON preserves today’s workflow: automatic test case generation, prompt revision from AI response edits, and publish blocked until all test cases pass. OFF supports AI training: educators write the Final Prompt manually, the right panel stays as a single try-chat with Clear conversation (no auto-generated suite), response edits do not rewrite the prompt, and publish is not gated on test cases. ON→OFF discards assisted cases; OFF→ON regenerates fresh cases.
 
 **Users**: Teachers and educator-builders editing bots in the editor and bot Settings.
 
@@ -12,8 +12,8 @@ This feature adds a per-bot **Assisted Authoring Mode** so educator-builders can
 
 - Persist Assisted Authoring Mode per bot; Settings toggle; Create page unchanged (1.1–1.6).
 - ON keeps current assisted generation, bubble-edit prompt revision, and all-pass publish gate (2.1–2.4).
-- OFF disables those assists, hides preserved test cases, and allows ungated publish while Final Prompt editing remains (3.1–3.5).
-- ON→OFF preserves/hides test cases; OFF→ON restores or regenerates based on Final Prompt fingerprint (4.1–4.5).
+- OFF disables those assists, keeps a single try-chat (+ Clear) in the right panel, and allows ungated publish while Final Prompt editing remains (3.1–3.6).
+- ON→OFF discards assisted test cases and shows try-chat; OFF→ON regenerates fresh assisted cases (4.1–4.3).
 - OFF sessions do not require assisted-only onboarding steps (5.1–5.2).
 
 ### Non-Goals
@@ -29,8 +29,8 @@ This feature adds a per-bot **Assisted Authoring Mode** so educator-builders can
 
 - `AppConfig.assistedAuthoringMode` persistence, create defaults (`false`), and legacy read resolution (`?? true`).
 - Bot Settings UI control and PATCH contract for the mode field.
-- Editor/runtime gating of: test case auto-generation, bubble-edit → prompt revision, test case panel visibility, and publish all-pass gate.
-- Client-scoped snapshot of test cases + Final Prompt fingerprint used for hide/preserve/restore/regenerate.
+- Editor/runtime gating of: test case auto-generation, bubble-edit → prompt revision, try-chat vs assisted suite in the right panel, and publish all-pass gate.
+- Mode transitions: discard assisted suite on ON→OFF; regenerate on OFF→ON (no preserve/restore snapshot).
 - Spotlight / guidance adjustments so OFF does not mandate assisted-only steps.
 
 ### Out of Boundary

@@ -14,17 +14,17 @@ Primary users are teachers and other educator-builders who edit bots. Student en
   - A per-bot Assisted Authoring Mode setting (ON / OFF) editable from bot Settings
   - Default OFF for newly created bots; treat bots that already existed before this feature as ON
   - While ON: keep today’s assisted behaviors (auto-generate test cases, revise prompt from AI response edits, require all test cases to pass before publish)
-  - While OFF: disable those assisted behaviors; hide preserved test cases from the editor; allow publish without the all-pass test case gate
-  - ON → OFF: hide and preserve existing test cases (do not delete them)
-  - OFF → ON: restore preserved test cases if the Final Prompt did not change while OFF; otherwise generate new test cases that supersede the previous generation for display
+  - While OFF: disable those assisted behaviors; keep the right editor panel as a single try-chat against the Final Prompt with Clear conversation; allow publish without the all-pass test case gate
+  - ON → OFF: discard assisted/auto-generated test cases (do not preserve/restore them); show an empty try-chat
+  - OFF → ON: generate fresh assisted test cases for the current Final Prompt (no restore of discarded ON suites)
   - Keeping Create a new App free of this toggle
 - **Out of scope**:
   - Exposing Assisted Authoring Mode on the Create a new App page
   - Changing student-facing published chat behavior
+  - Multi-conversation archive / named try-sessions while OFF
   - Redesigning the full prompt-builder / instruction authoring experience unrelated to the three assisted behaviors above
   - Turning off general model settings (name, model, variability, API key) or unrelated sharing / Community features
   - Workspace building-permission policy changes
-  - Automatic deletion of preserved test cases when mode is OFF
 - **Adjacent expectations**:
   - Existing bot Settings already lets editors change name, model, variability, and API key; this feature adds one more setting on that surface
   - Existing test case generation, bubble-edit prompt revision, and publish gating remain the ON-mode behavior; this feature gates them by mode rather than inventing a separate evaluation system
@@ -52,6 +52,7 @@ This feature adds a per-bot **Assisted Authoring Mode** toggle so those assistiv
 - All assistive behaviors above are disabled
 - Teachers must write the prompt themselves
 - Test cases are not auto-generated
+- The right panel stays available as a single try-chat to exercise the Final Prompt, with Clear conversation to start over
 - Editing AI responses does not rewrite the prompt
 - Publish is not gated on all test cases passing
 
@@ -62,10 +63,8 @@ This feature adds a per-bot **Assisted Authoring Mode** toggle so those assistiv
 
 ### Decided policies
 - **Existing bots stay ON** so current assisted workflows are not disrupted. Only new bots default to OFF.
-- **ON → OFF:** existing test cases are hidden and preserved (not deleted). Auto-generation, response-edit → prompt revision, and the all-pass publish gate are disabled.
-- **OFF → ON:**
-  - If the Final Prompt did not change while OFF, re-show the preserved test cases
-  - If the Final Prompt changed while OFF, generate new test cases (replace / supersede the old generation)
+- **ON → OFF:** discard assisted test cases (do not preserve for later restore). Show a fresh try-chat. Auto-generation, response-edit → prompt revision, and the all-pass publish gate are disabled.
+- **OFF → ON:** generate new assisted test cases for the current Final Prompt (do not restore discarded ON suites).
 
 ## Requirements
 
@@ -95,27 +94,26 @@ This feature adds a per-bot **Assisted Authoring Mode** toggle so those assistiv
 
 ### Requirement 3: Behavior while Assisted Authoring Mode is OFF
 
-**Objective:** As an educator-builder in a training context, I want OFF mode to remove assisted shortcuts, so that I must author the prompt myself without automatic test case or prompt-rewrite help.
+**Objective:** As an educator-builder in a training context, I want OFF mode to remove assisted shortcuts while still letting me try the bot, so that I author the prompt myself and can verify behavior in a simple chat.
 
 #### Acceptance Criteria
 
 1. While Assisted Authoring Mode is OFF for a bot, the Teacher Prompting System shall not auto-generate test cases for that bot.
 2. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall not revise the Final Prompt as a result of the educator editing an AI assistant response.
-3. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall not show the bot’s preserved test cases in the editor (they remain unavailable until mode is ON again under Requirement 4).
-4. While Assisted Authoring Mode is OFF, when the educator publishes under existing publish rules, the Teacher Prompting System shall not block publish because test cases are missing or not all marked pass.
-5. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall still allow the educator to view and edit the Final Prompt and other non-assisted bot settings needed to author and publish manually.
+3. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall show the right editor panel as a single try-chat against the current Final Prompt (not the assisted multi-case suite).
+4. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall provide a Clear conversation control that resets the try-chat so the educator can start a new attempt.
+5. While Assisted Authoring Mode is OFF, when the educator publishes under existing publish rules, the Teacher Prompting System shall not block publish because test cases are missing or not all marked pass.
+6. While Assisted Authoring Mode is OFF, the Teacher Prompting System shall still allow the educator to view and edit the Final Prompt and other non-assisted bot settings needed to author and publish manually.
 
-### Requirement 4: Mode transitions and preserved test cases
+### Requirement 4: Mode transitions
 
-**Objective:** As an educator-builder, I want turning mode off to hide my test cases without deleting them, and turning it back on to restore or regenerate them appropriately, so that training toggles do not destroy evaluation work.
+**Objective:** As an educator-builder, I want switching modes to cleanly separate the assisted suite from try-chat, so that OFF stays a simple testing surface and ON regenerates evaluation cases fresh.
 
 #### Acceptance Criteria
 
-1. When Assisted Authoring Mode changes from ON to OFF for a bot that has test cases, the Teacher Prompting System shall preserve those test cases and hide them from the editor rather than deleting them.
-2. When Assisted Authoring Mode changes from OFF to ON and the Final Prompt did not change while the mode was OFF, the Teacher Prompting System shall re-show the preserved test cases for that bot.
-3. When Assisted Authoring Mode changes from OFF to ON and the Final Prompt changed while the mode was OFF, the Teacher Prompting System shall generate new test cases for the current Final Prompt and shall present those new test cases instead of the previously preserved generation.
-4. When Assisted Authoring Mode changes from OFF to ON and new test case generation is required but generation fails, the Teacher Prompting System shall show an error, shall leave mode ON as saved, and shall not silently present stale preserved test cases as if they matched the changed Final Prompt.
-5. The Teacher Prompting System shall determine whether the Final Prompt “changed while OFF” by comparing the Final Prompt content that applies when mode returns to ON with the Final Prompt content associated with the preserved test cases from when mode was turned OFF (or last validly associated while ON).
+1. When Assisted Authoring Mode changes from ON to OFF for a bot that has assisted test cases, the Teacher Prompting System shall discard those assisted test cases from the editor (not preserve them for later restore) and show a fresh try-chat.
+2. When Assisted Authoring Mode changes from OFF to ON, the Teacher Prompting System shall generate new assisted test cases for the current Final Prompt rather than restoring any previously discarded ON suite.
+3. When Assisted Authoring Mode changes from OFF to ON and test case generation fails, the Teacher Prompting System shall show an error, shall leave mode ON as saved, and shall not silently present discarded or mismatched cases as current.
 
 ### Requirement 5: Editor guidance consistency
 

@@ -110,7 +110,29 @@
   - Checklist document exists for post-MVP manual run and explicitly includes Create-page exclusion
   - _Requirements: 1.1, 1.3, 1.4, 1.5, 1.6, 2.3, 2.4, 3.1, 3.4, 4.1, 4.2, 4.3, 4.4_
 
+## 5. OFF try-chat revision (discard ON suite; no preserve/restore)
+
+- [x] 5.1 Keep right panel visible while OFF as try-chat
+  - Right panel remains after mode hydration in both ON and OFF; OFF uses a single try-chat surface (not the assisted multi-case suite); Clear conversation resets the thread
+  - OFF editor shows try-chat + Clear; ON still shows assisted suite
+  - _Requirements: 3.1, 3.3, 3.4, 3.6_
+  - _Boundary: EditorChrome, AssistantPanelModeGate_
+
+- [x] 5.2 ON→OFF discard; OFF→ON regenerate only
+  - ON→OFF discards assisted cases (no snapshot preserve/restore); OFF→ON always regenerates; remove restore bootstrap path
+  - Switching OFF never re-shows the prior assisted suite after a later ON cycle unless freshly generated
+  - _Requirements: 4.1, 4.2, 4.3_
+  - _Boundary: AssistantPanelModeGate_
+  - _Depends: 5.1_
+
+- [x] 5.3 Update selftests and E2E checklist for try-chat / discard
+  - Rail/panel visibility when OFF; transition helpers no longer require restore; checklist matches discard + Clear
+  - Selftests and checklist align with Requirements 3–4 revision
+  - _Requirements: 3.3, 3.4, 4.1, 4.2_
+  - _Depends: 5.1, 5.2_
+
 ## Implementation Notes
 - Selftests: run with `npx tsx <path>` (requires non-sandbox / full permissions in this environment).
 - Store mapping for booleans: follow `shareAuthorName` — preserve `false` vs `undefined` (`?? undefined` on read, do not coerce missing to false).
-- ON→OFF snapshot: wait for `modeHydrated` and keep `previousMode` null until first hydrated value; never treat default ON→loaded OFF as a real transition.
+- Mode transitions: wait for `modeHydrated` and keep `previousMode` null until first hydrated value; never treat default ON→loaded OFF as a real transition.
+- Legacy client snapshots from the old preserve/restore design may be cleared on ON→OFF; restore is no longer used.

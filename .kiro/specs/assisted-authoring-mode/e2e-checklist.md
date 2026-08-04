@@ -12,7 +12,8 @@ Post-MVP manual verification for `assisted-authoring-mode`.
 ## OFF behavior (training)
 
 - [ ] With mode OFF: Final Prompt editable; no auto test-case generation
-- [ ] With mode OFF: test-case rail hidden; no Update-prompt-from-edits strip
+- [ ] With mode OFF: right panel shows a single try-chat (not multi-case suite); no Update-prompt-from-edits strip
+- [ ] With mode OFF: Clear conversation resets the try-chat
 - [ ] With mode OFF: Publish succeeds without all test cases passing
 - [ ] With mode OFF: spotlight does not force assisted-only test case / all-pass steps
 
@@ -23,10 +24,9 @@ Post-MVP manual verification for `assisted-authoring-mode`.
 
 ## Transitions
 
-- [ ] ON → OFF: test cases hide; snapshot preserved (no delete)
-- [ ] OFF → ON without Final Prompt edit: same test cases restore
-- [ ] OFF → ON after Final Prompt edit: new test cases generate; old generation not shown as current
-- [ ] OFF → ON regenerate failure: error shown; mode stays ON; stale cases not presented as current
+- [ ] ON → OFF: assisted test cases discarded; fresh try-chat shown (not restored later)
+- [ ] OFF → ON: new assisted test cases generate for current Final Prompt
+- [ ] OFF → ON regenerate failure: error shown; mode stays ON; stale/discarded cases not presented as current
 
 ## Create page exclusion (Req 1.5)
 
