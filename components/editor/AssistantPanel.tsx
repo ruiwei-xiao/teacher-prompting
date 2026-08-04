@@ -5129,14 +5129,18 @@ export default function AssistantPanel({
       // Restore test cases from snapshot
       try {
         const restoredCases = offToOnBootstrapAction.testCases as TestCaseSet[];
-        if (Array.isArray(restoredCases) && restoredCases.length > 0) {
-          setTestCases(restoredCases);
-          setActiveTestCaseId(restoredCases[0]?.id || "");
-          setApplySummary("Restored test cases from when mode was last ON.");
-          onOffToOnBootstrapComplete?.();
-        } else {
+        // Empty array is a valid preserved state (ON→OFF planner allows it).
+        if (!Array.isArray(restoredCases)) {
           throw new Error("Restored snapshot contained invalid test case data.");
         }
+        setTestCases(restoredCases);
+        setActiveTestCaseId(restoredCases[0]?.id || "");
+        setApplySummary(
+          restoredCases.length > 0
+            ? "Restored test cases from when mode was last ON."
+            : "Restored empty test-case set from when mode was last ON."
+        );
+        onOffToOnBootstrapComplete?.();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         onOffToOnError?.(msg);

@@ -222,9 +222,13 @@ export default function EditorPage({
         }
       } catch {}
 
+      // Fetch failed or returned no app: still hydrate so mode-gated UI
+      // (test-case rail, spotlight) is not stuck hidden forever. Unknown mode
+      // keeps the client default (ON / legacy), matching resolveAssistedAuthoringMode.
       setAppName(appId);
       setHeaderModelLabel("Unknown model");
       setHeaderVariabilityLabel(formatVariabilityLabel());
+      setModeHydrated(true);
     }
 
     void loadApp();
