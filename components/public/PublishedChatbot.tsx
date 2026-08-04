@@ -14,16 +14,13 @@ import {
   getSpeechRecognitionConstructor,
   readImageDataUrl,
 } from "@/lib/chat-input/client";
+import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   imageUrl?: string;
 };
-
-function getWelcomeMessage(appName: string) {
-  return `Hi! I'm ${appName}. We can learn step by step together.\n\nYou can type, speak, attach a text file, or upload an image (when this bot uses OpenAI).`;
-}
 
 export default function PublishedChatbot({
   appId,
@@ -443,7 +440,7 @@ export default function PublishedChatbot({
             <p className="mt-2 text-xs text-red-600">{composerError}</p>
           )}
           <p className="mt-2 text-xs text-slate-500">
-            Text files, images (OpenAI bots), and voice are supported.
+            Text files, images, and voice are supported.
           </p>
         </div>
       </div>
