@@ -8,6 +8,7 @@ import {
   formatStudentProfile,
   type StudentProfile,
 } from "@/lib/test-case-students";
+import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -47,6 +48,7 @@ function buildStudentUserPayload(
   transcript: ChatMsg[],
   roundIndex: number
 ) {
+  // Production chats always open with a static tutor welcome, then the learner types.
   if (transcript.length === 0) {
     return "The tutoring session just started. Write the learner's opening message to the tutor—what they type first in the chat box.";
   }
@@ -60,7 +62,7 @@ function buildStudentUserPayload(
     ...lines,
     "",
     roundIndex === 0
-      ? "Write ONLY the learner's opening message."
+      ? "The tutor already sent a welcome message (as in the live student chat). Write ONLY the learner's first reply in the chat box."
       : "Write ONLY the learner's very next reply (what they type next).",
   ].join("\n");
 }
@@ -71,6 +73,7 @@ async function generateOneDialogue(args: {
   apiKey: string;
   variability: number;
   baseSystemPrompt: string;
+  appName: string;
   profile: StudentProfile;
   scenarioSummary: string;
   purposeLabel: string;
@@ -82,6 +85,7 @@ async function generateOneDialogue(args: {
     apiKey,
     variability,
     baseSystemPrompt,
+    appName,
     profile,
     scenarioSummary,
     purposeLabel,
@@ -95,7 +99,10 @@ async function generateOneDialogue(args: {
     purposeLabel
   );
 
-  const transcript: ChatMsg[] = [];
+  // Same static welcome as published / try-chat — not model-generated.
+  const transcript: ChatMsg[] = [
+    { role: "assistant", content: getWelcomeMessage(appName) },
+  ];
 
   for (let r = 0; r < rounds; r += 1) {
     const studentPayload = buildStudentUserPayload(transcript, r);
@@ -192,6 +199,7 @@ export async function POST(req: NextRequest) {
         apiKey: app.apiKey,
         variability,
         baseSystemPrompt: baseSystem,
+        appName: app.name || appId,
         profile: c.profile,
         scenarioSummary:
           typeof c.scenarioSummary === "string"

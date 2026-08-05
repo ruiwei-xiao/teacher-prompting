@@ -27,6 +27,8 @@ import {
   type StudentProfile,
 } from "@/lib/test-case-students";
 import { extractPlottableRhs } from "@/lib/math/function-plot";
+import { isAssistedBehaviorEnabled } from "@/lib/assisted-authoring/mode-gate";
+import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 
 type ChatMessage = {
   id: string;
@@ -136,7 +138,7 @@ function createMessage(
   role: ChatMessage["role"],
   content: string,
   originalContent = content,
-  imageUrl?: string
+  imageUrl?: string,
 ): ChatMessage {
   return {
     id:
@@ -163,7 +165,9 @@ function messageHasEdits(message: ChatMessage) {
 }
 
 function buildStudentProfileForCase(index: number): StudentProfile {
-  const base = DEFAULT_TEST_CASE_STUDENTS[index] || DEFAULT_TEST_CASE_STUDENTS[index % DEFAULT_TEST_CASE_STUDENTS.length];
+  const base =
+    DEFAULT_TEST_CASE_STUDENTS[index] ||
+    DEFAULT_TEST_CASE_STUDENTS[index % DEFAULT_TEST_CASE_STUDENTS.length];
   return {
     ...base,
     id: `${base.id}-${index + 1}`,
@@ -184,7 +188,8 @@ type TestCasePreset = {
 const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
   {
     purposeLabel: "Expected path",
-    scenarioSummary: "A common learner who should succeed with the intended teaching flow.",
+    scenarioSummary:
+      "A common learner who should succeed with the intended teaching flow.",
     round1User:
       "I want a simple explanation first, and then I want to try a small example on my own.",
     round1Assistant:
@@ -198,7 +203,8 @@ const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
   },
   {
     purposeLabel: "Edge case",
-    scenarioSummary: "A student who is frustrated, skeptical, or holding onto a misconception.",
+    scenarioSummary:
+      "A student who is frustrated, skeptical, or holding onto a misconception.",
     round1User:
       "I already know the idea, so can you skip the explanation and just tell me the final answer quickly?",
     round1Assistant:
@@ -214,7 +220,8 @@ const DEFAULT_TEST_CASE_PRESETS: TestCasePreset[] = [
 
 function buildTestCaseIntroMessage(appName: string, preset?: TestCasePreset) {
   const purposeLabel = preset?.purposeLabel || "Custom case";
-  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
+  const scenarioSummary =
+    preset?.scenarioSummary || "A custom student simulation.";
 
   if (purposeLabel === "Expected path") {
     return `Hi! I'm ${appName}. Let's learn together step by step. Tell me what you want to understand first, and I'll help you work through it.`;
@@ -231,32 +238,40 @@ function getTeacherConfigureFirstMessages(appName: string): ChatMessage[] {
   return [
     createMessage(
       "assistant",
-      `Hi! I'm ${appName}. Use **Edit** on this test case card to describe the simulated student and scenario. When you're ready, type or speak below—we won't pre-fill a scripted conversation for you.`
+      `Hi! I'm ${appName}. Use **Edit** on this test case card to describe the simulated student and scenario. When you're ready, type or speak below—we won't pre-fill a scripted conversation for you.`,
     ),
   ];
 }
 
-function getTeacherScratchStartMessages(appName: string, preset: TestCasePreset): ChatMessage[] {
-  return [createMessage("assistant", buildTestCaseIntroMessage(appName, preset))];
+function getTeacherScratchStartMessages(
+  appName: string,
+  preset: TestCasePreset,
+): ChatMessage[] {
+  return [
+    createMessage("assistant", buildTestCaseIntroMessage(appName, preset)),
+  ];
 }
 
 function getTeacherLedContextSeedMessages(
   appName: string,
   studentProfile: StudentProfile | null,
   preset: TestCasePreset,
-  readOnly: boolean
+  readOnly: boolean,
 ): ChatMessage[] {
-  if (readOnly) return getInitialMessages(appName, studentProfile, preset, true);
+  if (readOnly)
+    return getInitialMessages(appName, studentProfile, preset, true);
   const studentLabel = studentProfile?.label || "Student";
   const gradeLevel = studentProfile?.gradeLevel || "middle school";
   const personality = studentProfile?.personality || "thoughtful and curious";
-  const knowledgeLevel = studentProfile?.knowledgeLevel || "still building core understanding";
+  const knowledgeLevel =
+    studentProfile?.knowledgeLevel || "still building core understanding";
   const purposeLabel = preset.purposeLabel || "Custom case";
-  const scenarioSummary = preset.scenarioSummary || "A custom student simulation.";
+  const scenarioSummary =
+    preset.scenarioSummary || "A custom student simulation.";
   return [
     createMessage(
       "assistant",
-      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}\n\nContinue the conversation below when you're ready.`
+      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}\n\nContinue the conversation below when you're ready.`,
     ),
   ];
 }
@@ -271,19 +286,18 @@ function createTestCaseSet(
     warmStart?: TestCaseWarmStart;
     teacherEntry?: TeacherEntryMode;
     autoDialoguePending?: boolean;
-  }
+  },
 ): TestCaseSet {
   const warmStart = options?.warmStart ?? "scripted";
-  const resolvedPreset =
-    preset || {
-      purposeLabel: "Custom case",
-      scenarioSummary: "A custom student simulation for this prompt.",
-      round1User: "Can you help me get started?",
-      round1Assistant: "Absolutely. Let's start with one manageable step.",
-      round2User: "I think I partly get it, but I still need support.",
-      round2Assistant: "Let's slow it down and test one idea at a time.",
-      round3User: "Can I try one final response on my own?",
-    };
+  const resolvedPreset = preset || {
+    purposeLabel: "Custom case",
+    scenarioSummary: "A custom student simulation for this prompt.",
+    round1User: "Can you help me get started?",
+    round1Assistant: "Absolutely. Let's start with one manageable step.",
+    round2User: "I think I partly get it, but I still need support.",
+    round2Assistant: "Let's slow it down and test one idea at a time.",
+    round3User: "Can I try one final response on my own?",
+  };
 
   let messages: ChatMessage[];
   if (readOnly) {
@@ -314,20 +328,70 @@ function createTestCaseSet(
     verificationStatus: "idle",
     verificationNote: "",
     warmStart,
-    ...(warmStart === "teacher" ? { teacherEntry: options?.teacherEntry ?? "scratch" } : {}),
+    ...(warmStart === "teacher"
+      ? { teacherEntry: options?.teacherEntry ?? "scratch" }
+      : {}),
     ...(options?.autoDialoguePending ? { autoDialoguePending: true } : {}),
   };
 }
 
 function createInitialTestCases(appName: string, readOnly = false) {
   if (readOnly) {
-    return [createTestCaseSet("Preview", appName, true, buildStudentProfileForCase(0), DEFAULT_TEST_CASE_PRESETS[0])];
+    return [
+      createTestCaseSet(
+        "Preview",
+        appName,
+        true,
+        buildStudentProfileForCase(0),
+        DEFAULT_TEST_CASE_PRESETS[0],
+      ),
+    ];
   }
 
   return DEFAULT_TEST_CASE_PRESETS.map((preset, index) => {
     const studentProfile = buildStudentProfileForCase(index);
-    return createTestCaseSet(studentProfile.label, appName, false, studentProfile, preset);
+    return createTestCaseSet(
+      studentProfile.label,
+      appName,
+      false,
+      studentProfile,
+      preset,
+    );
   });
+}
+
+const TRY_CHAT_PRESET: TestCasePreset = {
+  purposeLabel: "Try your bot",
+  scenarioSummary: "Chat as a student to try your Final Prompt.",
+  round1User: "Can you help me get started?",
+  round1Assistant: "Sure — let's begin.",
+  round2User: "I want to try another angle.",
+  round2Assistant: "Okay, let's look at it another way.",
+  round3User: "Can I check my understanding?",
+};
+
+function getTryChatStartMessages(appName: string): ChatMessage[] {
+  // Same static welcome as published student chat (not model-generated).
+  return [createMessage("assistant", getWelcomeMessage(appName))];
+}
+
+/** Single try-chat thread used while Assisted Authoring Mode is OFF. */
+function createTryChatCase(appName: string): TestCaseSet {
+  const base = createTestCaseSet(
+    "Try chat",
+    appName,
+    false,
+    null,
+    TRY_CHAT_PRESET,
+    {
+      warmStart: "teacher",
+      teacherEntry: "scratch",
+    },
+  );
+  return {
+    ...base,
+    messages: getTryChatStartMessages(appName),
+  };
 }
 
 export type VisualizationState =
@@ -413,13 +477,7 @@ export type VisualizationState =
       };
     };
 
-function Icon({
-  d,
-  className = "w-4 h-4",
-}: {
-  d: string;
-  className?: string;
-}) {
+function Icon({ d, className = "w-4 h-4" }: { d: string; className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className}>
       <path d={d} fill="currentColor" />
@@ -556,7 +614,7 @@ function extractStudentCode(message?: string) {
   const looksLikeCode =
     message.includes("\n") ||
     /(for\s+.+range|for\s*\(.+\)|print\(|console\.log|let\s+\w+\s*=|const\s+\w+\s*=)/i.test(
-      message
+      message,
     );
 
   return looksLikeCode ? message.trim() : null;
@@ -581,7 +639,7 @@ function parseArrayLiteral(source: string) {
 
 function resolveRuntimeValue(
   expression: string,
-  state: Record<string, TraceRuntimeValue>
+  state: Record<string, TraceRuntimeValue>,
 ): TraceRuntimeValue {
   const trimmed = expression.trim().replace(/;$/, "");
 
@@ -655,7 +713,10 @@ function createTraceStep(args: {
     statement: args.statement,
     explanation: args.explanation,
     state: Object.fromEntries(
-      Object.entries(args.state).map(([key, value]) => [key, formatRuntimeValue(value)])
+      Object.entries(args.state).map(([key, value]) => [
+        key,
+        formatRuntimeValue(value),
+      ]),
     ),
     output: [...args.output],
   };
@@ -674,7 +735,10 @@ function collectPythonLoopBody(lines: TraceSourceLine[], startIndex: number) {
   return { body, nextIndex: cursor - 1 };
 }
 
-function collectJavaScriptLoopBody(lines: TraceSourceLine[], startIndex: number) {
+function collectJavaScriptLoopBody(
+  lines: TraceSourceLine[],
+  startIndex: number,
+) {
   const body: TraceSourceLine[] = [];
   let depth = lines[startIndex].text.includes("{") ? 1 : 0;
   let cursor = startIndex + 1;
@@ -709,7 +773,7 @@ function runTraceStatement(args: {
 }) {
   const { line, state, output, steps } = args;
   const assignmentMatch = line.text.match(
-    /^(?:let |const |var )?([A-Za-z_$][\w$]*)\s*=\s*(.+)$/
+    /^(?:let |const |var )?([A-Za-z_$][\w$]*)\s*=\s*(.+)$/,
   );
 
   if (assignmentMatch) {
@@ -722,7 +786,7 @@ function runTraceStatement(args: {
         state,
         output,
         index: steps.length,
-      })
+      }),
     );
     return;
   }
@@ -747,7 +811,7 @@ function runTraceStatement(args: {
         state,
         output,
         index: steps.length,
-      })
+      }),
     );
     return;
   }
@@ -763,7 +827,7 @@ function runTraceStatement(args: {
         state,
         output,
         index: steps.length,
-      })
+      }),
     );
     return;
   }
@@ -786,13 +850,14 @@ function buildTraceFromCode(code: string) {
     }))
     .filter(
       (line) =>
-        line.text &&
-        !line.text.startsWith("#") &&
-        !line.text.startsWith("//")
+        line.text && !line.text.startsWith("#") && !line.text.startsWith("//"),
     );
 
   if (!lines.length) {
-    return { steps: [] as TraceStep[], error: "Add a short code snippet to trace." };
+    return {
+      steps: [] as TraceStep[],
+      error: "Add a short code snippet to trace.",
+    };
   }
 
   const state: Record<string, TraceRuntimeValue> = {};
@@ -803,24 +868,24 @@ function buildTraceFromCode(code: string) {
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       const pythonLoop = line.text.match(
-        /^for\s+([A-Za-z_$][\w$]*)\s+in\s+range\((.+)\):$/
+        /^for\s+([A-Za-z_$][\w$]*)\s+in\s+range\((.+)\):$/,
       );
       const jsLoop = line.text.match(
-        /^for\s*\(\s*(?:let|const|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*(.+?)\s*;\s*\1\s*<\s*(.+?)\s*;\s*\1\+\+\s*\)\s*\{?$/
+        /^for\s*\(\s*(?:let|const|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*(.+?)\s*;\s*\1\s*<\s*(.+?)\s*;\s*\1\+\+\s*\)\s*\{?$/,
       );
 
       if (pythonLoop || jsLoop) {
         const loopVar = (pythonLoop || jsLoop)?.[1] || "i";
-        const startValue = jsLoop
-          ? resolveRuntimeValue(jsLoop[2], state)
-          : 0;
+        const startValue = jsLoop ? resolveRuntimeValue(jsLoop[2], state) : 0;
         const endValue = resolveRuntimeValue(
           pythonLoop ? pythonLoop[2] : jsLoop?.[3] || "0",
-          state
+          state,
         );
 
         if (typeof startValue !== "number" || typeof endValue !== "number") {
-          throw new Error(`Loop bounds on line ${line.lineNumber} must resolve to numbers.`);
+          throw new Error(
+            `Loop bounds on line ${line.lineNumber} must resolve to numbers.`,
+          );
         }
 
         const { body, nextIndex } = pythonLoop
@@ -828,7 +893,9 @@ function buildTraceFromCode(code: string) {
           : collectJavaScriptLoopBody(lines, index);
 
         if (!body.length) {
-          throw new Error(`Add at least one loop body line under line ${line.lineNumber}.`);
+          throw new Error(
+            `Add at least one loop body line under line ${line.lineNumber}.`,
+          );
         }
 
         for (let value = startValue; value < endValue; value += 1) {
@@ -841,7 +908,7 @@ function buildTraceFromCode(code: string) {
               state,
               output,
               index: steps.length,
-            })
+            }),
           );
 
           body.forEach((bodyLine) =>
@@ -850,7 +917,7 @@ function buildTraceFromCode(code: string) {
               state,
               output,
               steps,
-            })
+            }),
           );
         }
 
@@ -958,7 +1025,9 @@ function TraceVisualization({
   }
 
   function jumpToLine(lineNumber: number) {
-    const firstStep = traceSteps.findIndex((step) => step.sourceLine === lineNumber);
+    const firstStep = traceSteps.findIndex(
+      (step) => step.sourceLine === lineNumber,
+    );
     if (firstStep >= 0) {
       setActiveStep(firstStep);
       setClickedLine(lineNumber);
@@ -975,8 +1044,8 @@ function TraceVisualization({
               Interactive code tracing
             </div>
             <div className="mt-1 text-sm text-slate-700">
-              Ask the student what code they want to trace, then step through it in
-              the interface.
+              Ask the student what code they want to trace, then step through it
+              in the interface.
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1056,7 +1125,7 @@ function TraceVisualization({
                   const lineNumber = index + 1;
                   const highlighted = currentStep.sourceLine === lineNumber;
                   const clickable = traceSteps.some(
-                    (step) => step.sourceLine === lineNumber
+                    (step) => step.sourceLine === lineNumber,
                   );
 
                   return (
@@ -1070,10 +1139,14 @@ function TraceVisualization({
                         highlighted
                           ? "bg-sky-500/20 text-sky-100"
                           : "text-slate-300",
-                        clickable ? "hover:bg-white/5" : "cursor-default opacity-60",
+                        clickable
+                          ? "hover:bg-white/5"
+                          : "cursor-default opacity-60",
                       ].join(" ")}
                     >
-                      <span className="w-6 shrink-0 text-slate-500">{lineNumber}</span>
+                      <span className="w-6 shrink-0 text-slate-500">
+                        {lineNumber}
+                      </span>
                       <span className="whitespace-pre-wrap">{line || " "}</span>
                     </button>
                   );
@@ -1103,7 +1176,7 @@ function TraceVisualization({
                       type="button"
                       onClick={() => {
                         setActiveStep((step) =>
-                          Math.min(traceSteps.length - 1, step + 1)
+                          Math.min(traceSteps.length - 1, step + 1),
                         );
                         recordInteraction("Pressed Next");
                       }}
@@ -1260,7 +1333,8 @@ async function playToneSequence(tones: PlayableTone[]) {
 
   tones.forEach((tone) => {
     const pitch = typeof tone === "string" ? tone : tone.pitch;
-    const duration = typeof tone === "string" ? "quarter" : tone.duration || "quarter";
+    const duration =
+      typeof tone === "string" ? "quarter" : tone.duration || "quarter";
     const frequency = NOTE_FREQUENCIES[pitch];
     if (!frequency) return;
     const noteSeconds = getDurationSeconds(duration);
@@ -1274,7 +1348,7 @@ async function playToneSequence(tones: PlayableTone[]) {
     gain.gain.exponentialRampToValueAtTime(0.18, currentTime + 0.02);
     gain.gain.exponentialRampToValueAtTime(
       0.0001,
-      currentTime + Math.max(0.2, noteSeconds - 0.03)
+      currentTime + Math.max(0.2, noteSeconds - 0.03),
     );
 
     oscillator.connect(gain);
@@ -1284,11 +1358,14 @@ async function playToneSequence(tones: PlayableTone[]) {
     currentTime += noteSeconds + 0.05;
   });
 
-  window.setTimeout(() => {
-    void context.close().catch(() => {
-      return;
-    });
-  }, Math.ceil(currentTime * 1000) + 120);
+  window.setTimeout(
+    () => {
+      void context.close().catch(() => {
+        return;
+      });
+    },
+    Math.ceil(currentTime * 1000) + 120,
+  );
 }
 
 function MusicStaffVisualization({
@@ -1302,7 +1379,7 @@ function MusicStaffVisualization({
   const [selectedDuration, setSelectedDuration] =
     useState<StaffDuration>("quarter");
   const [draggedDuration, setDraggedDuration] = useState<StaffDuration | null>(
-    null
+    null,
   );
   const [notes, setNotes] = useState<StaffPlacedNote[]>([
     { pitch: "C5", slot: 0, duration: "quarter" },
@@ -1310,7 +1387,7 @@ function MusicStaffVisualization({
     { pitch: "E5", slot: 2, duration: "half" },
   ]);
   const [lastInteraction, setLastInteraction] = useState(
-    "Opened the music staff"
+    "Opened the music staff",
   );
   const [draggingSlot, setDraggingSlot] = useState<number | null>(null);
   const [hoveredPlacement, setHoveredPlacement] = useState<{
@@ -1325,7 +1402,7 @@ function MusicStaffVisualization({
   function setNoteAtSlot(
     slot: number,
     pitch: string,
-    duration: StaffDuration = "quarter"
+    duration: StaffDuration = "quarter",
   ) {
     const nextNote: StaffPlacedNote = { slot, pitch, duration };
     setNotes((current) => {
@@ -1350,13 +1427,11 @@ function MusicStaffVisualization({
           ...note,
           duration: nextDuration,
         };
-      })
+      }),
     );
 
     recordInteraction(
-      `Dragged note in slot ${draggingSlot + 1} to ${
-        nextDuration
-      } duration`
+      `Dragged note in slot ${draggingSlot + 1} to ${nextDuration} duration`,
     );
   }
 
@@ -1413,7 +1488,7 @@ function MusicStaffVisualization({
   function renderPlacedNote(
     pitch: string,
     duration: StaffDuration,
-    className = ""
+    className = "",
   ) {
     const position = getStaffPosition(pitch);
     const isHalf = duration === "half";
@@ -1438,7 +1513,9 @@ function MusicStaffVisualization({
         <span
           className={[
             "absolute w-[1.6px] bg-slate-950",
-            stemDown ? "right-[56%] top-1/2 h-10 -translate-y-[8%]" : "left-[58%] top-[6%] h-10",
+            stemDown
+              ? "right-[56%] top-1/2 h-10 -translate-y-[8%]"
+              : "left-[58%] top-[6%] h-10",
           ].join(" ")}
         />
         {isHalf && (
@@ -1476,12 +1553,15 @@ function MusicStaffVisualization({
   const slotWidth = 76;
   const measureGap = 18;
   const noteAreaWidth =
-    totalSlots * slotWidth + Math.floor((totalSlots - 1) / barSize) * measureGap;
+    totalSlots * slotWidth +
+    Math.floor((totalSlots - 1) / barSize) * measureGap;
   const noteAreaHeight = 156;
   const totalStaffWidth = noteAreaLeft + noteAreaWidth + 16;
 
   function getSlotLeft(slot: number) {
-    return noteAreaLeft + slot * slotWidth + Math.floor(slot / barSize) * measureGap;
+    return (
+      noteAreaLeft + slot * slotWidth + Math.floor(slot / barSize) * measureGap
+    );
   }
 
   function getSlotCenter(slot: number) {
@@ -1506,8 +1586,8 @@ function MusicStaffVisualization({
               Interactive music staff
             </div>
             <div className="mt-1 text-sm text-slate-700">
-              Place notes on the five-line staff, then hear the note or full melody
-              played back.
+              Place notes on the five-line staff, then hear the note or full
+              melody played back.
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1521,7 +1601,7 @@ function MusicStaffVisualization({
                     .map((note) => ({
                       pitch: note.pitch,
                       duration: note.duration,
-                    }))
+                    })),
                 );
                 recordInteraction("Pressed Play melody");
               }}
@@ -1565,7 +1645,10 @@ function MusicStaffVisualization({
           <div className="rounded-2xl border border-amber-100 bg-[linear-gradient(to_bottom,#fffefb,#fffaf0)] p-4">
             <div
               className="relative min-w-[720px] rounded-xl bg-white/55"
-              style={{ width: `${totalStaffWidth}px`, height: `${noteAreaHeight}px` }}
+              style={{
+                width: `${totalStaffWidth}px`,
+                height: `${noteAreaHeight}px`,
+              }}
             >
               <div className="absolute left-2 top-[18px] text-6xl leading-none text-slate-800">
                 𝄞
@@ -1587,18 +1670,21 @@ function MusicStaffVisualization({
                 />
               ))}
 
-              {Array.from({ length: Math.ceil(totalSlots / barSize) }, (_, measureIndex) => (
-                <div
-                  key={`measure-bg-${measureIndex}`}
-                  className="absolute rounded-md bg-slate-100/35"
-                  style={{
-                    left: `${getSlotLeft(measureIndex * barSize)}px`,
-                    top: `${staffTop - 10}px`,
-                    width: `${barSize * slotWidth}px`,
-                    height: `${lineSpacing * 4 + 20}px`,
-                  }}
-                />
-              ))}
+              {Array.from(
+                { length: Math.ceil(totalSlots / barSize) },
+                (_, measureIndex) => (
+                  <div
+                    key={`measure-bg-${measureIndex}`}
+                    className="absolute rounded-md bg-slate-100/35"
+                    style={{
+                      left: `${getSlotLeft(measureIndex * barSize)}px`,
+                      top: `${staffTop - 10}px`,
+                      width: `${barSize * slotWidth}px`,
+                      height: `${lineSpacing * 4 + 20}px`,
+                    }}
+                  />
+                ),
+              )}
 
               {Array.from({ length: totalSlots + 1 }, (_, boundary) => {
                 const thick =
@@ -1619,30 +1705,32 @@ function MusicStaffVisualization({
                 );
               })}
 
-              {hoveredPlacement && !notes.find(
-                (note) =>
-                  note.slot === hoveredPlacement.slot &&
-                  note.pitch === hoveredPlacement.pitch
-              ) && (
-                <div
-                  className="pointer-events-none absolute"
-                  style={{
-                    left: `${getSlotCenter(hoveredPlacement.slot)}px`,
-                    top: `${
-                      staffTop +
-                      (getStaffPosition(hoveredPlacement.pitch)?.lineIndex ?? 0) *
-                        lineSpacing -
-                      1
-                    }px`,
-                  }}
-                >
-                  {renderPlacedNote(
-                    hoveredPlacement.pitch,
-                    selectedDuration,
-                    "opacity-35"
-                  )}
-                </div>
-              )}
+              {hoveredPlacement &&
+                !notes.find(
+                  (note) =>
+                    note.slot === hoveredPlacement.slot &&
+                    note.pitch === hoveredPlacement.pitch,
+                ) && (
+                  <div
+                    className="pointer-events-none absolute"
+                    style={{
+                      left: `${getSlotCenter(hoveredPlacement.slot)}px`,
+                      top: `${
+                        staffTop +
+                        (getStaffPosition(hoveredPlacement.pitch)?.lineIndex ??
+                          0) *
+                          lineSpacing -
+                        1
+                      }px`,
+                    }}
+                  >
+                    {renderPlacedNote(
+                      hoveredPlacement.pitch,
+                      selectedDuration,
+                      "opacity-35",
+                    )}
+                  </div>
+                )}
 
               {STAFF_NOTE_POSITIONS.map((staffNote) =>
                 Array.from({ length: totalSlots }, (_, slot) => {
@@ -1651,7 +1739,7 @@ function MusicStaffVisualization({
                     (note) =>
                       note.duration === "half" &&
                       note.slot + 1 === slot &&
-                      note.pitch === staffNote.pitch
+                      note.pitch === staffNote.pitch,
                   );
                   const active = noteAtSlot?.pitch === staffNote.pitch;
                   const top = staffTop + staffNote.lineIndex * lineSpacing - 18;
@@ -1668,7 +1756,9 @@ function MusicStaffVisualization({
                       onDrop={(event) => {
                         event.preventDefault();
                         const droppedDuration =
-                          (event.dataTransfer.getData("text/plain") as StaffDuration) ||
+                          (event.dataTransfer.getData(
+                            "text/plain",
+                          ) as StaffDuration) ||
                           draggedDuration ||
                           "quarter";
                         setNoteAtSlot(slot, staffNote.pitch, droppedDuration);
@@ -1687,9 +1777,10 @@ function MusicStaffVisualization({
                       }}
                       onMouseLeave={() => {
                         setHoveredPlacement((current) =>
-                          current?.slot === slot && current?.pitch === staffNote.pitch
+                          current?.slot === slot &&
+                          current?.pitch === staffNote.pitch
                             ? null
-                            : current
+                            : current,
                         );
                       }}
                       onDoubleClick={() => clearSlot(slot)}
@@ -1708,11 +1799,11 @@ function MusicStaffVisualization({
                       {active &&
                         renderPlacedNote(
                           staffNote.pitch,
-                          noteAtSlot?.duration || "quarter"
+                          noteAtSlot?.duration || "quarter",
                         )}
                     </button>
                   );
-                })
+                }),
               )}
             </div>
           </div>
@@ -1724,22 +1815,27 @@ function MusicStaffVisualization({
       </div>
 
       <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-violet-700">
-            Reading cue
-          </div>
-          <div className="mt-2 text-sm text-slate-700">
-            Last placed pitch: <span className="font-medium">{selectedPitch}</span>
-          </div>
-          <div className="mt-2 text-sm text-slate-700">
-            Drag palette: <span className="font-medium capitalize">{selectedDuration} note</span>
-          </div>
-          <div className="mt-2 text-sm text-slate-700">
-            Last interaction: <span className="font-medium">{lastInteraction}</span>
-          </div>
-          <div className="mt-3 rounded-2xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
-            Encourage the student to say the note name before pressing play, then
-            compare what they predicted with what they heard.
-          </div>
+        <div className="text-xs font-medium uppercase tracking-wide text-violet-700">
+          Reading cue
+        </div>
+        <div className="mt-2 text-sm text-slate-700">
+          Last placed pitch:{" "}
+          <span className="font-medium">{selectedPitch}</span>
+        </div>
+        <div className="mt-2 text-sm text-slate-700">
+          Drag palette:{" "}
+          <span className="font-medium capitalize">
+            {selectedDuration} note
+          </span>
+        </div>
+        <div className="mt-2 text-sm text-slate-700">
+          Last interaction:{" "}
+          <span className="font-medium">{lastInteraction}</span>
+        </div>
+        <div className="mt-3 rounded-2xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
+          Encourage the student to say the note name before pressing play, then
+          compare what they predicted with what they heard.
+        </div>
       </div>
     </div>
   );
@@ -1873,7 +1969,8 @@ function inferReactionProfile(equation: string): LabProfile {
     return {
       equation,
       title: "Neutralization lab",
-      summary: "This equation suggests an acid-base reaction that trends toward neutral products.",
+      summary:
+        "This equation suggests an acid-base reaction that trends toward neutral products.",
       reagents,
       apparatus: ["Beaker", "Thermometer", "Indicator color panel"],
       effectType,
@@ -1887,7 +1984,8 @@ function inferReactionProfile(equation: string): LabProfile {
     return {
       equation,
       title: "Precipitation lab",
-      summary: "This equation suggests a visible solid forms from dissolved reactants.",
+      summary:
+        "This equation suggests a visible solid forms from dissolved reactants.",
       reagents,
       apparatus: ["Beaker", "Dropper", "Precipitate view panel"],
       effectType,
@@ -1900,7 +1998,8 @@ function inferReactionProfile(equation: string): LabProfile {
   return {
     equation,
     title: "Equation-driven virtual lab",
-    summary: "This lab was generated from the reaction equation with a general reaction scaffold.",
+    summary:
+      "This lab was generated from the reaction equation with a general reaction scaffold.",
     reagents,
     apparatus: ["Beaker", "Dropper", "Observation panel"],
     effectType,
@@ -1919,7 +2018,8 @@ function VirtualLabVisualization({
     {
       equation: "CH3COOH + NaHCO3 -> CO2 + H2O + CH3COONa",
       title: "Acid-base gas formation",
-      summary: "Vinegar reacts with baking soda and releases carbon dioxide bubbles.",
+      summary:
+        "Vinegar reacts with baking soda and releases carbon dioxide bubbles.",
       reagents: [
         {
           id: "ch3cooh",
@@ -1952,7 +2052,8 @@ function VirtualLabVisualization({
     {
       equation: "HCl + NaOH -> NaCl + H2O",
       title: "Neutralization",
-      summary: "An acid and a base react to make salt and water, with a small temperature rise.",
+      summary:
+        "An acid and a base react to make salt and water, with a small temperature rise.",
       reagents: [
         {
           id: "hcl",
@@ -2021,7 +2122,7 @@ function VirtualLabVisualization({
     const normalized = normalizeEquation(equation);
     return (
       REACTION_PRESETS.find(
-        (preset) => normalizeEquation(preset.equation) === normalized
+        (preset) => normalizeEquation(preset.equation) === normalized,
       ) || null
     );
   }
@@ -2036,9 +2137,13 @@ function VirtualLabVisualization({
   const activeProfile = activePreset || inferReactionProfile(activeEquation);
   const generatedReagents = activeProfile.reagents;
   const selectedDefaultReagent = generatedReagents[0]?.id || "generic-0";
-  const [selectedReagent, setSelectedReagent] = useState(selectedDefaultReagent);
+  const [selectedReagent, setSelectedReagent] = useState(
+    selectedDefaultReagent,
+  );
   const [selectedAmount, setSelectedAmount] = useState(10);
-  const [additions, setAdditions] = useState<Array<{ reagentId: string; amount: number }>>([]);
+  const [additions, setAdditions] = useState<
+    Array<{ reagentId: string; amount: number }>
+  >([]);
 
   useEffect(() => {
     setSelectedReagent(generatedReagents[0]?.id || "generic-0");
@@ -2046,7 +2151,7 @@ function VirtualLabVisualization({
   }, [activeEquation]);
 
   const reagentMap = Object.fromEntries(
-    generatedReagents.map((reagent) => [reagent.id, reagent])
+    generatedReagents.map((reagent) => [reagent.id, reagent]),
   ) as Record<string, LabReagent>;
 
   const totals = additions.reduce<Record<string, number>>((acc, addition) => {
@@ -2054,10 +2159,17 @@ function VirtualLabVisualization({
     return acc;
   }, {});
 
-  const totalVolume = additions.reduce((sum, addition) => sum + addition.amount, 0);
-  const reactantAmounts = generatedReagents.map((reagent) => totals[reagent.id] || 0);
+  const totalVolume = additions.reduce(
+    (sum, addition) => sum + addition.amount,
+    0,
+  );
+  const reactantAmounts = generatedReagents.map(
+    (reagent) => totals[reagent.id] || 0,
+  );
   const matchedVolume =
-    reactantAmounts.length > 1 ? Math.min(...reactantAmounts.filter((amount) => amount > 0)) : 0;
+    reactantAmounts.length > 1
+      ? Math.min(...reactantAmounts.filter((amount) => amount > 0))
+      : 0;
   const reactionProgress = Math.min(100, matchedVolume * 5 + heatLevel * 0.15);
 
   const isGasReaction = activeProfile.effectType === "gas";
@@ -2065,13 +2177,15 @@ function VirtualLabVisualization({
   const isPrecipitate = activeProfile.effectType === "precipitate";
 
   const gasStrength = isGasReaction ? Math.min(100, reactionProgress + 10) : 0;
-  const precipitateStrength = isPrecipitate ? Math.min(100, reactionProgress + 8) : 0;
+  const precipitateStrength = isPrecipitate
+    ? Math.min(100, reactionProgress + 8)
+    : 0;
   const colorShift = isNeutralization ? Math.min(100, reactionProgress) : 0;
   const temperature = Math.round(
     21 +
       heatLevel * 0.12 +
       (isNeutralization ? reactionProgress * 0.08 : 0) +
-      (isGasReaction ? reactionProgress * 0.03 : 0)
+      (isGasReaction ? reactionProgress * 0.03 : 0),
   );
 
   let liquidColor = "#dbeafe";
@@ -2093,17 +2207,21 @@ function VirtualLabVisualization({
         : "The indicator shows whether acid or base is still left over.";
   } else if (isPrecipitate && precipitateStrength > 0) {
     liquidColor = "#e2e8f0";
-    visibleOutcome = "The solution becomes cloudy as a white precipitate forms.";
+    visibleOutcome =
+      "The solution becomes cloudy as a white precipitate forms.";
   } else if (generatedReagents.length > 0) {
     liquidColor = generatedReagents[0].color;
-    visibleOutcome = "The generated lab is ready. Add the listed reactants to test the equation.";
+    visibleOutcome =
+      "The generated lab is ready. Add the listed reactants to test the equation.";
   }
 
   const beakerFillHeight = Math.max(22, Math.min(84, 24 + totalVolume * 1.4));
   const bubbleCount = Math.max(0, Math.round(gasStrength / 11));
   const cloudOpacity = Math.max(0.08, precipitateStrength / 100);
   const neutralizationLevel =
-    reactantAmounts.length >= 2 && reactantAmounts[0] === reactantAmounts[1] && reactantAmounts[0] > 0
+    reactantAmounts.length >= 2 &&
+    reactantAmounts[0] === reactantAmounts[1] &&
+    reactantAmounts[0] > 0
       ? "Balanced"
       : reactantAmounts.length >= 2 && reactantAmounts[0] > reactantAmounts[1]
         ? "Acid excess"
@@ -2127,7 +2245,10 @@ function VirtualLabVisualization({
 
   const latestActions = additions.slice(-5).reverse();
   const chartHeights = [0.25, 0.46, 0.68, 0.84, 0.58].map((factor) =>
-    Math.max(8, Math.min(94, Math.round(factor * Math.max(reactionProgress, 15))))
+    Math.max(
+      8,
+      Math.min(94, Math.round(factor * Math.max(reactionProgress, 15))),
+    ),
   );
   const generatedTitle = activeProfile.title;
   const generatedSummary = activeProfile.summary;
@@ -2213,7 +2334,9 @@ function VirtualLabVisualization({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setActiveEquation(reactionInput.trim() || defaultEquation)}
+                onClick={() =>
+                  setActiveEquation(reactionInput.trim() || defaultEquation)
+                }
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
               >
                 Generate virtual lab
@@ -2253,7 +2376,9 @@ function VirtualLabVisualization({
               <div className="mt-2 text-sm font-medium text-slate-800">
                 {generatedTitle}
               </div>
-              <div className="mt-1 text-sm text-slate-600">{generatedSummary}</div>
+              <div className="mt-1 text-sm text-slate-600">
+                {generatedSummary}
+              </div>
             </div>
           </div>
         </div>
@@ -2265,7 +2390,8 @@ function VirtualLabVisualization({
                 Generated reagents
               </div>
               <div className="mt-1 text-sm text-slate-700">
-                Select one required reactant, choose an amount, then add it to the lab.
+                Select one required reactant, choose an amount, then add it to
+                the lab.
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2314,7 +2440,9 @@ function VirtualLabVisualization({
                     style={{ backgroundColor: reagent.color }}
                   />
                 </div>
-                <div className="mt-3 text-xs text-slate-600">{reagent.note}</div>
+                <div className="mt-3 text-xs text-slate-600">
+                  {reagent.note}
+                </div>
               </button>
             ))}
           </div>
@@ -2331,7 +2459,8 @@ function VirtualLabVisualization({
               disabled={!generatedReagents.length}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Add {selectedAmount} mL of {reagentMap[selectedReagent]?.label || "reactant"}
+              Add {selectedAmount} mL of{" "}
+              {reagentMap[selectedReagent]?.label || "reactant"}
             </button>
             <button
               type="button"
@@ -2398,7 +2527,9 @@ function VirtualLabVisualization({
               <div className="relative h-20 w-4 rounded-full bg-slate-300">
                 <div
                   className="absolute inset-x-0 bottom-0 rounded-full bg-rose-400"
-                  style={{ height: `${Math.max(15, Math.min(90, temperature - 8))}%` }}
+                  style={{
+                    height: `${Math.max(15, Math.min(90, temperature - 8))}%`,
+                  }}
                 />
               </div>
               <span className="text-[11px] text-slate-600">Thermometer</span>
@@ -2409,9 +2540,15 @@ function VirtualLabVisualization({
                 <div
                   className={[
                     "h-8 w-8 rounded-full transition-opacity",
-                    isPrecipitate ? "bg-slate-200" : "bg-yellow-300 shadow-[0_0_24px_rgba(250,204,21,0.65)]",
+                    isPrecipitate
+                      ? "bg-slate-200"
+                      : "bg-yellow-300 shadow-[0_0_24px_rgba(250,204,21,0.65)]",
                   ].join(" ")}
-                  style={{ opacity: isPrecipitate ? cloudOpacity : Math.max(0.16, reactionProgress / 100) }}
+                  style={{
+                    opacity: isPrecipitate
+                      ? cloudOpacity
+                      : Math.max(0.16, reactionProgress / 100),
+                  }}
                 />
               </div>
               <span className="text-[11px] text-slate-600">
@@ -2450,12 +2587,17 @@ function VirtualLabVisualization({
                     key={`${addition.reagentId}-${addition.amount}-${index}`}
                     className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm text-slate-700"
                   >
-                    <span>{reagentMap[addition.reagentId]?.label || addition.reagentId}</span>
+                    <span>
+                      {reagentMap[addition.reagentId]?.label ||
+                        addition.reagentId}
+                    </span>
                     <span className="font-medium">{addition.amount} mL</span>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-slate-500">No reactants added yet.</div>
+                <div className="text-sm text-slate-500">
+                  No reactants added yet.
+                </div>
               )}
             </div>
           </div>
@@ -2510,11 +2652,16 @@ function VirtualLabVisualization({
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-700">
               {generatedReagents.map((reagent) => (
-                <div key={reagent.id} className="rounded-xl bg-emerald-50 px-3 py-2">
+                <div
+                  key={reagent.id}
+                  className="rounded-xl bg-emerald-50 px-3 py-2"
+                >
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">
                     {reagent.shortLabel}
                   </div>
-                  <div className="mt-1 font-medium">{totals[reagent.id] || 0} mL</div>
+                  <div className="mt-1 font-medium">
+                    {totals[reagent.id] || 0} mL
+                  </div>
                 </div>
               ))}
             </div>
@@ -2528,7 +2675,10 @@ function VirtualLabVisualization({
         </div>
         <div className="mt-4 flex h-32 items-end gap-3">
           {chartHeights.map((height, index) => (
-            <div key={`${height}-${index}`} className="flex flex-1 flex-col items-center gap-2">
+            <div
+              key={`${height}-${index}`}
+              className="flex flex-1 flex-col items-center gap-2"
+            >
               <div
                 className="w-full rounded-t-lg bg-emerald-400"
                 style={{ height: `${height}%` }}
@@ -2538,8 +2688,8 @@ function VirtualLabVisualization({
           ))}
         </div>
         <div className="mt-3 text-sm text-slate-600">
-          The timeline summarizes how strongly the generated reaction is showing visible
-          evidence as the student adds reactants.
+          The timeline summarizes how strongly the generated reaction is showing
+          visible evidence as the student adds reactants.
         </div>
       </div>
     </div>
@@ -2616,7 +2766,7 @@ function extractReadingKeywords(text: string) {
 function buildAdaptedReadingText(
   sourceText: string,
   displayMode: "chunked" | "spaced" | "guided-writing",
-  chunkSize: number
+  chunkSize: number,
 ) {
   const chunks = splitIntoReadingChunks(sourceText, chunkSize);
   if (!chunks.length) return "";
@@ -2635,7 +2785,9 @@ function buildAdaptedReadingText(
     ].join("\n");
   }
 
-  return chunks.map((chunk, index) => `Part ${index + 1}: ${chunk}`).join("\n\n");
+  return chunks
+    .map((chunk, index) => `Part ${index + 1}: ${chunk}`)
+    .join("\n\n");
 }
 
 function splitIntoSentences(text: string) {
@@ -2669,7 +2821,9 @@ function tokenizeSpeechText(text: string) {
 }
 
 function splitWordIntoSyllableLikeParts(word: string) {
-  const matches = word.match(/[^aeiouyAEIOUY]*[aeiouyAEIOUY]+(?:[^aeiouyAEIOUY](?=[^aeiouyAEIOUY]*[aeiouyAEIOUY]))?[^aeiouyAEIOUY]*/g);
+  const matches = word.match(
+    /[^aeiouyAEIOUY]*[aeiouyAEIOUY]+(?:[^aeiouyAEIOUY](?=[^aeiouyAEIOUY]*[aeiouyAEIOUY]))?[^aeiouyAEIOUY]*/g,
+  );
   return matches?.filter(Boolean) ?? [word];
 }
 
@@ -2710,7 +2864,7 @@ function renderSyllableText(text: string, enabled: boolean) {
 function renderSpeechAwareSentence(
   text: string,
   activeChar: number | null,
-  syllableHighlight: boolean
+  syllableHighlight: boolean,
 ) {
   if (activeChar == null) {
     return renderSyllableText(text, syllableHighlight);
@@ -2731,9 +2885,7 @@ function renderSpeechAwareSentence(
         data-reading-active-word={isActiveWord ? "true" : undefined}
         className={[
           "relative inline-block rounded-xl px-0.5 pb-1 pt-0.5 transition-all duration-200",
-          isActiveWord
-            ? "bg-sky-50/90 shadow-sm"
-            : "bg-transparent",
+          isActiveWord ? "bg-sky-50/90 shadow-sm" : "bg-transparent",
         ].join(" ")}
       >
         {Array.from(token.text).map((char, charIndex) => {
@@ -2829,7 +2981,9 @@ function buildSpacingTestingCards(message?: string): Flashcard[] {
         back: match[2].trim(),
       };
     })
-    .filter((entry): entry is { front: string; back: string } => Boolean(entry));
+    .filter((entry): entry is { front: string; back: string } =>
+      Boolean(entry),
+    );
 
   if (pairs.length) {
     return pairs.slice(0, 8).map((pair, index) => ({
@@ -2867,7 +3021,9 @@ function getNextFlashcardIndex(cards: Flashcard[], activeCard: number) {
     easy: 2,
   };
 
-  const rotatedIndices = cards.map((_, offset) => (activeCard + offset + 1) % cards.length);
+  const rotatedIndices = cards.map(
+    (_, offset) => (activeCard + offset + 1) % cards.length,
+  );
 
   return rotatedIndices.sort((left, right) => {
     const leftWeight = statusWeight[cards[left].status];
@@ -2888,12 +3044,23 @@ function SpacingTestingVisualization({
   embedded?: boolean;
   onStateChange?: (state: VisualizationState) => void;
 }) {
-  const baseCards = useMemo(() => buildSpacingTestingCards(latestUserMessage), [latestUserMessage]);
+  const baseCards = useMemo(
+    () => buildSpacingTestingCards(latestUserMessage),
+    [latestUserMessage],
+  );
   const [cards, setCards] = useState<Flashcard[]>(baseCards);
   const [activeCard, setActiveCard] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [lastInteraction, setLastInteraction] = useState("Opened vocabulary flashcards");
-  const studyMoments = ["Now", "1 chat later", "Later today", "Tomorrow", "This week"];
+  const [lastInteraction, setLastInteraction] = useState(
+    "Opened vocabulary flashcards",
+  );
+  const studyMoments = [
+    "Now",
+    "1 chat later",
+    "Later today",
+    "Tomorrow",
+    "This week",
+  ];
   const previousAssistantTurnRef = useRef(assistantTurnCount ?? 0);
 
   useEffect(() => {
@@ -2903,7 +3070,8 @@ function SpacingTestingVisualization({
     setLastInteraction("Loaded a new vocabulary deck");
   }, [baseCards]);
 
-  const currentCard = cards[Math.min(activeCard, Math.max(cards.length - 1, 0))];
+  const currentCard =
+    cards[Math.min(activeCard, Math.max(cards.length - 1, 0))];
 
   useEffect(() => {
     if (!onStateChange || !currentCard) return;
@@ -2928,7 +3096,9 @@ function SpacingTestingVisualization({
 
     if (!flipped) {
       setFlipped(true);
-      setLastInteraction(`Chatbot flipped card ${activeCard + 1} to reveal the answer`);
+      setLastInteraction(
+        `Chatbot flipped card ${activeCard + 1} to reveal the answer`,
+      );
       return;
     }
 
@@ -2940,7 +3110,9 @@ function SpacingTestingVisualization({
 
   function markCard(status: Extract<FlashcardStatus, "hard" | "easy">) {
     setCards((current) =>
-      current.map((card, index) => (index === activeCard ? { ...card, status } : card))
+      current.map((card, index) =>
+        index === activeCard ? { ...card, status } : card,
+      ),
     );
     setLastInteraction(`Marked card ${activeCard + 1} as ${status}`);
   }
@@ -2976,7 +3148,7 @@ function SpacingTestingVisualization({
             setLastInteraction(
               flipped
                 ? `Turned card ${activeCard + 1} back to question`
-                : `Flipped card ${activeCard + 1} to answer`
+                : `Flipped card ${activeCard + 1} to answer`,
             );
           }}
           className="block w-full rounded-[1.25rem] text-left"
@@ -3080,7 +3252,8 @@ function SpacingTestingVisualization({
               Spacing & testing
             </div>
             <div className="mt-1 text-sm text-slate-600">
-              One vocabulary card at a time. Each chatbot turn flips or advances the deck.
+              One vocabulary card at a time. Each chatbot turn flips or advances
+              the deck.
             </div>
           </div>
           <div className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-medium text-violet-700">
@@ -3111,7 +3284,7 @@ function SpacingTestingVisualization({
             setLastInteraction(
               flipped
                 ? `Turned card ${activeCard + 1} back to question`
-                : `Flipped card ${activeCard + 1} to answer`
+                : `Flipped card ${activeCard + 1} to answer`,
             );
           }}
           className="mt-4 block w-full"
@@ -3152,7 +3325,8 @@ function SpacingTestingVisualization({
                 {currentCard.back}
               </div>
               <div className="mt-6 text-sm text-slate-600">
-                Mark it easy if it came quickly, or hard if this word should come back sooner.
+                Mark it easy if it came quickly, or hard if this word should
+                come back sooner.
               </div>
             </div>
           </div>
@@ -3165,7 +3339,9 @@ function SpacingTestingVisualization({
             <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Vocabulary controls
             </div>
-            <div className="text-xs text-slate-400">Latest: {lastInteraction}</div>
+            <div className="text-xs text-slate-400">
+              Latest: {lastInteraction}
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -3201,7 +3377,9 @@ function SpacingTestingVisualization({
           </div>
           <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
             Current status:{" "}
-            <span className="font-medium text-slate-800">{currentCard.status}</span>
+            <span className="font-medium text-slate-800">
+              {currentCard.status}
+            </span>
           </div>
         </div>
 
@@ -3212,11 +3390,15 @@ function SpacingTestingVisualization({
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-emerald-50 px-4 py-3">
               <div className="text-xs text-emerald-700">Easy</div>
-              <div className="mt-1 text-2xl font-semibold text-emerald-900">{easyCount}</div>
+              <div className="mt-1 text-2xl font-semibold text-emerald-900">
+                {easyCount}
+              </div>
             </div>
             <div className="rounded-2xl bg-amber-50 px-4 py-3">
               <div className="text-xs text-amber-700">Hard</div>
-              <div className="mt-1 text-2xl font-semibold text-amber-900">{hardCount}</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-900">
+                {hardCount}
+              </div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -3262,7 +3444,9 @@ function DyslexiaSupportVisualization({
   const [displayMode, setDisplayMode] = useState<
     "chunked" | "spaced" | "guided-writing"
   >("chunked");
-  const [fontMode, setFontMode] = useState<"default" | "opendyslexic-style">("default");
+  const [fontMode, setFontMode] = useState<"default" | "opendyslexic-style">(
+    "default",
+  );
   const [spacingPreset, setSpacingPreset] = useState<
     "standard" | "comfortable" | "maximum"
   >("comfortable");
@@ -3275,10 +3459,16 @@ function DyslexiaSupportVisualization({
   const [autoReadFocusedChunk, setAutoReadFocusedChunk] = useState(true);
   const [chunkSize, setChunkSize] = useState(1);
   const [focusChunk, setFocusChunk] = useState(0);
-  const [activeSpokenChunk, setActiveSpokenChunk] = useState<number | null>(null);
-  const [activeSpokenSentence, setActiveSpokenSentence] = useState<number | null>(null);
+  const [activeSpokenChunk, setActiveSpokenChunk] = useState<number | null>(
+    null,
+  );
+  const [activeSpokenSentence, setActiveSpokenSentence] = useState<
+    number | null
+  >(null);
   const [activeSpokenChar, setActiveSpokenChar] = useState<number | null>(null);
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [availableVoices, setAvailableVoices] = useState<
+    SpeechSynthesisVoice[]
+  >([]);
   const [selectedVoice, setSelectedVoice] = useState("");
   const [speechRate, setSpeechRate] = useState(0.75);
   const [speakingTarget, setSpeakingTarget] = useState<
@@ -3295,17 +3485,22 @@ function DyslexiaSupportVisualization({
     top: 0,
     opacity: 0,
   });
-  const [lastInteraction, setLastInteraction] = useState("Opened dyslexia support panel");
+  const [lastInteraction, setLastInteraction] = useState(
+    "Opened dyslexia support panel",
+  );
 
   const readingChunks = useMemo(
     () => splitIntoReadingChunks(sourceText, chunkSize),
-    [chunkSize, sourceText]
+    [chunkSize, sourceText],
   );
   const adaptedText = useMemo(
     () => buildAdaptedReadingText(sourceText, displayMode, chunkSize),
-    [chunkSize, displayMode, sourceText]
+    [chunkSize, displayMode, sourceText],
   );
-  const keywords = useMemo(() => extractReadingKeywords(sourceText), [sourceText]);
+  const keywords = useMemo(
+    () => extractReadingKeywords(sourceText),
+    [sourceText],
+  );
   const sentenceFrame =
     "The main idea is ____. One important detail is ____. This helps me understand ____.";
   const checklist = [
@@ -3456,7 +3651,7 @@ function DyslexiaSupportVisualization({
               chunkIndex,
               sentenceIndex,
               text: sentence,
-            }))
+            })),
           );
 
     if (!sequence.length) return;
@@ -3465,7 +3660,9 @@ function DyslexiaSupportVisualization({
     const token = speechSequenceTokenRef.current;
     synth.cancel();
 
-    const matchedVoice = availableVoices.find((voice) => voice.name === selectedVoice);
+    const matchedVoice = availableVoices.find(
+      (voice) => voice.name === selectedVoice,
+    );
 
     if (activeCharIntervalRef.current) {
       window.clearInterval(activeCharIntervalRef.current);
@@ -3507,9 +3704,11 @@ function DyslexiaSupportVisualization({
             (tokenEntry) =>
               tokenEntry.isWord &&
               charIndex >= tokenEntry.start &&
-              charIndex < tokenEntry.end
+              charIndex < tokenEntry.end,
           ) ||
-          tokens.find((tokenEntry) => tokenEntry.isWord && tokenEntry.start >= charIndex);
+          tokens.find(
+            (tokenEntry) => tokenEntry.isWord && tokenEntry.start >= charIndex,
+          );
 
         if (!activeToken) return;
 
@@ -3518,25 +3717,28 @@ function DyslexiaSupportVisualization({
         }
 
         let nextChar = Math.max(charIndex, activeToken.start);
-        activeCharIntervalRef.current = window.setInterval(() => {
-          if (speechSequenceTokenRef.current !== token) {
-            if (activeCharIntervalRef.current) {
-              window.clearInterval(activeCharIntervalRef.current);
-              activeCharIntervalRef.current = null;
+        activeCharIntervalRef.current = window.setInterval(
+          () => {
+            if (speechSequenceTokenRef.current !== token) {
+              if (activeCharIntervalRef.current) {
+                window.clearInterval(activeCharIntervalRef.current);
+                activeCharIntervalRef.current = null;
+              }
+              return;
             }
-            return;
-          }
 
-          setActiveSpokenChar(nextChar);
-          nextChar += 1;
+            setActiveSpokenChar(nextChar);
+            nextChar += 1;
 
-          if (nextChar >= activeToken.end) {
-            if (activeCharIntervalRef.current) {
-              window.clearInterval(activeCharIntervalRef.current);
-              activeCharIntervalRef.current = null;
+            if (nextChar >= activeToken.end) {
+              if (activeCharIntervalRef.current) {
+                window.clearInterval(activeCharIntervalRef.current);
+                activeCharIntervalRef.current = null;
+              }
             }
-          }
-        }, Math.max(22, Math.round(55 / speechRate)));
+          },
+          Math.max(22, Math.round(55 / speechRate)),
+        );
       };
       utterance.onend = () => {
         if (speechSequenceTokenRef.current !== token) return;
@@ -3601,7 +3803,7 @@ function DyslexiaSupportVisualization({
     if (!container) return;
 
     const activeWord = container.querySelector(
-      '[data-reading-active-word="true"]'
+      '[data-reading-active-word="true"]',
     ) as HTMLElement | null;
 
     if (!activeWord) {
@@ -3618,7 +3820,13 @@ function DyslexiaSupportVisualization({
       top: wordRect.bottom - containerRect.top + 2,
       opacity: 1,
     });
-  }, [activeSpokenChar, activeSpokenChunk, activeSpokenSentence, focusChunk, speakingTarget]);
+  }, [
+    activeSpokenChar,
+    activeSpokenChunk,
+    activeSpokenSentence,
+    focusChunk,
+    speakingTarget,
+  ]);
 
   return (
     <div className="space-y-4">
@@ -3629,7 +3837,8 @@ function DyslexiaSupportVisualization({
               Original literacy task
             </div>
             <div className="mt-1 text-sm text-slate-600">
-              Paste a reading or writing activity to generate a more accessible version.
+              Paste a reading or writing activity to generate a more accessible
+              version.
             </div>
           </div>
           <button
@@ -3667,7 +3876,10 @@ function DyslexiaSupportVisualization({
                 value={displayMode}
                 onChange={(event) => {
                   setDisplayMode(
-                    event.target.value as "chunked" | "spaced" | "guided-writing"
+                    event.target.value as
+                      | "chunked"
+                      | "spaced"
+                      | "guided-writing",
                   );
                   setLastInteraction("Changed reading view");
                 }}
@@ -3687,7 +3899,10 @@ function DyslexiaSupportVisualization({
                 value={supportPreset}
                 onChange={(event) => {
                   setSupportPreset(
-                    event.target.value as "gentle-focus" | "guided-focus" | "sound-out"
+                    event.target.value as
+                      | "gentle-focus"
+                      | "guided-focus"
+                      | "sound-out",
                   );
                   setLastInteraction("Changed support level");
                 }}
@@ -3706,7 +3921,9 @@ function DyslexiaSupportVisualization({
               <select
                 value={fontMode}
                 onChange={(event) => {
-                  setFontMode(event.target.value as "default" | "opendyslexic-style");
+                  setFontMode(
+                    event.target.value as "default" | "opendyslexic-style",
+                  );
                   setLastInteraction("Changed font");
                 }}
                 className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700"
@@ -3724,7 +3941,10 @@ function DyslexiaSupportVisualization({
                 value={spacingPreset}
                 onChange={(event) => {
                   setSpacingPreset(
-                    event.target.value as "standard" | "comfortable" | "maximum"
+                    event.target.value as
+                      | "standard"
+                      | "comfortable"
+                      | "maximum",
                   );
                   setLastInteraction("Changed spacing");
                 }}
@@ -3759,7 +3979,7 @@ function DyslexiaSupportVisualization({
                 onClick={() => {
                   setAutoReadFocusedChunk((value) => !value);
                   setLastInteraction(
-                    `${autoReadFocusedChunk ? "Disabled" : "Enabled"} auto-read focused chunk`
+                    `${autoReadFocusedChunk ? "Disabled" : "Enabled"} auto-read focused chunk`,
                   );
                 }}
                 className="ml-1 rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -3798,7 +4018,10 @@ function DyslexiaSupportVisualization({
               >
                 {availableVoices.length ? (
                   availableVoices.map((voice) => (
-                    <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
+                    <option
+                      key={`${voice.name}-${voice.lang}`}
+                      value={voice.name}
+                    >
                       {voice.name} ({voice.lang})
                     </option>
                   ))
@@ -3839,7 +4062,9 @@ function DyslexiaSupportVisualization({
                 {readingChunks.map((chunk, index) => {
                   const isActive = index === focusChunk;
                   const previewChunk =
-                    displayMode === "guided-writing" ? `Part ${index + 1}: ${chunk}` : chunk;
+                    displayMode === "guided-writing"
+                      ? `Part ${index + 1}: ${chunk}`
+                      : chunk;
 
                   return (
                     <div
@@ -3855,7 +4080,8 @@ function DyslexiaSupportVisualization({
                           : "border-transparent bg-white/70",
                         maskEnabled && !isActive
                           ? "opacity-30 saturate-50"
-                          : activeSpokenChunk != null && activeSpokenChunk !== index
+                          : activeSpokenChunk != null &&
+                              activeSpokenChunk !== index
                             ? "opacity-60"
                             : "opacity-100",
                       ].join(" ")}
@@ -3892,32 +4118,35 @@ function DyslexiaSupportVisualization({
                         ].join(" ")}
                         style={previewTextStyle}
                       >
-                        {splitIntoSentences(previewChunk).map((sentence, sentenceIndex) => {
-                          const isActiveSentence =
-                            activeSpokenChunk === index && activeSpokenSentence === sentenceIndex;
-                          const isSentenceDimmed =
-                            activeSpokenChunk === index &&
-                            activeSpokenSentence != null &&
-                            activeSpokenSentence !== sentenceIndex;
-                          return (
-                            <span
-                              key={`${index}-${sentenceIndex}-${sentence}`}
-                              className={`rounded-2xl px-1.5 py-1 transition-all duration-200 ${
-                                isActiveSentence
-                                  ? "bg-amber-50 shadow-sm ring-1 ring-amber-200"
-                                  : isSentenceDimmed
-                                    ? "opacity-35"
-                                    : ""
-                              }`}
-                            >
-                              {renderSpeechAwareSentence(
-                                `${sentence} `,
-                                isActiveSentence ? activeSpokenChar : null,
-                                syllableHighlight
-                              )}
-                            </span>
-                          );
-                        })}
+                        {splitIntoSentences(previewChunk).map(
+                          (sentence, sentenceIndex) => {
+                            const isActiveSentence =
+                              activeSpokenChunk === index &&
+                              activeSpokenSentence === sentenceIndex;
+                            const isSentenceDimmed =
+                              activeSpokenChunk === index &&
+                              activeSpokenSentence != null &&
+                              activeSpokenSentence !== sentenceIndex;
+                            return (
+                              <span
+                                key={`${index}-${sentenceIndex}-${sentence}`}
+                                className={`rounded-2xl px-1.5 py-1 transition-all duration-200 ${
+                                  isActiveSentence
+                                    ? "bg-amber-50 shadow-sm ring-1 ring-amber-200"
+                                    : isSentenceDimmed
+                                      ? "opacity-35"
+                                      : ""
+                                }`}
+                              >
+                                {renderSpeechAwareSentence(
+                                  `${sentence} `,
+                                  isActiveSentence ? activeSpokenChar : null,
+                                  syllableHighlight,
+                                )}
+                              </span>
+                            );
+                          },
+                        )}
                       </div>
                     </div>
                   );
@@ -3930,7 +4159,7 @@ function DyslexiaSupportVisualization({
                     <div className="mt-2" style={previewTextStyle}>
                       {renderSyllableText(
                         "The main idea is ____. One detail is ____. Another detail is ____.",
-                        syllableHighlight
+                        syllableHighlight,
                       )}
                     </div>
                   </div>
@@ -3960,7 +4189,9 @@ function DyslexiaSupportVisualization({
                   </span>
                 ))
               ) : (
-                <span className="text-sm text-slate-500">Keywords will appear here.</span>
+                <span className="text-sm text-slate-500">
+                  Keywords will appear here.
+                </span>
               )}
             </div>
           </div>
@@ -3982,7 +4213,10 @@ function DyslexiaSupportVisualization({
             </div>
             <div className="mt-3 space-y-2">
               {checklist.map((item) => (
-                <div key={item} className="flex items-start gap-2 text-sm text-slate-700">
+                <div
+                  key={item}
+                  className="flex items-start gap-2 text-sm text-slate-700"
+                >
                   <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
                     ✓
                   </span>
@@ -3990,7 +4224,9 @@ function DyslexiaSupportVisualization({
                 </div>
               ))}
             </div>
-            <div className="mt-4 text-xs text-slate-500">Latest interaction: {lastInteraction}</div>
+            <div className="mt-4 text-xs text-slate-500">
+              Latest interaction: {lastInteraction}
+            </div>
           </div>
         </div>
       </div>
@@ -4007,7 +4243,7 @@ function FunctionGraphVisualization({
 }) {
   const rhsHint = useMemo(
     () => extractPlottableRhs(latestAssistantMessage),
-    [latestAssistantMessage]
+    [latestAssistantMessage],
   );
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -4047,7 +4283,9 @@ function FunctionGraphVisualization({
         if (cancelled) return;
         if (!res.ok) {
           setLoadError(
-            typeof body.error === "string" ? body.error : "Could not load chart"
+            typeof body.error === "string"
+              ? body.error
+              : "Could not load chart",
           );
           setLoading(false);
           return;
@@ -4081,7 +4319,9 @@ function FunctionGraphVisualization({
   if (!rhsHint && !loading) {
     return (
       <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 text-sm text-slate-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-zinc-200">
-        <p className="font-medium text-indigo-900 dark:text-indigo-200">Function plot preview</p>
+        <p className="font-medium text-indigo-900 dark:text-indigo-200">
+          Function plot preview
+        </p>
         <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-zinc-400">
           When the assistant&apos;s latest reply includes a line like{" "}
           <code className="rounded bg-white/80 px-1 py-0.5 font-mono text-[11px] dark:bg-zinc-900">
@@ -4120,9 +4360,14 @@ function FunctionGraphVisualization({
         <p className="font-medium">Could not plot this expression</p>
         <p className="mt-1 font-mono text-xs opacity-90">{failedRhs}</p>
         <p className="mt-2 text-xs opacity-80">
-          Use a single-line function in x (e.g. polynomials, sin, cos, sqrt). Put fractions in{" "}
-          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">a/b</code> or simple LaTeX{" "}
-          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">\frac&#123;a&#125;&#123;b&#125;</code>.
+          Use a single-line function in x (e.g. polynomials, sin, cos, sqrt).
+          Put fractions in{" "}
+          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">a/b</code>{" "}
+          or simple LaTeX{" "}
+          <code className="rounded bg-white/60 px-1 dark:bg-zinc-900">
+            \frac&#123;a&#125;&#123;b&#125;
+          </code>
+          .
         </p>
       </div>
     );
@@ -4231,7 +4476,7 @@ export function getVisualizationTitle(
     | "virtual-lab"
     | "dyslexia-support"
     | "function-graph",
-  fullscreen: boolean
+  fullscreen: boolean,
 ) {
   if (mode === "spacing-testing") {
     return fullscreen ? "Flashcard practice deck" : "Embedded flashcard deck";
@@ -4262,13 +4507,13 @@ function getInitialMessages(
   appName: string,
   studentProfile: StudentProfile | null = null,
   preset?: TestCasePreset,
-  readOnly = false
+  readOnly = false,
 ): ChatMessage[] {
   if (readOnly) {
     return [
       createMessage(
         "assistant",
-        `This is a read-only preview of ${appName}.\n\nYou can inspect the chatbot setup and visualization, but not edit or chat from this shared project view.`
+        `This is a read-only preview of ${appName}.\n\nYou can inspect the chatbot setup and visualization, but not edit or chat from this shared project view.`,
       ),
     ];
   }
@@ -4276,34 +4521,40 @@ function getInitialMessages(
   const studentLabel = studentProfile?.label || "Student";
   const gradeLevel = studentProfile?.gradeLevel || "middle school";
   const personality = studentProfile?.personality || "thoughtful and curious";
-  const knowledgeLevel = studentProfile?.knowledgeLevel || "still building core understanding";
+  const knowledgeLevel =
+    studentProfile?.knowledgeLevel || "still building core understanding";
   const purposeLabel = preset?.purposeLabel || "Custom case";
-  const scenarioSummary = preset?.scenarioSummary || "A custom student simulation.";
+  const scenarioSummary =
+    preset?.scenarioSummary || "A custom student simulation.";
 
   return [
     createMessage(
       "assistant",
-      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}`
+      `Hi! I'm ${appName}. This testcase is ${purposeLabel.toLowerCase()}.\n\nStudent: ${studentLabel}\nProfile: ${gradeLevel}; ${knowledgeLevel}; ${personality}\nScenario: ${scenarioSummary}`,
     ),
     createMessage(
       "user",
-      `I'm ${studentLabel}. I'm in ${gradeLevel}. ${preset?.round1User || "Can you help me get started?"}`
+      `I'm ${studentLabel}. I'm in ${gradeLevel}. ${preset?.round1User || "Can you help me get started?"}`,
     ),
     createMessage(
       "assistant",
-      preset?.round1Assistant || "Absolutely. I will start small, use plain language, and check your understanding before moving on."
+      preset?.round1Assistant ||
+        "Absolutely. I will start small, use plain language, and check your understanding before moving on.",
     ),
     createMessage(
       "user",
-      preset?.round2User || "I think I partly get it, but I still feel unsure and might be mixing up a few ideas."
+      preset?.round2User ||
+        "I think I partly get it, but I still feel unsure and might be mixing up a few ideas.",
     ),
     createMessage(
       "assistant",
-      preset?.round2Assistant || "Thanks for telling me. Let's focus on one key idea, test it with a short example, and then compare it with the idea you might be confusing it with."
+      preset?.round2Assistant ||
+        "Thanks for telling me. Let's focus on one key idea, test it with a short example, and then compare it with the idea you might be confusing it with.",
     ),
     createMessage(
       "user",
-      preset?.round3User || "Can I try answering in my own words first, and then you tell me what I understood well and what I should fix?"
+      preset?.round3User ||
+        "Can I try answering in my own words first, and then you tell me what I understood well and what I should fix?",
     ),
   ];
 }
@@ -4323,8 +4574,12 @@ export default function AssistantPanel({
   readOnly = false,
   promptOverride,
   modelLabelOverride,
+  assistedAuthoringMode = true,
   spotlightTargetRefs,
   onTestCaseStatusChange,
+  modePanelBootstrapAction,
+  onModePanelBootstrapComplete,
+  onOffToOnError,
 }: {
   appId: string;
   appName: string;
@@ -4332,14 +4587,30 @@ export default function AssistantPanel({
   readOnly?: boolean;
   promptOverride?: string;
   modelLabelOverride?: string;
+  /** Assisted authoring mode flag: true = ON (auto-gen, prompt revision), false = OFF. Defaults to true. */
+  assistedAuthoringMode?: boolean;
   /** Refs on testcase UI regions for the editor-page spotlight tour (optional). */
   spotlightTargetRefs?: AssistantPanelSpotlightTargetRefs;
   onTestCaseStatusChange?: (status: TestCaseStatus) => void;
+  /** Mode transition bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON). */
+  modePanelBootstrapAction?:
+    | { action: "enter-try-chat" }
+    | { action: "regenerate" }
+    | null;
+  /** Callback when mode panel bootstrap completes successfully. */
+  onModePanelBootstrapComplete?: () => void;
+  /** Callback when OFF→ON regenerate fails. */
+  onOffToOnError?: (error: string) => void;
 }) {
   const displayName = appName.trim() || appId;
+  const assistedOn = isAssistedBehaviorEnabled(assistedAuthoringMode);
   const [input, setInput] = useState("");
   const [testCases, setTestCases] = useState<TestCaseSet[]>(() =>
-    createInitialTestCases(displayName, readOnly)
+    readOnly
+      ? createInitialTestCases(displayName, true)
+      : assistedOn
+        ? createInitialTestCases(displayName, false)
+        : [createTryChatCase(displayName)],
   );
   const [activeTestCaseId, setActiveTestCaseId] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -4358,51 +4629,76 @@ export default function AssistantPanel({
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [applySummary, setApplySummary] = useState("");
-  const [pipelineResult, setPipelineResult] = useState<PromptUpdateResult | null>(null);
-  const [batchRunProgress, setBatchRunProgress] = useState<BatchRunProgress | null>(null);
+  const [pipelineResult, setPipelineResult] =
+    useState<PromptUpdateResult | null>(null);
+  const [batchRunProgress, setBatchRunProgress] =
+    useState<BatchRunProgress | null>(null);
   /** Full-panel overlay (same UI as batch run); separate from batch so clears do not race. */
-  const [dialogueGenProgress, setDialogueGenProgress] = useState<BatchRunProgress | null>(null);
-  const [testCaseEditDraft, setTestCaseEditDraft] = useState<TestCaseEditDraft | null>(null);
-  const [expandedStudentDetailIds, setExpandedStudentDetailIds] = useState<Set<string>>(
-    () => new Set()
-  );
+  const [dialogueGenProgress, setDialogueGenProgress] =
+    useState<BatchRunProgress | null>(null);
+  const [testCaseEditDraft, setTestCaseEditDraft] =
+    useState<TestCaseEditDraft | null>(null);
+  const [expandedStudentDetailIds, setExpandedStudentDetailIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [addTestCaseChoiceOpen, setAddTestCaseChoiceOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const testCasesRef = useRef<TestCaseSet[]>([]);
   /** Only reset session when appId/readOnly actually change (not on mount). Survives React Strict Mode double-invoked effects. */
-  const prevSessionResetKeyRef = useRef<{ appId: string; readOnly: boolean } | null>(null);
+  const prevSessionResetKeyRef = useRef<{
+    appId: string;
+    readOnly: boolean;
+  } | null>(null);
   /** One-shot auto-run of scripted testcase dialogue when a new app already has a prompt but user has not clicked Apply yet. */
   const didBootstrapSimulatedDialogueRef = useRef(false);
+  /** Track in-progress mode panel bootstrap to prevent double-fire. */
+  const modePanelBootstrapInProgressRef = useRef<string | null>(null);
+  /** Bumped to invalidate in-flight assisted generation when switching to try-chat. */
+  const assistedWorkEpochRef = useRef(0);
+  const dialogueAbortRef = useRef<AbortController | null>(null);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
-    [promptMarkdown]
+    [promptMarkdown],
   );
   const activeTestCase =
-    testCases.find((testCase) => testCase.id === activeTestCaseId) || testCases[0] || null;
+    testCases.find((testCase) => testCase.id === activeTestCaseId) ||
+    testCases[0] ||
+    null;
   const messages = activeTestCase?.messages || [];
   const visualizationState = activeTestCase?.visualizationState || null;
   const activeStudentProfile = activeTestCase?.studentProfile || null;
-  const passedCaseCount = testCases.filter((testCase) => testCase.passed).length;
-  const verifiedCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "pass").length;
-  const warningCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "warning").length;
-  const failedCaseCount = testCases.filter((testCase) => testCase.verificationStatus === "fail").length;
+  const passedCaseCount = testCases.filter(
+    (testCase) => testCase.passed,
+  ).length;
+  const verifiedCaseCount = testCases.filter(
+    (testCase) => testCase.verificationStatus === "pass",
+  ).length;
+  const warningCaseCount = testCases.filter(
+    (testCase) => testCase.verificationStatus === "warning",
+  ).length;
+  const failedCaseCount = testCases.filter(
+    (testCase) => testCase.verificationStatus === "fail",
+  ).length;
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user")?.content;
   const latestAssistantMessage = [...messages]
     .reverse()
     .find((message) => message.role === "assistant")?.content;
-  const assistantTurnCount = messages.filter((message) => message.role === "assistant").length;
+  const assistantTurnCount = messages.filter(
+    (message) => message.role === "assistant",
+  ).length;
   const editedMessageCount = messages.filter(messageHasEdits).length;
-  /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. */
+  /** "Update prompt" strip is for bubble edits / pipeline — hide when idle so it is not mistaken for global loading. Gate when assisted mode is off. */
   const showApplyPromptStrip =
-    editedMessageCount > 0 ||
-    applyBusy ||
-    Boolean(applyError) ||
-    Boolean(pipelineResult);
+    assistedOn &&
+    (editedMessageCount > 0 ||
+      applyBusy ||
+      Boolean(applyError) ||
+      Boolean(pipelineResult));
   const panelBlockingProgress = batchRunProgress ?? dialogueGenProgress;
 
   useEffect(() => {
@@ -4412,20 +4708,26 @@ export default function AssistantPanel({
   const fetchAndApplyScriptedDialogues = useCallback(
     async (
       scripted: TestCaseSet[],
-      options?: { systemPromptOverride?: string }
+      options?: { systemPromptOverride?: string },
     ) => {
-      const basePrompt = (
+      const basePrompt =
         options?.systemPromptOverride?.trim() ||
         resolveAssistantSystemPrompt({
           promptMarkdown,
           appId,
           serverSystemPrompt,
-        }).trim()
-      );
+        }).trim();
       if (!basePrompt) {
-        throw new Error("Add a Final Prompt before generating test-case dialogue.");
+        throw new Error(
+          "Add a Final Prompt before generating test-case dialogue.",
+        );
       }
       if (!scripted.length) return;
+
+      dialogueAbortRef.current?.abort();
+      const abort = new AbortController();
+      dialogueAbortRef.current = abort;
+      const workEpoch = ++assistedWorkEpochRef.current;
 
       const detail =
         scripted.length === 1
@@ -4440,6 +4742,7 @@ export default function AssistantPanel({
         const res = await fetch("/api/test-cases/generate-dialogue", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abort.signal,
           body: JSON.stringify({
             appId,
             systemPrompt: basePrompt,
@@ -4452,10 +4755,15 @@ export default function AssistantPanel({
             })),
           }),
         });
+        if (assistedWorkEpochRef.current !== workEpoch) return;
+
         const body = await res.json().catch(() => ({}));
+        if (assistedWorkEpochRef.current !== workEpoch) return;
         if (!res.ok) {
           throw new Error(
-            typeof body.error === "string" ? body.error : "Dialogue generation failed"
+            typeof body.error === "string"
+              ? body.error
+              : "Dialogue generation failed",
           );
         }
         const results = Array.isArray(body.results) ? body.results : [];
@@ -4464,7 +4772,7 @@ export default function AssistantPanel({
         const byId = new Map<string, RawMsg[]>(
           (results as ResultRow[])
             .filter((r) => r?.caseId && Array.isArray(r.messages))
-            .map((r) => [r.caseId, r.messages])
+            .map((r) => [r.caseId, r.messages]),
         );
 
         setTestCases((current) =>
@@ -4475,18 +4783,34 @@ export default function AssistantPanel({
             const msgs = raw.map((m) =>
               createMessage(
                 m.role === "user" ? "user" : "assistant",
-                typeof m.content === "string" ? m.content : ""
-              )
+                typeof m.content === "string" ? m.content : "",
+              ),
             );
-            const userTurns = msgs.filter((m) => m.role === "user").map((m) => m.content);
+            const userTurns = msgs
+              .filter((m) => m.role === "user")
+              .map((m) => m.content);
             return { ...tc, messages: msgs, simulatedUserTurns: userTurns };
-          })
+          }),
         );
+      } catch (error) {
+        if (
+          abort.signal.aborted ||
+          assistedWorkEpochRef.current !== workEpoch ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        throw error;
       } finally {
-        setDialogueGenProgress(null);
+        if (dialogueAbortRef.current === abort) {
+          dialogueAbortRef.current = null;
+        }
+        if (assistedWorkEpochRef.current === workEpoch) {
+          setDialogueGenProgress(null);
+        }
       }
     },
-    [appId, promptMarkdown, serverSystemPrompt]
+    [appId, promptMarkdown, serverSystemPrompt],
   );
 
   async function loadApp() {
@@ -4508,7 +4832,7 @@ export default function AssistantPanel({
             : "") ||
             (typeof body.app.description === "string"
               ? body.app.description.trim()
-              : "")
+              : ""),
         );
         return;
       }
@@ -4554,7 +4878,7 @@ export default function AssistantPanel({
       throw new Error(msg);
     }
 
-    const reply = isJSON ? body?.reply ?? "" : String(body);
+    const reply = isJSON ? (body?.reply ?? "") : String(body);
     if (isJSON && body?.provider && body?.model) {
       setModelLabel(`${body.provider} · ${body.model}`);
     }
@@ -4564,17 +4888,17 @@ export default function AssistantPanel({
 
   function updateTestCaseById(
     testCaseId: string,
-    updater: (testCase: TestCaseSet) => TestCaseSet
+    updater: (testCase: TestCaseSet) => TestCaseSet,
   ) {
     setTestCases((current) =>
       current.map((testCase) =>
-        testCase.id === testCaseId ? updater(testCase) : testCase
-      )
+        testCase.id === testCaseId ? updater(testCase) : testCase,
+      ),
     );
   }
 
   function updateActiveTestCase(
-    updater: (testCase: TestCaseSet) => TestCaseSet
+    updater: (testCase: TestCaseSet) => TestCaseSet,
   ) {
     const fallbackId = activeTestCase?.id;
     if (!fallbackId) return;
@@ -4591,17 +4915,12 @@ export default function AssistantPanel({
           ...testCase,
           verificationStatus: "idle",
           verificationNote: "",
-        }))
+        })),
       );
     }
   }
 
-  function resetSession() {
-    didBootstrapSimulatedDialogueRef.current = false;
-    const nextCases = createInitialTestCases(displayName, readOnly);
-    setTestCases(nextCases);
-    setActiveTestCaseId(nextCases[0]?.id || "");
-    setExpandedStudentDetailIds(new Set());
+  function clearComposerAttachments() {
     setInput("");
     setAttachedFileName("");
     setAttachedFileText("");
@@ -4611,6 +4930,47 @@ export default function AssistantPanel({
     setEditingDraft("");
     setApplyBusy(false);
     clearPromptUpdateState();
+  }
+
+  /** Stop assisted generation overlays / in-flight work when leaving ON for try-chat. */
+  function cancelAssistedGeneration() {
+    assistedWorkEpochRef.current += 1;
+    dialogueAbortRef.current?.abort();
+    dialogueAbortRef.current = null;
+    didBootstrapSimulatedDialogueRef.current = false;
+    setDialogueGenProgress(null);
+    setBatchRunProgress(null);
+    setBusy(false);
+    setApplyBusy(false);
+  }
+
+  function applyTryChatSession() {
+    cancelAssistedGeneration();
+    const next = createTryChatCase(displayName);
+    setTestCases([next]);
+    setActiveTestCaseId(next.id);
+    setExpandedStudentDetailIds(new Set());
+    clearComposerAttachments();
+  }
+
+  function clearTryConversation() {
+    applyTryChatSession();
+    setApplySummary(
+      "Conversation cleared. Start a new try whenever you’re ready.",
+    );
+  }
+
+  function resetSession() {
+    didBootstrapSimulatedDialogueRef.current = false;
+    if (!readOnly && !isAssistedBehaviorEnabled(assistedAuthoringMode)) {
+      applyTryChatSession();
+      return;
+    }
+    const nextCases = createInitialTestCases(displayName, readOnly);
+    setTestCases(nextCases);
+    setActiveTestCaseId(nextCases[0]?.id || "");
+    setExpandedStudentDetailIds(new Set());
+    clearComposerAttachments();
   }
 
   function resetActiveTestCase() {
@@ -4681,7 +5041,7 @@ export default function AssistantPanel({
         warmStart: "teacher",
         teacherEntry: entry,
         ...(entry === "configure" ? { autoDialoguePending: true } : {}),
-      }
+      },
     );
     setTestCases((current) => [...current, nextCase]);
     setActiveTestCaseId(nextCase.id);
@@ -4744,15 +5104,18 @@ export default function AssistantPanel({
     const nextScript: TestCasePreset = {
       ...target.script,
       purposeLabel: d.purposeLabel.trim() || target.script.purposeLabel,
-      scenarioSummary: d.scenarioSummary.trim() || target.script.scenarioSummary,
+      scenarioSummary:
+        d.scenarioSummary.trim() || target.script.scenarioSummary,
     };
     const nextProfile: StudentProfile | null = target.studentProfile
       ? {
           ...target.studentProfile,
           label: d.label.trim() || target.studentProfile.label,
           gradeLevel: d.gradeLevel.trim() || target.studentProfile.gradeLevel,
-          knowledgeLevel: d.knowledgeLevel.trim() || target.studentProfile.knowledgeLevel,
-          personality: d.personality.trim() || target.studentProfile.personality,
+          knowledgeLevel:
+            d.knowledgeLevel.trim() || target.studentProfile.knowledgeLevel,
+          personality:
+            d.personality.trim() || target.studentProfile.personality,
         }
       : d.label.trim()
         ? {
@@ -4764,8 +5127,9 @@ export default function AssistantPanel({
           }
         : null;
 
-    const pendingConfigureGen =
-      Boolean(target.autoDialoguePending && target.teacherEntry === "configure");
+    const pendingConfigureGen = Boolean(
+      target.autoDialoguePending && target.teacherEntry === "configure",
+    );
 
     const scriptedReady: TestCaseSet | null = pendingConfigureGen
       ? {
@@ -4783,7 +5147,7 @@ export default function AssistantPanel({
             : [
                 createMessage(
                   "assistant",
-                  `Add your **Final Prompt** in the instruction panel on the left, then click **Apply current prompt** there. That saves the prompt and generates the simulated student conversation in this testcase.`
+                  `Add your **Final Prompt** in the instruction panel on the left, then click **Apply current prompt** there. That saves the prompt and generates the simulated student conversation in this testcase.`,
                 ),
               ],
           simulatedUserTurns: undefined,
@@ -4811,7 +5175,11 @@ export default function AssistantPanel({
           verificationNote: "",
         };
 
-        if (scriptedReady && tc.autoDialoguePending && tc.teacherEntry === "configure") {
+        if (
+          scriptedReady &&
+          tc.autoDialoguePending &&
+          tc.teacherEntry === "configure"
+        ) {
           return scriptedReady;
         }
 
@@ -4819,22 +5187,38 @@ export default function AssistantPanel({
           ...base,
           messages:
             tc.warmStart === "teacher"
-              ? getTeacherLedContextSeedMessages(displayName, nextProfile, nextScript, readOnly)
+              ? getTeacherLedContextSeedMessages(
+                  displayName,
+                  nextProfile,
+                  nextScript,
+                  readOnly,
+                )
               : tc.warmStart === "scripted"
                 ? tc.messages
-                : getInitialMessages(displayName, nextProfile, nextScript, readOnly),
+                : getInitialMessages(
+                    displayName,
+                    nextProfile,
+                    nextScript,
+                    readOnly,
+                  ),
         };
-      })
+      }),
     );
 
     setTestCaseEditDraft(null);
 
-    if (scriptedReady && finalPrompt) {
+    if (
+      scriptedReady &&
+      finalPrompt &&
+      isAssistedBehaviorEnabled(assistedAuthoringMode)
+    ) {
       void (async () => {
         try {
           await fetchAndApplyScriptedDialogues([scriptedReady]);
           setApplyError("");
-          setApplySummary("Generated simulated chat preview for this test case.");
+          setApplySummary(
+            "Generated simulated chat preview for this test case.",
+          );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           setApplyError(msg);
@@ -4847,11 +5231,11 @@ export default function AssistantPanel({
                 messages: [
                   createMessage(
                     "assistant",
-                    `Could not generate simulated dialogue (${msg}). Check your API key, confirm the Final Prompt is saved, or click **Apply current prompt** in the instruction panel to try again.`
+                    `Could not generate simulated dialogue (${msg}). Check your API key, confirm the Final Prompt is saved, or click **Apply current prompt** in the instruction panel to try again.`,
                   ),
                 ],
               };
-            })
+            }),
           );
         }
       })();
@@ -4866,7 +5250,9 @@ export default function AssistantPanel({
       next.delete(testCaseId);
       return next;
     });
-    setTestCases((current) => current.filter((testCase) => testCase.id !== testCaseId));
+    setTestCases((current) =>
+      current.filter((testCase) => testCase.id !== testCaseId),
+    );
     if (activeTestCaseId === testCaseId) {
       const fallback = testCases.find((testCase) => testCase.id !== testCaseId);
       setActiveTestCaseId(fallback?.id || "");
@@ -4918,7 +5304,9 @@ export default function AssistantPanel({
     const nextContent = editingDraft.trim();
     if (!nextContent || !activeTestCase) return;
 
-    const targetIndex = activeTestCase.messages.findIndex((message) => message.id === messageId);
+    const targetIndex = activeTestCase.messages.findIndex(
+      (message) => message.id === messageId,
+    );
     if (targetIndex < 0) return;
 
     const targetMessage = activeTestCase.messages[targetIndex];
@@ -4948,6 +5336,7 @@ export default function AssistantPanel({
     }));
     cancelEditingMessage();
     clearPromptUpdateState(true);
+    const workEpoch = ++assistedWorkEpochRef.current;
     setBusy(true);
     setBatchRunProgress({
       title: "Updating current testcase",
@@ -4962,32 +5351,49 @@ export default function AssistantPanel({
         regeneratedMessages[regeneratedMessages.length - 1]?.role === "user";
 
       if (needsImmediateAssistantReply) {
+        if (assistedWorkEpochRef.current !== workEpoch) return;
         setBatchRunProgress({
           title: "Updating current testcase",
           detail: "Generating the next reply...",
         });
         const reply = await requestPreviewReply({
-          system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
+          system: buildCaseSpecificPrompt(
+            currentPrompt,
+            activeTestCase.studentProfile,
+          ),
           messages: regeneratedMessages,
           visualizationState: null,
         });
-        regeneratedMessages = [...regeneratedMessages, createMessage("assistant", reply)];
+        if (assistedWorkEpochRef.current !== workEpoch) return;
+        regeneratedMessages = [
+          ...regeneratedMessages,
+          createMessage("assistant", reply),
+        ];
       }
 
       for (const [index, userMessage] of trailingUserMessages.entries()) {
+        if (assistedWorkEpochRef.current !== workEpoch) return;
         setBatchRunProgress({
           title: "Updating current testcase",
           detail: `Regenerating follow-up ${index + 1} of ${trailingUserMessages.length}...`,
         });
         regeneratedMessages = [...regeneratedMessages, userMessage];
         const reply = await requestPreviewReply({
-          system: buildCaseSpecificPrompt(currentPrompt, activeTestCase.studentProfile),
+          system: buildCaseSpecificPrompt(
+            currentPrompt,
+            activeTestCase.studentProfile,
+          ),
           messages: regeneratedMessages,
           visualizationState: null,
         });
-        regeneratedMessages = [...regeneratedMessages, createMessage("assistant", reply)];
+        if (assistedWorkEpochRef.current !== workEpoch) return;
+        regeneratedMessages = [
+          ...regeneratedMessages,
+          createMessage("assistant", reply),
+        ];
       }
 
+      if (assistedWorkEpochRef.current !== workEpoch) return;
       updateTestCaseById(activeTestCase.id, (testCase) => ({
         ...testCase,
         messages: regeneratedMessages,
@@ -4995,22 +5401,32 @@ export default function AssistantPanel({
         verificationStatus: "idle",
         verificationNote: "",
       }));
-      setApplySummary("Updated this bubble and regenerated the rest of the conversation.");
+      setApplySummary(
+        "Updated this bubble and regenerated the rest of the conversation.",
+      );
     } catch (error: any) {
+      if (assistedWorkEpochRef.current !== workEpoch) return;
       updateTestCaseById(activeTestCase.id, (testCase) => ({
         ...testCase,
         messages: [
           ...preservedPrefix,
-          createMessage("assistant", `Sorry—something went wrong: ${error?.message || error}`),
+          createMessage(
+            "assistant",
+            `Sorry—something went wrong: ${error?.message || error}`,
+          ),
         ],
         visualizationState: null,
         verificationStatus: "idle",
         verificationNote: "",
       }));
-      setApplyError(error?.message || "Failed to regenerate the follow-up conversation.");
+      setApplyError(
+        error?.message || "Failed to regenerate the follow-up conversation.",
+      );
     } finally {
-      setBatchRunProgress(null);
-      setBusy(false);
+      if (assistedWorkEpochRef.current === workEpoch) {
+        setBatchRunProgress(null);
+        setBusy(false);
+      }
     }
   }
 
@@ -5040,6 +5456,7 @@ export default function AssistantPanel({
   useEffect(() => {
     if (readOnly) return;
     if (didBootstrapSimulatedDialogueRef.current) return;
+    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
 
     const base = resolveAssistantSystemPrompt({
       promptMarkdown,
@@ -5053,7 +5470,7 @@ export default function AssistantPanel({
       (tc) =>
         tc.warmStart === "scripted" &&
         tc.messages.length === 0 &&
-        tc.studentProfile
+        tc.studentProfile,
     );
     if (!scriptedEmpty.length) return;
 
@@ -5062,45 +5479,161 @@ export default function AssistantPanel({
       try {
         await fetchAndApplyScriptedDialogues(scriptedEmpty);
         setApplyError("");
-        setApplySummary("Simulated student conversations are ready for your test cases.");
+        setApplySummary(
+          "Simulated student conversations are ready for your test cases.",
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setApplyError(msg);
         setTestCases((current) =>
           current.map((tc) => {
-            if (tc.warmStart !== "scripted" || tc.messages.length > 0) return tc;
+            if (tc.warmStart !== "scripted" || tc.messages.length > 0)
+              return tc;
             return {
               ...tc,
               messages: [
                 createMessage(
                   "assistant",
-                  `Could not auto-generate simulated dialogue (${msg}). Check the API key in settings, or click **Apply current prompt** in the Final Prompt panel to try again.`
+                  `Could not auto-generate simulated dialogue (${msg}). Check the API key in settings, or click **Apply current prompt** in the Final Prompt panel to try again.`,
                 ),
               ],
             };
-          })
+          }),
         );
       }
     })();
   }, [
     readOnly,
     appId,
+    assistedAuthoringMode,
     promptMarkdown,
     serverSystemPrompt,
     testCases,
     fetchAndApplyScriptedDialogues,
   ]);
 
+  // Mode panel bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON).
+  useEffect(() => {
+    if (!modePanelBootstrapAction) return;
+    if (readOnly) return;
+
+    const actionId = JSON.stringify(modePanelBootstrapAction);
+    if (modePanelBootstrapInProgressRef.current === actionId) return;
+    modePanelBootstrapInProgressRef.current = actionId;
+
+    const action = modePanelBootstrapAction.action;
+
+    if (action === "enter-try-chat") {
+      applyTryChatSession();
+      setApplySummary(
+        "Assisted test cases discarded. Try your bot in this chat.",
+      );
+      onModePanelBootstrapComplete?.();
+      modePanelBootstrapInProgressRef.current = null;
+      return;
+    }
+
+    if (action === "regenerate") {
+      if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) {
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
+        return;
+      }
+
+      const base = resolveAssistantSystemPrompt({
+        promptMarkdown,
+        appId,
+        serverSystemPrompt,
+      }).trim();
+
+      // Always replace try-chat / prior state with a fresh assisted suite.
+      const initialCases = createInitialTestCases(displayName, readOnly);
+      const scriptedCases = initialCases.filter(
+        (tc) => tc.warmStart === "scripted" && tc.studentProfile,
+      );
+      setTestCases(
+        scriptedCases.map((tc) => ({
+          ...tc,
+          messages: [],
+        })),
+      );
+      setActiveTestCaseId(scriptedCases[0]?.id || "");
+      setExpandedStudentDetailIds(new Set());
+
+      if (!base) {
+        onOffToOnError?.(
+          "Cannot regenerate test cases without a Final Prompt. Please add a prompt on the left.",
+        );
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
+        return;
+      }
+
+      if (!scriptedCases.length) {
+        onModePanelBootstrapComplete?.();
+        modePanelBootstrapInProgressRef.current = null;
+        return;
+      }
+
+      void (async () => {
+        try {
+          await fetchAndApplyScriptedDialogues(scriptedCases);
+          setApplyError("");
+          setApplySummary("Generated test cases with current Final Prompt.");
+          onModePanelBootstrapComplete?.();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          onOffToOnError?.(
+            `Failed to regenerate test cases: ${msg}. Check your API key or Final Prompt.`,
+          );
+          setTestCases((current) =>
+            current.map((tc) => {
+              if (tc.warmStart !== "scripted") return tc;
+              return {
+                ...tc,
+                messages: [
+                  createMessage(
+                    "assistant",
+                    `Could not regenerate simulated dialogue (${msg}). Check the API key in settings or the Final Prompt.`,
+                  ),
+                ],
+              };
+            }),
+          );
+          onModePanelBootstrapComplete?.();
+        } finally {
+          modePanelBootstrapInProgressRef.current = null;
+        }
+      })();
+    }
+  }, [
+    modePanelBootstrapAction,
+    readOnly,
+    assistedAuthoringMode,
+    appId,
+    displayName,
+    promptMarkdown,
+    serverSystemPrompt,
+    fetchAndApplyScriptedDialogues,
+    onModePanelBootstrapComplete,
+    onOffToOnError,
+  ]);
+
   useEffect(() => {
     if (!testCases.length) return;
-    if (activeTestCaseId && testCases.some((testCase) => testCase.id === activeTestCaseId)) {
+    if (
+      activeTestCaseId &&
+      testCases.some((testCase) => testCase.id === activeTestCaseId)
+    ) {
       return;
     }
     setActiveTestCaseId(testCases[0].id);
   }, [activeTestCaseId, testCases]);
 
   useEffect(() => {
-    const chatLayoutKey = testCases.map((tc) => `${tc.id}:${tc.messages.length}`).join("|");
+    const chatLayoutKey = testCases
+      .map((tc) => `${tc.id}:${tc.messages.length}`)
+      .join("|");
     onTestCaseStatusChange?.({
       totalCount: testCases.length,
       passedCount: passedCaseCount,
@@ -5140,10 +5673,15 @@ export default function AssistantPanel({
         markdown?: string;
         applyToAllTestCases?: boolean;
       }>;
-      if (customEvent.detail?.appId && customEvent.detail.appId !== appId) return;
+      if (customEvent.detail?.appId && customEvent.detail.appId !== appId)
+        return;
       const nextPrompt = customEvent.detail?.markdown || "";
       setPromptMarkdown(nextPrompt);
-      if (customEvent.detail?.applyToAllTestCases && nextPrompt.trim()) {
+      if (
+        customEvent.detail?.applyToAllTestCases &&
+        nextPrompt.trim() &&
+        isAssistedBehaviorEnabled(assistedAuthoringMode)
+      ) {
         setComposerError("");
         setApplyError("");
         flushSync(() => {
@@ -5159,12 +5697,14 @@ export default function AssistantPanel({
                     verificationStatus: "idle",
                     verificationNote: "",
                   }
-                : tc
-            )
+                : tc,
+            ),
           );
         });
         window.setTimeout(() => {
-          const scripted = testCasesRef.current.filter((tc) => tc.warmStart === "scripted");
+          const scripted = testCasesRef.current.filter(
+            (tc) => tc.warmStart === "scripted",
+          );
           if (!scripted.length) return;
           void (async () => {
             try {
@@ -5172,10 +5712,11 @@ export default function AssistantPanel({
                 systemPromptOverride: nextPrompt,
               });
               setApplyError("");
-              setApplySummary("Regenerated simulated chat previews for all scripted test cases.");
+              setApplySummary(
+                "Regenerated simulated chat previews for all scripted test cases.",
+              );
             } catch (err) {
-              const msg =
-                err instanceof Error ? err.message : String(err);
+              const msg = err instanceof Error ? err.message : String(err);
               setApplyError(msg);
               setTestCases((current) =>
                 current.map((tc) => {
@@ -5186,11 +5727,11 @@ export default function AssistantPanel({
                     messages: [
                       createMessage(
                         "assistant",
-                        `Could not generate simulated dialogue (${msg}). Check your API key or try **Apply current prompt** again.`
+                        `Could not generate simulated dialogue (${msg}). Check your API key or try **Apply current prompt** again.`,
                       ),
                     ],
                   };
-                })
+                }),
               );
             }
           })();
@@ -5206,7 +5747,13 @@ export default function AssistantPanel({
       window.removeEventListener("instruction-doc-updated", onPromptUpdate);
       window.removeEventListener("focus", syncPrompt);
     };
-  }, [appId, promptOverride, readOnly, fetchAndApplyScriptedDialogues]);
+  }, [
+    appId,
+    promptOverride,
+    readOnly,
+    fetchAndApplyScriptedDialogues,
+    assistedAuthoringMode,
+  ]);
 
   async function send(textOverride?: string) {
     const baseText = (textOverride ?? input).trim();
@@ -5216,7 +5763,12 @@ export default function AssistantPanel({
         : baseText;
     const userContent =
       text.trim() || (attachedImageUrl ? "(See attached image.)" : "");
-    if ((!userContent.trim() && !attachedImageUrl) || busy || applyBusy || !activeTestCase) {
+    if (
+      (!userContent.trim() && !attachedImageUrl) ||
+      busy ||
+      applyBusy ||
+      !activeTestCase
+    ) {
       return;
     }
     const currentTestCaseId = activeTestCase.id;
@@ -5224,7 +5776,12 @@ export default function AssistantPanel({
 
     const nextMessages = [
       ...messages,
-      createMessage("user", userContent, userContent, attachedImageUrl || undefined),
+      createMessage(
+        "user",
+        userContent,
+        userContent,
+        attachedImageUrl || undefined,
+      ),
     ];
 
     setComposerError("");
@@ -5257,7 +5814,7 @@ export default function AssistantPanel({
               appId,
               serverSystemPrompt,
             }),
-            activeStudentProfile
+            activeStudentProfile,
           ),
           messages: nextMessages,
           visualizationState: currentVisualizationState,
@@ -5276,7 +5833,7 @@ export default function AssistantPanel({
         throw new Error(msg);
       }
 
-      const reply = isJSON ? body?.reply ?? "" : String(body);
+      const reply = isJSON ? (body?.reply ?? "") : String(body);
 
       updateTestCaseById(currentTestCaseId, (testCase) => ({
         ...testCase,
@@ -5293,7 +5850,10 @@ export default function AssistantPanel({
         ...testCase,
         messages: [
           ...testCase.messages,
-          createMessage("assistant", `Sorry—something went wrong: ${e?.message || e}`),
+          createMessage(
+            "assistant",
+            `Sorry—something went wrong: ${e?.message || e}`,
+          ),
         ],
         verificationStatus: "idle",
         verificationNote: "",
@@ -5348,6 +5908,7 @@ export default function AssistantPanel({
   }
 
   async function runPromptUpdatePipeline() {
+    if (!isAssistedBehaviorEnabled(assistedAuthoringMode)) return;
     if (!editedMessageCount || busy || applyBusy || !activeTestCase) return;
 
     const currentPrompt = resolveAssistantSystemPrompt({
@@ -5356,7 +5917,9 @@ export default function AssistantPanel({
       serverSystemPrompt,
     });
     if (!currentPrompt.trim()) {
-      setApplyError("The current prompt is empty, so there is nothing to update yet.");
+      setApplyError(
+        "The current prompt is empty, so there is nothing to update yet.",
+      );
       return;
     }
 
@@ -5399,7 +5962,9 @@ export default function AssistantPanel({
 
       const body = await res.json();
       if (!res.ok) {
-        throw new Error(body?.error || "Failed to run the prompt update pipeline.");
+        throw new Error(
+          body?.error || "Failed to run the prompt update pipeline.",
+        );
       }
 
       const result: PromptUpdateResult = {
@@ -5418,7 +5983,9 @@ export default function AssistantPanel({
         },
         candidatePrompt: body?.candidatePrompt || "",
         updatedPrompt: body?.updatedPrompt || body?.candidatePrompt || "",
-        changedBlocks: Array.isArray(body?.changedBlocks) ? body.changedBlocks : [],
+        changedBlocks: Array.isArray(body?.changedBlocks)
+          ? body.changedBlocks
+          : [],
         verification: {
           currentCase: body?.verification?.currentCase || null,
           otherCaseChecks: Array.isArray(body?.verification?.otherCaseChecks)
@@ -5433,7 +6000,9 @@ export default function AssistantPanel({
       };
 
       if (!result.candidatePrompt.trim()) {
-        throw new Error("The prompt update pipeline did not return a candidate prompt.");
+        throw new Error(
+          "The prompt update pipeline did not return a candidate prompt.",
+        );
       }
 
       setPipelineResult(result);
@@ -5443,27 +6012,35 @@ export default function AssistantPanel({
             (result.verification.currentCase &&
               result.verification.currentCase.testCaseId === testCase.id &&
               result.verification.currentCase) ||
-            result.verification.otherCaseChecks.find((check) => check.testCaseId === testCase.id);
+            result.verification.otherCaseChecks.find(
+              (check) => check.testCaseId === testCase.id,
+            );
 
           return {
             ...testCase,
             verificationStatus: match?.status || "idle",
             verificationNote: match?.note || "",
           };
-        })
+        }),
       );
       window.dispatchEvent(
         new CustomEvent<PromptFeedbackEventDetail>("prompt-feedback-applied", {
           detail: {
             updatedPrompt: result.updatedPrompt || result.candidatePrompt,
             changedBlocks: result.changedBlocks,
-            summary: result.verification.summary || "Updated the prompt from this chat.",
+            summary:
+              result.verification.summary ||
+              "Updated the prompt from this chat.",
           },
-        })
+        }),
       );
-      setApplySummary(result.verification.summary || "Updated the prompt from this chat.");
+      setApplySummary(
+        result.verification.summary || "Updated the prompt from this chat.",
+      );
     } catch (error: any) {
-      setApplyError(error?.message || "Failed to run the prompt update pipeline.");
+      setApplyError(
+        error?.message || "Failed to run the prompt update pipeline.",
+      );
     } finally {
       setApplyBusy(false);
     }
@@ -5500,578 +6077,663 @@ export default function AssistantPanel({
         key={activeTestCase?.id || "preview"}
         className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border-2 border-rose-100 bg-white shadow-[0_14px_40px_rgba(251,113,133,0.10)] dark:border dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-none"
       >
-      {!readOnly && (
-        <div className="shrink-0 overflow-hidden bg-white dark:bg-zinc-950">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-            <div>
-              <div className="flex items-center gap-2">
+        {!readOnly && !assistedOn && (
+          <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
                 <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700 dark:text-zinc-200">
-                  Testcase
+                  Try your bot
                 </div>
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-700 dark:text-zinc-300">
-                  {testCases.length}
-                </span>
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-200">
-                  {passedCaseCount} passed
-                </span>
-                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-950/70 dark:text-sky-200">
-                  {verifiedCaseCount} verified
-                </span>
-                {(warningCaseCount > 0 || failedCaseCount > 0) && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
-                    {warningCaseCount + failedCaseCount} needs review
-                  </span>
-                )}
               </div>
+              <button
+                type="button"
+                onClick={clearTryConversation}
+                disabled={busy || applyBusy}
+                className="shrink-0 rounded-xl bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-600 dark:hover:bg-zinc-700"
+              >
+                Clear conversation
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 px-4 py-2.5">
-            {testCases.map((testCase, index) => {
-              const active = testCase.id === activeTestCase?.id;
-              const studentDetailOpen =
-                Boolean(testCase.studentProfile) &&
-                expandedStudentDetailIds.has(testCase.id);
+        )}
+        {!readOnly && assistedOn && (
+          <div className="shrink-0 overflow-hidden bg-white dark:bg-zinc-950">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-700 dark:text-zinc-200">
+                    Testcase
+                  </div>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-700 dark:text-zinc-300">
+                    {testCases.length}
+                  </span>
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-200">
+                    {passedCaseCount} passed
+                  </span>
+                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-950/70 dark:text-sky-200">
+                    {verifiedCaseCount} verified
+                  </span>
+                  {(warningCaseCount > 0 || failedCaseCount > 0) && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/70 dark:text-amber-200">
+                      {warningCaseCount + failedCaseCount} needs review
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 px-4 py-2.5">
+              {testCases.map((testCase, index) => {
+                const active = testCase.id === activeTestCase?.id;
+                const studentDetailOpen =
+                  Boolean(testCase.studentProfile) &&
+                  expandedStudentDetailIds.has(testCase.id);
+                return (
+                  <div
+                    key={testCase.id}
+                    ref={
+                      index === 0
+                        ? spotlightTargetRefs?.case0
+                        : index === 1
+                          ? spotlightTargetRefs?.case1
+                          : undefined
+                    }
+                    className="flex min-w-[200px] max-w-[280px] flex-col gap-2"
+                  >
+                    <div
+                      className={[
+                        "rounded-xl border px-3 py-2 text-left transition",
+                        testCase.passed
+                          ? active
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                            : "border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800/80 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                          : active
+                            ? "border-rose-300 bg-rose-50 text-rose-700 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700/80",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => selectTestCase(testCase.id)}
+                          disabled={busy || applyBusy}
+                          className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
+                            Case {index + 1}
+                          </div>
+                          <div
+                            className={[
+                              "mt-1 text-sm font-medium",
+                              testCase.passed
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : active
+                                  ? "text-rose-700 dark:text-rose-300"
+                                  : "text-slate-700 dark:text-zinc-200",
+                            ].join(" ")}
+                          >
+                            {testCase.name}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
+                            {testCase.purposeLabel}
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 items-start gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openTestCaseEdit(testCase)}
+                            disabled={busy || applyBusy}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                            title="Edit test case"
+                            aria-label="Edit test case"
+                          >
+                            <svg
+                              viewBox="0 0 20 20"
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-2.207 2.207L4 13.172V16h2.828l7.379-7.379-2.828-2.828z"
+                                fill="currentColor"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteTestCase(testCase.id)}
+                            disabled={
+                              busy || applyBusy || testCases.length <= 1
+                            }
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                            title={
+                              testCases.length <= 1
+                                ? "Keep at least one test case"
+                                : "Delete this test case"
+                            }
+                            aria-label={
+                              testCases.length <= 1
+                                ? "Keep at least one test case"
+                                : "Delete this test case"
+                            }
+                          >
+                            <svg
+                              viewBox="0 0 20 20"
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M6.2 6.2a.75.75 0 011.06 0L10 8.94l2.74-2.74a.75.75 0 111.06 1.06L11.06 10l2.74 2.74a.75.75 0 11-1.06 1.06L10 11.06l-2.74 2.74a.75.75 0 11-1.06-1.06L8.94 10 6.2 7.26a.75.75 0 010-1.06z"
+                                fill="currentColor"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {studentDetailOpen && testCase.studentProfile && (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-left dark:border-zinc-600 dark:bg-zinc-800/90">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                            {TEST_CASE_STUDENTS_SECTION_HEADING}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => collapseStudentDetail(testCase.id)}
+                            className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-200"
+                          >
+                            Hide
+                          </button>
+                        </div>
+                        <pre className="mt-1 whitespace-pre-wrap font-sans text-[11px] leading-snug text-slate-600 dark:text-zinc-300">
+                          {formatStudentProfile(testCase.studentProfile)}
+                        </pre>
+                        <div className="mt-2 border-t border-slate-200/80 pt-2 text-[11px] text-slate-600 dark:border-zinc-600 dark:text-zinc-300">
+                          <span className="font-medium text-slate-700 dark:text-zinc-200">
+                            Scenario:{" "}
+                          </span>
+                          {testCase.scenarioSummary}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                ref={spotlightTargetRefs?.addCase}
+                type="button"
+                onClick={() => setAddTestCaseChoiceOpen(true)}
+                disabled={busy || applyBusy}
+                className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
+                title="Add a new test case"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
+                  New case
+                </div>
+                <div className="mt-1 text-sm font-medium text-slate-700 dark:text-zinc-200">
+                  Add test case
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-2.5 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-semibold text-slate-950 dark:text-zinc-50">
+              {displayName}
+              <span className="font-medium text-slate-600 dark:text-zinc-400">
+                {" "}
+                · {modelNameWithoutProvider(modelLabel)}
+              </span>
+            </h3>
+          </div>
+
+          {!readOnly && assistedOn && (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                ref={spotlightTargetRefs?.markPass}
+                className={[
+                  "rounded-xl px-3 py-1 text-xs font-medium transition",
+                  activeTestCase?.passed
+                    ? "bg-emerald-500 text-white hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                    : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-900/10 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-200 dark:ring-emerald-700/40 dark:hover:bg-emerald-900/50",
+                ].join(" ")}
+                onClick={toggleActiveTestCasePassed}
+                type="button"
+              >
+                {activeTestCase?.passed ? "Passed" : "Mark pass"}
+              </button>
+              <button
+                className="rounded-xl p-1.5 text-slate-800 hover:bg-white/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                title="Refresh"
+                onClick={() => {
+                  resetSession();
+                  void loadApp();
+                }}
+              >
+                <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div
+          ref={spotlightTargetRefs?.simulatedChat}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="border-b border-rose-100 bg-white/80 px-4 py-2 text-[11px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            {readOnly
+              ? "Read-only shared preview."
+              : assistedOn
+                ? "Chat · edit bubbles · update prompt."
+                : "Try chat · your messages use the Final Prompt on the left."}
+          </div>
+
+          <div
+            ref={listRef}
+            className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-950"
+          >
+            {assistedOn && (
+              <div className="text-[11px] text-slate-400 dark:text-zinc-500">
+                {activeTestCase?.name || "Preview"} · {displayName}
+              </div>
+            )}
+            {visualizationMode && visualizationMode !== "spacing-testing" && (
+              <div
+                className={[
+                  "border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none",
+                  visualFullscreen
+                    ? "fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl"
+                    : "rounded-2xl",
+                ].join(" ")}
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-700">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-300">
+                      {visualFullscreen
+                        ? "Fullscreen visualization"
+                        : "Visualized element"}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-slate-800 dark:text-zinc-100">
+                      {getVisualizationTitle(
+                        visualizationMode,
+                        visualFullscreen,
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVisualFullscreen((current) => !current)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    {visualFullscreen ? "Close" : "Fullscreen"}
+                  </button>
+                </div>
+                <div
+                  className={
+                    visualFullscreen
+                      ? "flex-1 overflow-auto bg-slate-50 p-6 dark:bg-zinc-950"
+                      : "p-4"
+                  }
+                >
+                  <VisualizationSurface
+                    mode={visualizationMode}
+                    appId={appId}
+                    latestUserMessage={latestUserMessage}
+                    latestAssistantMessage={latestAssistantMessage}
+                    assistantTurnCount={assistantTurnCount}
+                    onStateChange={(nextState) =>
+                      updateActiveTestCase((testCase) => ({
+                        ...testCase,
+                        visualizationState: nextState,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {messages.map((message) => {
+              const isEditing = editingMessageId === message.id;
+              const isEdited = messageHasEdits(message);
+
               return (
                 <div
-                  key={testCase.id}
-                  ref={
-                    index === 0
-                      ? spotlightTargetRefs?.case0
-                      : index === 1
-                        ? spotlightTargetRefs?.case1
-                        : undefined
-                  }
-                  className="flex min-w-[200px] max-w-[280px] flex-col gap-2"
+                  key={message.id}
+                  className={[
+                    "space-y-2",
+                    message.role === "assistant" ? "mr-8" : "ml-8",
+                  ].join(" ")}
                 >
                   <div
                     className={[
-                      "rounded-xl border px-3 py-2 text-left transition",
-                      testCase.passed
-                        ? active
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-                          : "border-emerald-200 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800/80 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
-                        : active
-                          ? "border-rose-300 bg-rose-50 text-rose-700 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700/80",
+                      "flex items-center gap-3",
+                      message.role === "assistant" ? "" : "justify-end",
                     ].join(" ")}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => selectTestCase(testCase.id)}
-                        disabled={busy || applyBusy}
-                        className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
-                          Case {index + 1}
-                        </div>
-                        <div
-                          className={[
-                            "mt-1 text-sm font-medium",
-                            testCase.passed
-                              ? "text-emerald-700 dark:text-emerald-300"
-                              : active
-                                ? "text-rose-700 dark:text-rose-300"
-                                : "text-slate-700 dark:text-zinc-200",
-                          ].join(" ")}
-                        >
-                          {testCase.name}
-                        </div>
-                        <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
-                          {testCase.purposeLabel}
-                        </div>
-                      </button>
-                      <div className="flex shrink-0 items-start gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openTestCaseEdit(testCase)}
-                          disabled={busy || applyBusy}
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-                          title="Edit test case"
-                          aria-label="Edit test case"
-                        >
-                          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path
-                              d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-2.207 2.207L4 13.172V16h2.828l7.379-7.379-2.828-2.828z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteTestCase(testCase.id)}
-                          disabled={busy || applyBusy || testCases.length <= 1}
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white/85 text-slate-500 transition hover:border-slate-300 hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800/90 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-                          title={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
-                          aria-label={testCases.length <= 1 ? "Keep at least one test case" : "Delete this test case"}
-                        >
-                          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path
-                              d="M6.2 6.2a.75.75 0 011.06 0L10 8.94l2.74-2.74a.75.75 0 111.06 1.06L11.06 10l2.74 2.74a.75.75 0 11-1.06 1.06L10 11.06l-2.74 2.74a.75.75 0 11-1.06-1.06L8.94 10 6.2 7.26a.75.75 0 010-1.06z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                        </button>
+                    {message.role === "assistant" && (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
+                        🤖
                       </div>
+                    )}
+                    <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
+                      {message.role === "assistant"
+                        ? `${displayName} preview`
+                        : assistedOn
+                          ? "Test user"
+                          : "You"}
                     </div>
+                    {assistedOn && isEdited && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                        Edited
+                      </span>
+                    )}
+                    {message.role === "user" && (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-200 bg-sky-100 text-sm">
+                        🙂
+                      </div>
+                    )}
                   </div>
-                  {studentDetailOpen && testCase.studentProfile && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-left dark:border-zinc-600 dark:bg-zinc-800/90">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
-                          {TEST_CASE_STUDENTS_SECTION_HEADING}
+
+                  <div
+                    className={[
+                      "rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
+                      message.role === "assistant"
+                        ? "border-rose-200 bg-white text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        : "border-sky-200 bg-sky-100/90 text-sky-950 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
+                    ].join(" ")}
+                  >
+                    {isEditing && assistedOn ? (
+                      <div className="space-y-3">
+                        <textarea
+                          value={editingDraft}
+                          onChange={(event) =>
+                            setEditingDraft(event.target.value)
+                          }
+                          className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[15px] leading-7 text-slate-800 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500"
+                          disabled={busy || applyBusy}
+                        />
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[11px] text-slate-500 dark:text-zinc-400">
+                            Save, then use Update prompt below.
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditingMessage}
+                              className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void saveEditedMessage(message.id)}
+                              disabled={!editingDraft.trim()}
+                              className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                            >
+                              Save
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => collapseStudentDetail(testCase.id)}
-                          className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-200"
-                        >
-                          Hide
-                        </button>
                       </div>
-                      <pre className="mt-1 whitespace-pre-wrap font-sans text-[11px] leading-snug text-slate-600 dark:text-zinc-300">
-                        {formatStudentProfile(testCase.studentProfile)}
-                      </pre>
-                      <div className="mt-2 border-t border-slate-200/80 pt-2 text-[11px] text-slate-600 dark:border-zinc-600 dark:text-zinc-300">
-                        <span className="font-medium text-slate-700 dark:text-zinc-200">Scenario: </span>
-                        {testCase.scenarioSummary}
+                    ) : (
+                      <div className="space-y-3">
+                        {message.role === "user" && message.imageUrl ? (
+                          <img
+                            src={message.imageUrl}
+                            alt="Attached"
+                            className="max-h-48 max-w-full rounded-xl border border-sky-300/80 object-contain dark:border-sky-700/60"
+                          />
+                        ) : null}
+                        <ChatMessageBody
+                          content={message.content}
+                          className="text-[15px] leading-7 text-slate-800 dark:text-zinc-100"
+                        />
+                        {!readOnly && assistedOn && (
+                          <div className="flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={() => startEditingMessage(message)}
+                              disabled={busy || applyBusy}
+                              className="rounded-full border border-sky-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50/50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-800/80 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-sky-700 dark:hover:bg-zinc-800"
+                            >
+                              Edit bubble
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             })}
-            <button
-              ref={spotlightTargetRefs?.addCase}
-              type="button"
-              onClick={() => setAddTestCaseChoiceOpen(true)}
-              disabled={busy || applyBusy}
-              className="min-w-[112px] rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
-              title="Add a new test case"
-            >
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-400">
-                New case
+
+            {visualizationMode === "spacing-testing" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
+                    🤖
+                  </div>
+                  <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
+                    {displayName} preview
+                  </div>
+                </div>
+                <VisualizationSurface
+                  mode={visualizationMode}
+                  appId={appId}
+                  latestUserMessage={latestUserMessage}
+                  latestAssistantMessage={latestAssistantMessage}
+                  assistantTurnCount={assistantTurnCount}
+                  embedded={true}
+                  onStateChange={(nextState) =>
+                    updateActiveTestCase((testCase) => ({
+                      ...testCase,
+                      visualizationState: nextState,
+                    }))
+                  }
+                />
               </div>
-              <div className="mt-1 text-sm font-medium text-slate-700 dark:text-zinc-200">
-                Add test case
+            )}
+
+            {busy && (
+              <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                Thinking...
               </div>
-            </button>
+            )}
           </div>
-        </div>
-      )}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-4 py-2.5 dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-slate-950 dark:text-zinc-50">
-            {displayName}
-            <span className="font-medium text-slate-600 dark:text-zinc-400">
-              {" "}
-              · {modelNameWithoutProvider(modelLabel)}
-            </span>
-          </h3>
-        </div>
 
-        {!readOnly && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              ref={spotlightTargetRefs?.markPass}
-              className={[
-                "rounded-xl px-3 py-1 text-xs font-medium transition",
-                activeTestCase?.passed
-                  ? "bg-emerald-500 text-white hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                  : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-900/10 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-200 dark:ring-emerald-700/40 dark:hover:bg-emerald-900/50",
-              ].join(" ")}
-              onClick={toggleActiveTestCasePassed}
-              type="button"
-            >
-              {activeTestCase?.passed ? "Passed" : "Mark pass"}
-            </button>
-            <button
-              className="rounded-xl p-1.5 text-slate-800 hover:bg-white/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              title="Refresh"
-              onClick={() => {
-                resetSession();
-                void loadApp();
-              }}
-            >
-              <Icon d="M12 6V3L8 7l4 4V8a4 4 0 110 8 4 4 0 01-3.46-2H6.26A6 6 0 1012 6z" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div ref={spotlightTargetRefs?.simulatedChat} className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-rose-100 bg-white/80 px-4 py-2 text-[11px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-        {readOnly ? "Read-only shared preview." : "Chat · edit bubbles · update prompt."}
-      </div>
-
-      <div
-        ref={listRef}
-        className="min-h-0 flex-1 space-y-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-950"
-      >
-        <div className="text-[11px] text-slate-400 dark:text-zinc-500">
-          {activeTestCase?.name || "Preview"} · {displayName}
-        </div>
-        {visualizationMode && visualizationMode !== "spacing-testing" && (
-          <div
-            className={[
-              "border border-slate-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none",
-              visualFullscreen
-                ? "fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl"
-                : "rounded-2xl",
-            ].join(" ")}
-          >
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-700">
-              <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-300">
-                  {visualFullscreen ? "Fullscreen visualization" : "Visualized element"}
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-800 dark:text-zinc-100">
-                  {getVisualizationTitle(visualizationMode, visualFullscreen)}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setVisualFullscreen((current) => !current)}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                {visualFullscreen ? "Close" : "Fullscreen"}
-              </button>
-            </div>
-            <div
-              className={
-                visualFullscreen
-                  ? "flex-1 overflow-auto bg-slate-50 p-6 dark:bg-zinc-950"
-                  : "p-4"
-              }
-            >
-              <VisualizationSurface
-                mode={visualizationMode}
-                appId={appId}
-                latestUserMessage={latestUserMessage}
-                latestAssistantMessage={latestAssistantMessage}
-                assistantTurnCount={assistantTurnCount}
-                onStateChange={(nextState) =>
-                  updateActiveTestCase((testCase) => ({
-                    ...testCase,
-                    visualizationState: nextState,
-                  }))
-                }
-              />
-            </div>
-          </div>
-        )}
-
-        {messages.map((message) => {
-          const isEditing = editingMessageId === message.id;
-          const isEdited = messageHasEdits(message);
-
-          return (
-          <div
-            key={message.id}
-            className={[
-              "space-y-2",
-              message.role === "assistant" ? "mr-8" : "ml-8",
-            ].join(" ")}
-          >
-            <div
-              className={[
-                "flex items-center gap-3",
-                message.role === "assistant" ? "" : "justify-end",
-              ].join(" ")}
-            >
-              {message.role === "assistant" && (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
-                  🤖
-                </div>
-              )}
-              <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
-                {message.role === "assistant" ? `${displayName} preview` : "Test user"}
-              </div>
-              {isEdited && (
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                  Edited
-                </span>
-              )}
-              {message.role === "user" && (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-200 bg-sky-100 text-sm">
-                  🙂 
-                </div>
-              )}
-            </div>
-
-            <div
-              className={[
-                "rounded-[1.4rem] border-2 px-4 py-3 text-[15px] leading-7 shadow-sm",
-                message.role === "assistant"
-                  ? "border-rose-200 bg-white text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  : "border-sky-200 bg-sky-100/90 text-sky-950 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-100",
-              ].join(" ")}
-            >
-              {isEditing ? (
-                <div className="space-y-3">
-                  <textarea
-                    value={editingDraft}
-                    onChange={(event) => setEditingDraft(event.target.value)}
-                    className="min-h-[132px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[15px] leading-7 text-slate-800 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-500"
-                    disabled={busy || applyBusy}
-                  />
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-slate-500 dark:text-zinc-400">
-                      Save, then use Update prompt below.
+          {!readOnly && (
+            <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4 dark:border-zinc-800 dark:bg-zinc-950">
+              {showApplyPromptStrip && (
+                <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/60 dark:bg-amber-950/50">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                        Update prompt
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-amber-800/95 dark:text-amber-100/90">
+                        From edited bubbles.
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {pipelineResult?.verification.currentCase && (
+                        <div className="rounded-full border border-amber-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-zinc-800/90 dark:text-amber-200">
+                          Confidence{" "}
+                          {pipelineResult.verification.currentCase.score}/100
+                        </div>
+                      )}
                       <button
                         type="button"
-                        onClick={cancelEditingMessage}
-                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={() => void runPromptUpdatePipeline()}
+                        disabled={
+                          !editedMessageCount ||
+                          busy ||
+                          applyBusy ||
+                          Boolean(editingMessageId)
+                        }
+                        className="rounded-2xl bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void saveEditedMessage(message.id)}
-                        disabled={!editingDraft.trim()}
-                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                      >
-                        Save
+                        {applyBusy
+                          ? "Updating..."
+                          : `Update prompt${editedMessageCount ? ` (${editedMessageCount})` : ""}`}
                       </button>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {message.role === "user" && message.imageUrl ? (
-                    <img
-                      src={message.imageUrl}
-                      alt="Attached"
-                      className="max-h-48 max-w-full rounded-xl border border-sky-300/80 object-contain dark:border-sky-700/60"
-                    />
-                  ) : null}
-                  <ChatMessageBody
-                    content={message.content}
-                    className="text-[15px] leading-7 text-slate-800 dark:text-zinc-100"
-                  />
-                  {!readOnly && (
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => startEditingMessage(message)}
-                        disabled={busy || applyBusy}
-                        className="rounded-full border border-sky-200/90 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50/50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-800/80 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-sky-700 dark:hover:bg-zinc-800"
-                      >
-                        Edit bubble
-                      </button>
-                    </div>
+                  {applySummary && (
+                    <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+                      {applySummary}
+                    </p>
+                  )}
+                  {applyError && (
+                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                      {applyError}
+                    </p>
+                  )}
+                  {editingMessageId && (
+                    <p className="mt-2 text-[11px] text-slate-600 dark:text-zinc-400">
+                      Finish bubble edit first.
+                    </p>
                   )}
                 </div>
               )}
-            </div>
-          </div>
-          );
-        })}
-
-        {visualizationMode === "spacing-testing" && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-200 bg-rose-100 text-sm">
-                🤖
+              {!showApplyPromptStrip && applySummary && (
+                <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400">
+                  {applySummary}
+                </p>
+              )}
+              {!showApplyPromptStrip && applyError && (
+                <p className="mb-3 text-xs text-red-600 dark:text-red-400">
+                  {applyError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-zinc-200 dark:hover:bg-amber-950/60"
+                  title="Upload file or image"
+                  type="button"
+                  disabled={busy || applyBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <span aria-hidden="true">📃</span>
+                </button>
+                <button
+                  className={[
+                    "rounded-2xl border-2 p-2 disabled:opacity-50",
+                    listening
+                      ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                      : "border-violet-200 bg-violet-50 text-slate-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-zinc-200 dark:hover:bg-violet-950/60",
+                  ].join(" ")}
+                  title={listening ? "Stop voice input" : "Start voice input"}
+                  type="button"
+                  disabled={busy || applyBusy}
+                  onClick={toggleVoiceInput}
+                >
+                  <span aria-hidden="true">🎙️</span>
+                </button>
+                <input
+                  className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400 dark:border-rose-900/60 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                  placeholder={
+                    listening ? "Listening…" : "Message, voice, file, or image"
+                  }
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  disabled={busy || applyBusy}
+                />
+                <button
+                  className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
+                  onClick={() => void send()}
+                  disabled={busy || applyBusy}
+                  type="button"
+                >
+                  Send
+                </button>
               </div>
-              <div className="text-xs font-medium text-slate-500 dark:text-zinc-300">
-                {displayName} preview
-              </div>
-            </div>
-            <VisualizationSurface
-              mode={visualizationMode}
-              appId={appId}
-              latestUserMessage={latestUserMessage}
-              latestAssistantMessage={latestAssistantMessage}
-              assistantTurnCount={assistantTurnCount}
-              embedded={true}
-              onStateChange={(nextState) =>
-                updateActiveTestCase((testCase) => ({
-                  ...testCase,
-                  visualizationState: nextState,
-                }))
-              }
-            />
-          </div>
-        )}
-
-        {busy && (
-          <div className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-            Thinking...
-          </div>
-        )}
-      </div>
-
-      {!readOnly && (
-        <div className="border-t border-rose-100 bg-white/85 px-4 pb-4 pt-4 dark:border-zinc-800 dark:bg-zinc-950">
-        {showApplyPromptStrip && (
-        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-900/60 dark:bg-amber-950/50">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                Update prompt
-              </div>
-              <p className="mt-0.5 text-[11px] text-amber-800/95 dark:text-amber-100/90">
-                From edited bubbles.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {pipelineResult?.verification.currentCase && (
-                <div className="rounded-full border border-amber-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-zinc-800/90 dark:text-amber-200">
-                  Confidence {pipelineResult.verification.currentCase.score}/100
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept={CHAT_ATTACHMENT_ACCEPT}
+                onChange={handleFileChange}
+              />
+              {attachedFileName && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+                    Attached: {attachedFileName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachedFileName("");
+                      setAttachedFileText("");
+                    }}
+                    className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Remove
+                  </button>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => void runPromptUpdatePipeline()}
-                disabled={!editedMessageCount || busy || applyBusy || Boolean(editingMessageId)}
-                className="rounded-2xl bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {applyBusy
-                  ? "Updating..."
-                  : `Update prompt${editedMessageCount ? ` (${editedMessageCount})` : ""}`}
-              </button>
+              {attachedImageName && attachedImageUrl && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+                    Image: {attachedImageName}
+                  </span>
+                  <img
+                    src={attachedImageUrl}
+                    alt=""
+                    className="h-14 w-14 rounded-lg border border-slate-200 object-cover dark:border-zinc-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachedImageName("");
+                      setAttachedImageUrl("");
+                    }}
+                    className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              {composerError && (
+                <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                  {composerError}
+                </p>
+              )}
             </div>
-          </div>
-          {applySummary && (
-            <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">{applySummary}</p>
-          )}
-          {applyError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{applyError}</p>}
-          {editingMessageId && (
-            <p className="mt-2 text-[11px] text-slate-600 dark:text-zinc-400">
-              Finish bubble edit first.
-            </p>
           )}
         </div>
-        )}
-        {!showApplyPromptStrip && applySummary && (
-          <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400">{applySummary}</p>
-        )}
-        {!showApplyPromptStrip && applyError && (
-          <p className="mb-3 text-xs text-red-600 dark:text-red-400">{applyError}</p>
-        )}
-        <div className="flex gap-2">
-          <button
-            className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-zinc-200 dark:hover:bg-amber-950/60"
-            title="Upload file or image"
-            type="button"
-            disabled={busy || applyBusy}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <span aria-hidden="true">📃</span>
-          </button>
-          <button
-            className={[
-              "rounded-2xl border-2 p-2 disabled:opacity-50",
-              listening
-                ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
-                : "border-violet-200 bg-violet-50 text-slate-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-zinc-200 dark:hover:bg-violet-950/60",
-            ].join(" ")}
-            title={listening ? "Stop voice input" : "Start voice input"}
-            type="button"
-            disabled={busy || applyBusy}
-            onClick={toggleVoiceInput}
-          >
-            <span aria-hidden="true">🎙️</span>
-          </button>
-          <input
-            className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400 dark:border-rose-900/60 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            placeholder={listening ? "Listening…" : "Message, voice, file, or image"}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={busy || applyBusy}
-          />
-          <button
-            className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
-            onClick={() => void send()}
-            disabled={busy || applyBusy}
-            type="button"
-          >
-            Send
-          </button>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          accept={CHAT_ATTACHMENT_ACCEPT}
-          onChange={handleFileChange}
-        />
-        {attachedFileName && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
-              Attached: {attachedFileName}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setAttachedFileName("");
-                setAttachedFileText("");
-              }}
-              className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-            >
-              Remove
-            </button>
-          </div>
-        )}
-        {attachedImageName && attachedImageUrl && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
-              Image: {attachedImageName}
-            </span>
-            <img
-              src={attachedImageUrl}
-              alt=""
-              className="h-14 w-14 rounded-lg border border-slate-200 object-cover dark:border-zinc-600"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setAttachedImageName("");
-                setAttachedImageUrl("");
-              }}
-              className="text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-            >
-              Remove
-            </button>
-          </div>
-        )}
-        {composerError && (
-          <p className="mt-2 text-xs text-red-600 dark:text-red-400">{composerError}</p>
-        )}
-        </div>
-      )}
-      </div>
 
-      {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
-        <div
-          className="fixed inset-0 z-40 bg-slate-900/45"
-          onClick={() => setVisualFullscreen(false)}
-        />
-      )}
-      {panelBlockingProgress && !readOnly && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px] dark:bg-zinc-950/70">
-          <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 animate-spin" aria-hidden="true">
-                <path
-                  d="M12 4a8 8 0 018 8h-2a6 6 0 10-6 6v2a8 8 0 010-16z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-              {panelBlockingProgress.title}
-            </div>
-            <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
-              {panelBlockingProgress.detail}
+        {visualizationMode &&
+          visualizationMode !== "spacing-testing" &&
+          visualFullscreen && (
+            <div
+              className="fixed inset-0 z-40 bg-slate-900/45"
+              onClick={() => setVisualFullscreen(false)}
+            />
+          )}
+        {panelBlockingProgress && !readOnly && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px] dark:bg-zinc-950/70">
+            <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-5 py-4 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5 animate-spin"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 4a8 8 0 018 8h-2a6 6 0 10-6 6v2a8 8 0 010-16z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                {panelBlockingProgress.title}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
+                {panelBlockingProgress.detail}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </aside>
 
       {addTestCaseChoiceOpen && !readOnly && (
@@ -6106,7 +6768,8 @@ export default function AssistantPanel({
                   Simulated student first
                 </div>
                 <div className="mt-1 text-[11px] font-normal text-slate-600 dark:text-zinc-400">
-                  Edit student & scenario, then click **Apply current prompt** to generate a 5-turn preview.
+                  Edit student & scenario, then click **Apply current prompt**
+                  to generate a 5-turn preview.
                 </div>
               </button>
               <button
@@ -6165,7 +6828,9 @@ export default function AssistantPanel({
                   value={testCaseEditDraft.name}
                   onChange={(event) =>
                     setTestCaseEditDraft((current) =>
-                      current ? { ...current, name: event.target.value } : current
+                      current
+                        ? { ...current, name: event.target.value }
+                        : current,
                     )
                   }
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
@@ -6178,7 +6843,9 @@ export default function AssistantPanel({
                   value={testCaseEditDraft.purposeLabel}
                   onChange={(event) =>
                     setTestCaseEditDraft((current) =>
-                      current ? { ...current, purposeLabel: event.target.value } : current
+                      current
+                        ? { ...current, purposeLabel: event.target.value }
+                        : current,
                     )
                   }
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
@@ -6191,7 +6858,9 @@ export default function AssistantPanel({
                   value={testCaseEditDraft.scenarioSummary}
                   onChange={(event) =>
                     setTestCaseEditDraft((current) =>
-                      current ? { ...current, scenarioSummary: event.target.value } : current
+                      current
+                        ? { ...current, scenarioSummary: event.target.value }
+                        : current,
                     )
                   }
                   rows={3}
@@ -6209,7 +6878,9 @@ export default function AssistantPanel({
                     value={testCaseEditDraft.label}
                     onChange={(event) =>
                       setTestCaseEditDraft((current) =>
-                        current ? { ...current, label: event.target.value } : current
+                        current
+                          ? { ...current, label: event.target.value }
+                          : current,
                       )
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
@@ -6222,7 +6893,9 @@ export default function AssistantPanel({
                     value={testCaseEditDraft.gradeLevel}
                     onChange={(event) =>
                       setTestCaseEditDraft((current) =>
-                        current ? { ...current, gradeLevel: event.target.value } : current
+                        current
+                          ? { ...current, gradeLevel: event.target.value }
+                          : current,
                       )
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-300 focus:ring-1 focus:ring-rose-200 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-rose-500 dark:focus:ring-rose-950/40"
@@ -6234,7 +6907,9 @@ export default function AssistantPanel({
                     value={testCaseEditDraft.knowledgeLevel}
                     onChange={(event) =>
                       setTestCaseEditDraft((current) =>
-                        current ? { ...current, knowledgeLevel: event.target.value } : current
+                        current
+                          ? { ...current, knowledgeLevel: event.target.value }
+                          : current,
                       )
                     }
                     rows={2}
@@ -6247,7 +6922,9 @@ export default function AssistantPanel({
                     value={testCaseEditDraft.personality}
                     onChange={(event) =>
                       setTestCaseEditDraft((current) =>
-                        current ? { ...current, personality: event.target.value } : current
+                        current
+                          ? { ...current, personality: event.target.value }
+                          : current,
                       )
                     }
                     rows={2}

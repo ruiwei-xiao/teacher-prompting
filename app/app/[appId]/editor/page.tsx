@@ -4,10 +4,11 @@ import EditorChrome from "@/components/editor/EditorChrome";
 import EditorTestcaseSpotlight from "@/components/editor/EditorTestcaseSpotlight";
 import type { SpotlightHoleRect } from "@/components/editor/EditorTestcaseSpotlight";
 import {
-  EDITOR_SPOTLIGHT_STEP_COUNT,
+  EDITOR_SPOTLIGHT_STEPS,
   editorSpotlightTourBody,
   editorSpotlightTourStorageKey,
   editorSpotlightTourTitle,
+  filterSpotlightStepsForMode,
 } from "@/components/editor/editorSpotlightTourSteps";
 import type { AssistantPanelSpotlightTargetRefs } from "@/components/editor/AssistantPanel";
 import LeftChat from "@/components/editor/LeftChat";
@@ -28,6 +29,53 @@ import {
   buildEducatorSharePatchBody,
   educatorSharePatchErrorMessage,
 } from "@/lib/workspace-api/share-patch-body";
+import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
+import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
+import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
+import { shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
+import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
+import { clearAssistedAuthoringSnapshot } from "@/lib/assisted-authoring/snapshot";
+
+function PanelResizeHandle({
+  label,
+  active,
+  onPointerDown,
+}: {
+  label: string;
+  active: boolean;
+  onPointerDown: () => void;
+}) {
+  return (
+    <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
+      <div
+        className={[
+          "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
+          active
+            ? "bg-sky-400 dark:bg-sky-500"
+            : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
+        ].join(" ")}
+      />
+      <button
+        type="button"
+        aria-label={label}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          onPointerDown();
+        }}
+        className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+      >
+        <span
+          className={[
+            "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
+            active
+              ? "bg-sky-400/80 dark:bg-sky-500/80"
+              : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
+          ].join(" ")}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function EditorPage({
   params,
@@ -39,6 +87,8 @@ export default function EditorPage({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
+  const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true); // Default to ON
+  const [modeHydrated, setModeHydrated] = useState(false); // Track if mode loaded from server
   const [headerModelLabel, setHeaderModelLabel] = useState("Loading model...");
   const [headerVariabilityLabel, setHeaderVariabilityLabel] = useState(
     formatVariabilityLabel()
@@ -54,6 +104,13 @@ export default function EditorPage({
     allPassed: false,
     chatLayoutKey: "",
   });
+  // Mode panel bootstrap: enter try-chat (ON→OFF) or regenerate assisted suite (OFF→ON)
+  const [modePanelBootstrapAction, setModePanelBootstrapAction] = useState<
+    | { action: "enter-try-chat" }
+    | { action: "regenerate" }
+    | null
+  >(null);
+  const [offToOnError, setOffToOnError] = useState("");
   const [communitySubject, setCommunitySubject] = useState("General");
   const [communityTagsInput, setCommunityTagsInput] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
@@ -70,7 +127,11 @@ export default function EditorPage({
   const [forkedFromAuthorName, setForkedFromAuthorName] = useState("");
   const [forkedFromProjectShareSlug, setForkedFromProjectShareSlug] = useState("");
   const [editorPaneWidth, setEditorPaneWidth] = useState(62);
-  const [isResizingPanels, setIsResizingPanels] = useState(false);
+  const [assistantPaneWidth, setAssistantPaneWidth] = useState(40);
+  const [resizingPanel, setResizingPanel] = useState<
+    null | "assistant-main" | "editor-testcases"
+  >(null);
+  const assistantSplitRef = useRef<HTMLDivElement>(null);
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const publishSpotlightRef = useRef<HTMLButtonElement>(null);
   const spotlightPromptRef = useRef<HTMLDivElement>(null);
@@ -85,6 +146,9 @@ export default function EditorPage({
   const [editorSpotlightStep, setEditorSpotlightStep] = useState<number | null>(null);
   const [editorSpotlightRect, setEditorSpotlightRect] = useState<SpotlightHoleRect | null>(null);
 
+  // Track previous assistedAuthoringMode for transition detection (Task 3.4, 3.5)
+  const previousAssistedAuthoringModeRef = useRef<boolean | null>(null);
+
   const spotlightTargetRefs = useMemo<AssistantPanelSpotlightTargetRefs>(
     () => ({
       simulatedChat: spotlightSimulatedChatRef,
@@ -96,9 +160,19 @@ export default function EditorPage({
     []
   );
 
-  const gridCols = assistantOpen
-    ? "grid-cols-1 xl:grid-cols-[88px_1.05fr_minmax(0,1fr)]"
-    : "grid-cols-1 xl:grid-cols-[88px_minmax(0,1fr)]";
+  // Mount right panel only after mode hydrate (avoids wrong ON/OFF surface flash).
+  const showTestCaseRail = shouldShowTestCaseRail(modeHydrated);
+
+  // Mode-aware spotlight tour: while OFF, omit assisted-only steps (Task 3.6)
+  const spotlightSteps = useMemo(
+    () => filterSpotlightStepsForMode(EDITOR_SPOTLIGHT_STEPS, assistedAuthoringMode),
+    [assistedAuthoringMode]
+  );
+  const spotlightStepCount = spotlightSteps.length;
+  const spotlightStepId =
+    editorSpotlightStep !== null
+      ? spotlightSteps[editorSpotlightStep]?.id ?? null
+      : null;
 
   useEffect(() => {
     async function loadApp() {
@@ -107,6 +181,8 @@ export default function EditorPage({
         const body = await res.json();
         if (res.ok && body?.app) {
           setAppName(body.app.name || appId);
+          setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
+          setModeHydrated(true); // Mark as hydrated after first successful load
           if (body.app.provider && body.app.model) {
             setHeaderModelLabel(getModelLabel(body.app.provider, body.app.model));
           }
@@ -139,22 +215,57 @@ export default function EditorPage({
         }
       } catch {}
 
+      // Fetch failed or returned no app: still hydrate so mode-gated UI
+      // (test-case rail, spotlight) is not stuck hidden forever. Unknown mode
+      // keeps the client default (ON / legacy), matching resolveAssistedAuthoringMode.
       setAppName(appId);
       setHeaderModelLabel("Unknown model");
       setHeaderVariabilityLabel(formatVariabilityLabel());
+      setModeHydrated(true);
     }
 
     void loadApp();
   }, [appId, appVersion]);
 
+  // Mode transitions: ON→OFF discard assisted suite → try-chat; OFF→ON regenerate only.
+  // Ignore pre-hydration; seed ref with first hydrated value without action.
+  useEffect(() => {
+    if (!modeHydrated) return;
+
+    const previousMode = previousAssistedAuthoringModeRef.current;
+
+    if (previousMode === null) {
+      previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
+      return;
+    }
+
+    if (shouldPersistOnToOffTransition(true, previousMode, assistedAuthoringMode)) {
+      clearAssistedAuthoringSnapshot(appId);
+      setModePanelBootstrapAction({ action: "enter-try-chat" });
+      setOffToOnError("");
+    }
+
+    if (shouldPersistOffToOnTransition(true, previousMode, assistedAuthoringMode)) {
+      setOffToOnError("");
+      setModePanelBootstrapAction({ action: "regenerate" });
+    }
+
+    previousAssistedAuthoringModeRef.current = assistedAuthoringMode;
+  }, [assistedAuthoringMode, modeHydrated, appId]);
+
+  useEffect(() => {
+    setModeHydrated(false);
+    previousAssistedAuthoringModeRef.current = null;
+    setModePanelBootstrapAction(null);
+    setOffToOnError("");
+  }, [appId]);
+
   async function handlePublish() {
-    if (!testCaseStatus.allPassed) {
+    const gateResult = shouldBlockPublishForTestCases(assistedAuthoringMode, testCaseStatus);
+    
+    if (gateResult.shouldBlock) {
       setPublishUrl("");
-      setPublishError(
-        testCaseStatus.totalCount > 0
-          ? `Mark all test cases as pass before publishing. ${testCaseStatus.passedCount} of ${testCaseStatus.totalCount} passed so far.`
-          : "Add and pass at least one test case before publishing."
-      );
+      setPublishError(gateResult.reason || "Cannot publish at this time.");
       setPublishOpen(true);
       return;
     }
@@ -267,20 +378,27 @@ export default function EditorPage({
   }
 
   useEffect(() => {
-    if (!isResizingPanels) return;
+    if (!resizingPanel) return;
 
     function handlePointerMove(event: PointerEvent) {
-      const container = splitPaneRef.current;
-      if (!container) return;
+      if (resizingPanel === "editor-testcases") {
+        const container = splitPaneRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const nextWidth = ((event.clientX - rect.left) / rect.width) * 100;
+        setEditorPaneWidth(Math.min(75, Math.max(35, nextWidth)));
+        return;
+      }
 
+      const container = assistantSplitRef.current;
+      if (!container) return;
       const rect = container.getBoundingClientRect();
       const nextWidth = ((event.clientX - rect.left) / rect.width) * 100;
-      const clampedWidth = Math.min(75, Math.max(35, nextWidth));
-      setEditorPaneWidth(clampedWidth);
+      setAssistantPaneWidth(Math.min(55, Math.max(22, nextWidth)));
     }
 
     function handlePointerUp() {
-      setIsResizingPanels(false);
+      setResizingPanel(null);
     }
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -290,24 +408,38 @@ export default function EditorPage({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isResizingPanels]);
+  }, [resizingPanel]);
 
+  // Wait for mode hydration so OFF bots never start the assisted-only tour as mandatory.
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+    if (!modeHydrated) return;
     if (window.localStorage.getItem(editorSpotlightTourStorageKey(appId)) === "done") {
       setEditorSpotlightStep(null);
       return;
     }
     setEditorSpotlightStep(0);
-  }, [appId]);
+  }, [appId, modeHydrated]);
+
+  // If the filtered tour shrinks (e.g. mode → OFF), clamp the tour index.
+  useEffect(() => {
+    if (editorSpotlightStep === null) return;
+    if (spotlightStepCount === 0) {
+      setEditorSpotlightStep(null);
+      return;
+    }
+    if (editorSpotlightStep >= spotlightStepCount) {
+      setEditorSpotlightStep(spotlightStepCount - 1);
+    }
+  }, [editorSpotlightStep, spotlightStepCount]);
 
   useLayoutEffect(() => {
-    if (editorSpotlightStep === null) {
+    if (editorSpotlightStep === null || spotlightStepId === null) {
       setEditorSpotlightRect(null);
       return;
     }
     const resolveNode = (): HTMLElement | null => {
-      switch (editorSpotlightStep) {
+      switch (spotlightStepId) {
         case 0:
           return spotlightPromptRef.current;
         case 1:
@@ -356,7 +488,9 @@ export default function EditorPage({
     };
   }, [
     editorSpotlightStep,
+    spotlightStepId,
     assistantOpen,
+    assistantPaneWidth,
     editorPaneWidth,
     appVersion,
     testCaseStatus.passedCount,
@@ -406,10 +540,8 @@ export default function EditorPage({
           )}
         </div>
       )}
-      <div
-        className={`grid h-full min-h-0 overflow-hidden ${gridCols} gap-0 divide-x divide-slate-200 dark:divide-zinc-800/90`}
-      >
-        <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
+      <div className="flex h-full min-h-0 overflow-hidden">
+        <div className="h-full w-14 shrink-0 overflow-hidden border-r border-slate-200 bg-white dark:border-zinc-800/90 dark:bg-zinc-900">
           <RightRail
             assistantOpen={assistantOpen}
             settingsOpen={settingsOpen}
@@ -418,68 +550,91 @@ export default function EditorPage({
           />
         </div>
 
-        {assistantOpen && (
-          <div className="h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-900">
-            <LeftChat appId={appId} appVersion={appVersion} />
-          </div>
-        )}
-
-        <section className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-zinc-950">
-          <div
-            ref={splitPaneRef}
-            className={[
-              "flex h-full min-h-0 w-full overflow-hidden",
-              isResizingPanels ? "select-none cursor-col-resize" : "",
-            ].join(" ")}
-          >
-            <div
-              className="h-full min-h-0 shrink-0 overflow-hidden"
-              style={{ width: `${editorPaneWidth}%` }}
-            >
-              <InstructionDoc
-                spotlightPromptRef={spotlightPromptRef}
-                spotlightAttachmentRef={spotlightAttachmentRef}
-                spotlightAgentRef={spotlightAgentRef}
-                spotlightApplyPromptRef={spotlightApplyPromptRef}
-              />
-            </div>
-            <div className="group relative flex w-3 shrink-0 items-stretch justify-center bg-white dark:bg-zinc-900">
+        <div
+          ref={assistantSplitRef}
+          className={[
+            "flex min-h-0 min-w-0 flex-1 overflow-hidden",
+            resizingPanel === "assistant-main" ? "select-none cursor-col-resize" : "",
+          ].join(" ")}
+        >
+          {assistantOpen && (
+            <>
               <div
-                className={[
-                  "h-full w-px bg-slate-200 transition dark:bg-zinc-700",
-                  isResizingPanels ? "bg-sky-400 dark:bg-sky-500" : "group-hover:bg-slate-300 dark:group-hover:bg-zinc-600",
-                ].join(" ")}
-              />
-              <button
-                type="button"
-                aria-label="Resize editor and test cases panels"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setIsResizingPanels(true);
-                }}
-                className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+                className="h-full min-h-0 shrink-0 overflow-hidden bg-white dark:bg-zinc-900"
+                style={{ width: `${assistantPaneWidth}%` }}
               >
-                <span
-                  className={[
-                    "absolute left-1/2 top-1/2 h-14 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition",
-                    isResizingPanels
-                      ? "bg-sky-400/80 dark:bg-sky-500/80"
-                      : "bg-slate-200/0 group-hover:bg-slate-200 dark:group-hover:bg-zinc-600",
-                  ].join(" ")}
-                />
-              </button>
-            </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
-              <AssistantPanel
-                appId={appId}
-                appName={appName}
-                appVersion={appVersion}
-                spotlightTargetRefs={spotlightTargetRefs}
-                onTestCaseStatusChange={setTestCaseStatus}
+                <LeftChat appId={appId} appVersion={appVersion} />
+              </div>
+              <PanelResizeHandle
+                label="Resize assistant and prompt panels"
+                active={resizingPanel === "assistant-main"}
+                onPointerDown={() => setResizingPanel("assistant-main")}
               />
+            </>
+          )}
+
+          <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
+            {offToOnError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-3 border-b border-red-200/80 bg-red-50/90 px-4 py-2.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              >
+                <p className="leading-relaxed">
+                  <span className="font-medium">Couldn’t regenerate test cases.</span>{" "}
+                  {offToOnError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOffToOnError("")}
+                  className="shrink-0 rounded-md px-2 py-1 font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-red-100/80 active:scale-[0.97] dark:hover:bg-red-900/40"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            <div
+              ref={splitPaneRef}
+              className={[
+                "flex h-full min-h-0 w-full overflow-hidden",
+                resizingPanel === "editor-testcases" ? "select-none cursor-col-resize" : "",
+              ].join(" ")}
+            >
+              <div
+                className="h-full min-h-0 shrink-0 overflow-hidden"
+                style={showTestCaseRail ? { width: `${editorPaneWidth}%` } : { width: "100%" }}
+              >
+                <InstructionDoc
+                  spotlightPromptRef={spotlightPromptRef}
+                  spotlightAttachmentRef={spotlightAttachmentRef}
+                  spotlightAgentRef={spotlightAgentRef}
+                  spotlightApplyPromptRef={spotlightApplyPromptRef}
+                />
+              </div>
+              {showTestCaseRail && (
+                <>
+                  <PanelResizeHandle
+                    label="Resize editor and test cases panels"
+                    active={resizingPanel === "editor-testcases"}
+                    onPointerDown={() => setResizingPanel("editor-testcases")}
+                  />
+                  <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-zinc-950">
+                    <AssistantPanel
+                      appId={appId}
+                      appName={appName}
+                      appVersion={appVersion}
+                      assistedAuthoringMode={assistedAuthoringMode}
+                      spotlightTargetRefs={spotlightTargetRefs}
+                      onTestCaseStatusChange={setTestCaseStatus}
+                      modePanelBootstrapAction={modePanelBootstrapAction}
+                      onModePanelBootstrapComplete={() => setModePanelBootstrapAction(null)}
+                      onOffToOnError={(error) => setOffToOnError(error)}
+                    />
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
 
       <AppSettingsDialog
@@ -527,22 +682,24 @@ export default function EditorPage({
         }}
       />
 
-      {editorSpotlightStep !== null && (
+      {editorSpotlightStep !== null &&
+        spotlightStepId !== null &&
+        spotlightStepCount > 0 && (
         <EditorTestcaseSpotlight
           show
           holeRect={editorSpotlightRect}
-          title={editorSpotlightTourTitle(editorSpotlightStep)}
-          body={editorSpotlightTourBody(editorSpotlightStep)}
+          title={editorSpotlightTourTitle(spotlightStepId)}
+          body={editorSpotlightTourBody(spotlightStepId)}
           stepIndex={editorSpotlightStep}
-          stepCount={EDITOR_SPOTLIGHT_STEP_COUNT}
+          stepCount={spotlightStepCount}
           primaryLabel={
-            editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1
+            editorSpotlightStep < spotlightStepCount - 1
               ? "Next"
               : "Okay, I understand"
           }
           onPrimary={() => {
             if (editorSpotlightStep === null) return;
-            if (editorSpotlightStep < EDITOR_SPOTLIGHT_STEP_COUNT - 1) {
+            if (editorSpotlightStep < spotlightStepCount - 1) {
               setEditorSpotlightStep(editorSpotlightStep + 1);
             } else {
               window.localStorage.setItem(editorSpotlightTourStorageKey(appId), "done");

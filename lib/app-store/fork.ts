@@ -53,6 +53,7 @@ export async function forkApp({
     variability: source.variability,
     systemPrompt: source.systemPrompt,
     builderState: source.builderState,
+    assistedAuthoringMode: source.assistedAuthoringMode,
     forkedFromProjectName: source.name,
     forkedFromProjectShareSlug: source.projectShareSlug,
     forkedFromAuthorName,

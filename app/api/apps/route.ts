@@ -11,6 +11,7 @@ import {
   assertCreateIntoWorkspaceGate,
   placeAppIntoWorkspaceAfterCreate,
 } from "@/lib/workspace-api/apps-gates";
+import { createDefaultBotFields } from "@/lib/app-store/patch-validation";
 
 function slugify(s: string) {
   return (
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     const descriptionTrimmed =
       typeof description === "string" ? description.trim() : "";
+    const defaults = createDefaultBotFields();
 
     const app: AppConfig = {
       id,
@@ -116,6 +118,7 @@ export async function POST(req: NextRequest) {
       apiKey: genaiApiKey,
       variability: normalizeVariability(DEFAULT_VARIABILITY),
       ...(descriptionTrimmed ? { systemPrompt: descriptionTrimmed } : {}),
+      assistedAuthoringMode: defaults.assistedAuthoringMode,
       createdAt: now,
       updatedAt: now,
     };

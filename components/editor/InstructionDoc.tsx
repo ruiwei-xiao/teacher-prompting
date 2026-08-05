@@ -507,6 +507,9 @@ export default function InstructionDoc({
   const applyCurrentPrompt = useCallback(() => {
     const normalized = normalizeText(value);
     savePromptText(normalized, appId, { applyToAllTestCases: true });
+    // Diff is only useful while reviewing a revision; dismiss once the prompt is applied.
+    setDiffPreviewLines([]);
+    setDiffSummary('');
     setHighlightPrompt(true);
     setApplyConfirmation(true);
   }, [appId, value]);
