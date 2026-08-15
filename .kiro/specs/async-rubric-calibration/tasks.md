@@ -24,7 +24,7 @@
   - _Boundary: package.json, env docs_
 
 - [ ] 2. Core: deterministic activity engine (sole authority for phase advancement)
-- [ ] 2.1 Implement queue rules: quorum, re-confirmation pings, expiry, stuck listing
+- [x] 2.1 Implement queue rules: quorum, re-confirmation pings, expiry, stuck listing
   - Pure evaluation over check-ins: form team of exactly 3 course-wide; 6-day ping effect; expire + notify after 2 missed pings; surface 10-day waiters for the operator; no solo/pair fallback path
   - Done when: given synthetic check-in sets and clock times, evaluation returns the exact expected effects
   - _Requirements: 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.7_
@@ -186,3 +186,4 @@
 ## Implementation Notes
 - `npx tsx` needs unsandboxed/`all` permissions (tsx IPC listen EPERM in the default sandbox).
 - Store JSON override env is `CALIBRATION_DATA_FILE`. Operator held-score reads use `getScoresForOperator` (does not set `scores_revealed_at`). Generic member reads use `getScoresForMember`.
+- `evaluateQueue` forms teams of 3 via a literal (no TEAM_SIZE constant in types). `formTeam` effect has no offeringId; the executor must recover offering from the check-in set.
