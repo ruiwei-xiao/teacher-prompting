@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getTeamAccess } from "@/lib/calibration-api/offerings";
+import { getSpace } from "@/lib/calibration-api/space";
 
 export async function GET(
   _req: Request,
@@ -9,6 +9,6 @@ export async function GET(
   const { teamId } = await params;
   const session = await auth();
   const userId = session?.user?.id ?? null;
-  const result = await getTeamAccess(userId, teamId);
+  const result = await getSpace(userId, teamId);
   return NextResponse.json(result.body, { status: result.status });
 }

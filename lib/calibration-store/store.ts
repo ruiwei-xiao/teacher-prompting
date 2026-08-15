@@ -814,6 +814,44 @@ async function saveTeamStateInFile(
   await writeFileData(data);
 }
 
+async function updateLastSeenInFile(
+  teamId: string,
+  userId: string,
+  seenAt: Date
+): Promise<void> {
+  const data = await readFileData();
+  const idx = data.members.findIndex(
+    (member) => member.teamId === teamId && member.userId === userId
+  );
+  if (idx === -1) {
+    return;
+  }
+  data.members[idx] = {
+    ...data.members[idx],
+    lastSeenAt: seenAt.toISOString(),
+  };
+  await writeFileData(data);
+}
+
+async function markDeliverableLockedInFile(
+  teamId: string,
+  auto: boolean
+): Promise<void> {
+  const data = await readFileData();
+  const idx = data.teams.findIndex((t) => t.id === teamId);
+  if (idx === -1) {
+    throw new Error("Team not found.");
+  }
+  const current = data.teams[idx];
+  const now = new Date().toISOString();
+  data.teams[idx] = {
+    ...current,
+    finalizedAt: current.finalizedAt ?? now,
+    autoFinalized: auto || current.autoFinalized,
+  };
+  await writeFileData(data);
+}
+
 async function appendMessageInFile(
   teamId: string,
   message: NewMessage
@@ -1343,6 +1381,41 @@ async function saveTeamStateInPostgres(
   `;
 }
 
+async function updateLastSeenInPostgres(
+  teamId: string,
+  userId: string,
+  seenAt: Date
+): Promise<void> {
+  await ensurePostgresStore();
+  const iso = seenAt.toISOString();
+  await sql`
+    UPDATE calibration_team_members
+    SET last_seen_at = ${iso}
+    WHERE team_id = ${teamId} AND user_id = ${userId}
+  `;
+}
+
+async function markDeliverableLockedInPostgres(
+  teamId: string,
+  auto: boolean
+): Promise<void> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  const now = new Date().toISOString();
+  const finalizedAt = current.finalizedAt ?? now;
+  const autoFinalized = auto || current.autoFinalized;
+  await sql`
+    UPDATE calibration_teams
+    SET
+      finalized_at = ${finalizedAt},
+      auto_finalized = ${autoFinalized}
+    WHERE id = ${teamId}
+  `;
+}
+
 async function appendMessageInPostgres(
   teamId: string,
   message: NewMessage
@@ -1729,6 +1802,27 @@ export async function saveTeamState(
     return saveTeamStateInPostgres(teamId, state);
   }
   return saveTeamStateInFile(teamId, state);
+}
+
+export async function updateLastSeen(
+  teamId: string,
+  userId: string,
+  seenAt: Date
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return updateLastSeenInPostgres(teamId, userId, seenAt);
+  }
+  return updateLastSeenInFile(teamId, userId, seenAt);
+}
+
+export async function markDeliverableLocked(
+  teamId: string,
+  auto: boolean
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return markDeliverableLockedInPostgres(teamId, auto);
+  }
+  return markDeliverableLockedInFile(teamId, auto);
 }
 
 export async function appendMessage(

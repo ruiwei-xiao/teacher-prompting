@@ -81,7 +81,7 @@
   - Offering creation (title, sample bot, sample rubric, brief, transcript, facilitator AI config) and course-gate status endpoint
   - Done when: a non-member request to a team endpoint returns 403 and an offering round-trips through create + gate status
   - _Requirements: 1.1, 1.2, 15.1, 15.4, 15.5_
-- [ ] 4.2 Implement the effect executor and team-space endpoints with opportunistic evaluation
+- [x] 4.2 Implement the effect executor and team-space endpoints with opportunistic evaluation
   - Effect executor (shared by all endpoints and the tick): persist engine state first, then facilitator posts and notices; presentation failures logged, never rolled back
   - Space GET runs engine evaluation before serving; returns phase, recap since last seen, messages, doc metadata, own scores, reveal state
   - Message POST and doc-snapshot POST apply learner events through the engine; snapshot rejected on locked teams
@@ -191,3 +191,4 @@
 - After executing revealScores, task 4.4 must call store.revealScores then engine.applySpread(state, revealed) — scoresSubmitted has no values so the engine cannot advance scoring→discussion/consensus until spread is applied.
 - Notices: peek via store.hasNotice → send → recordNotice only on success (so Resend failures retry). hasNotice is a non-claiming lookup on both JSON and Postgres.
 - Access guard is `resolveCaller` in lib/calibration-api/access.ts. Gate GET does not check-in. store.getTeam exists for ACL. Matched-learner teamId on the gate is deferred to 4.3.
+- executeEffects / executeFormation live in lib/calibration-api/space.ts. Operator space GET serializes only (no evaluateTeam). Member GET opportunistically evaluates.
