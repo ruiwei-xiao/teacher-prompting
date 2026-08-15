@@ -173,7 +173,7 @@
   - _Depends: 4.5_
 
 - [ ] 8. Integration validation
-- [ ] 8.1 Write cross-component integration selftests
+- [x] 8.1 Write cross-component integration selftests
   - ACL: non-member 403, operator write attempts 403; score privacy: member payload pre-reveal vs operator payload; manual match validation; tick idempotency (zero duplicate notices/absences on re-run); no Workspace membership side effects
   - Done when: integration selftest passes via `npx tsx` on the JSON fallback backend
   - _Requirements: 8.2, 11.5, 13.1, 14.3, 14.6, 14.7, 15.1, 15.3, 15.5_
@@ -203,3 +203,4 @@
 - Snapshot debounce is 4000ms POST `{ text }` to docs endpoint. Locked teams still mount SharedDocEditor as read-only (no contenteditable / no snapshot POST). Liveblocks outage banner + last SSR snapshot; `liveblocksDown` does not auto-clear.
 - Operator dashboard is `/activity/{offeringId}/operate`. Manual-match picker uses stuck (10d+) waiters from GET operate. Inspect links: `/activity/{offeringId}/operate/team/{teamId}` (7.2).
 - Operator inspector page calls `inspectTeam` on the server (no extra HTTP route). Held scores come from `inspect.scores.members`; member ScoreSheet still strips `space.matrix` pre-reveal.
+- Cross-component integration selftest: `npx tsx lib/calibration-api/integration.selftest.ts` (JSON fallback). Scoring-phase privacy setup may use store helpers; full critique→lock walk is 8.2.
