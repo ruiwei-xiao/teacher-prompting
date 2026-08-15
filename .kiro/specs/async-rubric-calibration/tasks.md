@@ -120,7 +120,7 @@
   - Done when: checking in from the landing shows live queue status and a matched learner lands in their team space
   - _Requirements: 1.1, 1.2, 2.1, 13.3_
   - _Depends: 4.3_
-- [ ] 5.2 Build the team space shell with recap and polling group chat
+- [x] 5.2 Build the team space shell with recap and polling group chat
   - Phase banner, recap-since-last-visit, ~10s polling plus focus refetch; no co-presence required and no live-session mode offered
   - Chat panel renders learner and facilitator messages with the facilitator visually distinct; plain composer (no collaborative cursors); Presenter/Critic labels only for the current round
   - Done when: two sessions in different browsers converge on the same chat and phase state within one polling interval
@@ -194,3 +194,4 @@
 - executeEffects / executeFormation live in lib/calibration-api/space.ts. Operator space GET serializes only (no evaluateTeam). Member GET opportunistically evaluates.
 - Tick route exports GET and POST. Design table said POST; Vercel Cron invokes GET. `expireCheckIn` / `recordQueuePing` live on the store.
 - Activity UI helpers live in `lib/calibration-ui/` (paths, form payload, check-in next location). Gate does not poll; match after wait is via notice or reload. Team page at 5.1 is a thin landing only.
+- SpaceLayout polls GET /api/calibration/teams/{teamId} every 10s and on window focus. Recap is retained client-side across polls so last-seen updates do not wipe "since you last visited". Two-browser convergence is the poll contract (live E2E is 8.2).

@@ -315,7 +315,7 @@ async function main(): Promise<void> {
 
   assert(
     teamPageSource.length > 0,
-    "thin team landing page exists so a matched redirect has a destination"
+    "team space page exists so a matched redirect has a destination"
   );
   assert(
     teamPageSource.includes("AppShell"),
@@ -326,12 +326,14 @@ async function main(): Promise<void> {
     "team landing sends unauthenticated visitors to sign-in"
   );
   assert(
-    !teamPageSource.includes("SpaceLayout") &&
-      !teamPageSource.includes("GroupChatPanel") &&
-      !teamPageSource.includes("ScoreSheet") &&
+    teamPageSource.includes("SpaceLayout"),
+    "team page renders the space shell (5.2)"
+  );
+  assert(
+    !teamPageSource.includes("ScoreSheet") &&
       !teamPageSource.includes("ArtifactsPanel") &&
       !teamPageSource.includes("SharedDocEditor"),
-    "team landing is a thin placeholder (5.2–5.5 / 6.x own the space)"
+    "later panels are composed as slots by SpaceLayout, not on the page"
   );
 
   if (failures > 0) {
