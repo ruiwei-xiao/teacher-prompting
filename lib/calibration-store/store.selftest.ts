@@ -108,6 +108,7 @@ async function main(): Promise<void> {
     listQueuedCheckIns,
     recordAbsence,
     recordAgreement,
+    hasNotice,
     recordNotice,
     revealScores,
     saveDocSnapshot,
@@ -680,7 +681,17 @@ async function main(): Promise<void> {
       dedupeKey: `${scoreTeam.id}:${userE}:scores_revealed:scoring`,
       channel: "console",
     };
+    assertEqual(
+      await hasNotice(notice.dedupeKey),
+      false,
+      "hasNotice is false before the key is recorded"
+    );
     assertEqual(await recordNotice(notice), true, "recordNotice inserts a new dedupe key");
+    assertEqual(
+      await hasNotice(notice.dedupeKey),
+      true,
+      "hasNotice is true after recordNotice on the JSON fallback"
+    );
     assertEqual(
       await recordNotice(notice),
       false,

@@ -1009,6 +1009,11 @@ async function recordNoticeInFile(notice: NoticeRecord): Promise<boolean> {
   return true;
 }
 
+async function hasNoticeInFile(dedupeKey: string): Promise<boolean> {
+  const data = await readFileData();
+  return data.notices.some((row) => row.dedupeKey === dedupeKey);
+}
+
 async function addAddendumInFile(
   teamId: string,
   userId: string,
@@ -1563,6 +1568,17 @@ async function recordNoticeInPostgres(notice: NoticeRecord): Promise<boolean> {
   return result.rows.length > 0;
 }
 
+async function hasNoticeInPostgres(dedupeKey: string): Promise<boolean> {
+  await ensurePostgresStore();
+  const result = await sql<{ id: string }>`
+    SELECT id
+    FROM calibration_notices
+    WHERE dedupe_key = ${dedupeKey}
+    LIMIT 1
+  `;
+  return result.rows.length > 0;
+}
+
 async function addAddendumInPostgres(
   teamId: string,
   userId: string,
@@ -1777,6 +1793,13 @@ export async function recordNotice(notice: NoticeRecord): Promise<boolean> {
     return recordNoticeInPostgres(notice);
   }
   return recordNoticeInFile(notice);
+}
+
+export async function hasNotice(dedupeKey: string): Promise<boolean> {
+  if (shouldUsePostgres()) {
+    return hasNoticeInPostgres(dedupeKey);
+  }
+  return hasNoticeInFile(dedupeKey);
 }
 
 export async function addAddendum(

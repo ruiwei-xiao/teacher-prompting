@@ -67,7 +67,7 @@
   - Done when: with a stubbed sendChat failure, every facilitator call still returns a scripted post
   - _Requirements: 6.4, 7.1, 9.3, 9.4, 10.3, 11.3, 11.4_
   - _Depends: 3.1_
-- [ ] 3.3 (P) Implement deduplicated email notices with a development fallback
+- [x] 3.3 (P) Implement deduplicated email notices with a development fallback
   - Notice kinds team_formed / your_turn / targeted_prompt / nudge / scores_revealed / finalized / queue_ping / queue_expired / manual_match, each with a deep link to the space or queue; never includes score values; Workspace invite recording stays untouched
   - Resend send path plus console/.data fallback when the API key is unset; dedupe-before-send via the notices log
   - Done when: sending the same dedupe key twice results in exactly one delivery, and the fallback path writes a readable log entry
@@ -189,3 +189,4 @@
 - `evaluateQueue` forms teams of 3 via a literal (no TEAM_SIZE constant in types). `formTeam` effect has no offeringId; the executor must recover offering from the check-in set.
 - TeamStateRecord now includes memberUserIds, respondedUserIds, critiqueStage as official JSONB fields (needed for rotation persist/reload).
 - After executing revealScores, task 4.4 must call store.revealScores then engine.applySpread(state, revealed) — scoresSubmitted has no values so the engine cannot advance scoring→discussion/consensus until spread is applied.
+- Notices: peek via store.hasNotice → send → recordNotice only on success (so Resend failures retry). hasNotice is a non-claiming lookup on both JSON and Postgres.
