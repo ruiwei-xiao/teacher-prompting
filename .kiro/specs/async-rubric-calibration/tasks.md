@@ -114,7 +114,7 @@
   - _Depends: 4.2_
 
 - [ ] 5. Learner UI: activity pages
-- [ ] 5.1 Build offering creation and course-gate landing with queue status
+- [x] 5.1 Build offering creation and course-gate landing with queue status
   - Operator form: title, own-bot select, sample rubric, brief, transcript, facilitator provider/model
   - Gate landing: enter/check-in action, queue status n of 3, redirect into the team space once matched; notice deep links resolve here
   - Done when: checking in from the landing shows live queue status and a matched learner lands in their team space
@@ -193,3 +193,4 @@
 - Access guard is `resolveCaller` in lib/calibration-api/access.ts. Gate GET does not check-in. store.getTeam exists for ACL. Matched-learner teamId on the gate is deferred to 4.3.
 - executeEffects / executeFormation live in lib/calibration-api/space.ts. Operator space GET serializes only (no evaluateTeam). Member GET opportunistically evaluates.
 - Tick route exports GET and POST. Design table said POST; Vercel Cron invokes GET. `expireCheckIn` / `recordQueuePing` live on the store.
+- Activity UI helpers live in `lib/calibration-ui/` (paths, form payload, check-in next location). Gate does not poll; match after wait is via notice or reload. Team page at 5.1 is a thin landing only.
