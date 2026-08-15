@@ -32,6 +32,7 @@ import {
   formTeam,
   getOffering,
   getScoresForMember,
+  getScoresForOperator,
   getTeam,
   getTeamForMember,
   listQueuedCheckIns,
@@ -49,6 +50,7 @@ import type {
   DocKind,
   EngineEffect,
   FacilitatorMessageSpec,
+  MemberScores,
   Message,
   MessageKind,
   NoticeSpec,
@@ -93,6 +95,7 @@ export type SpaceState = {
   ownScores: CriterionScore[];
   submittedBy: string[];
   revealedAt: string | null;
+  matrix: MemberScores[];
   locked: boolean;
 };
 
@@ -458,7 +461,15 @@ async function serializeSpace(
   const roles =
     team.state.phase === "critique" ? getCritiqueRoles(team.state) : null;
   const scores =
-    role === "member" ? await getScoresForMember(teamId, userId) : null;
+    role === "member"
+      ? await getScoresForMember(teamId, userId)
+      : await getScoresForOperator(teamId);
+  const ownScores =
+    scores && "ownScores" in scores ? scores.ownScores : [];
+  const submittedBy =
+    scores && "submittedBy" in scores
+      ? scores.submittedBy
+      : (scores?.members.map((row) => row.userId) ?? []);
   return {
     role,
     phase: team.state.phase,
@@ -469,9 +480,10 @@ async function serializeSpace(
     recap: recapSince(messages, lastSeenAt),
     messages,
     docs,
-    ownScores: scores?.ownScores ?? [],
-    submittedBy: scores?.submittedBy ?? [],
+    ownScores,
+    submittedBy,
     revealedAt: team.scoresRevealedAt,
+    matrix: scores?.members ?? [],
     locked: team.finalizedAt !== null || team.state.phase === "finalized",
   };
 }

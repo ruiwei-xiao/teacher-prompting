@@ -93,7 +93,7 @@
   - Done when: the third check-in forms a team, posts the recap, and records formation notices for all three members
   - _Requirements: 2.1, 2.2, 5.1, 5.2_
   - _Depends: 2.1, 4.2_
-- [ ] 4.4 Implement scoring, agreement, and addendum endpoints with reveal-safe serialization
+- [x] 4.4 Implement scoring, agreement, and addendum endpoints with reveal-safe serialization
   - Score POST validates integers 1–5 against the team rubric; pre-reveal payloads contain only own values plus who-submitted booleans; reveal transaction through the engine effect
   - Agreement POST for merge-complete and final consensus; addendum POST accepted only after lock
   - Done when: before reveal, member B's space payload contains zero of member A's numeric values; after the last present submission both see the full matrix
