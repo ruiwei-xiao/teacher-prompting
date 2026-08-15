@@ -144,7 +144,7 @@
   - _Depends: 4.4_
 
 - [ ] 6. Realtime co-editing on the two shared documents
-- [ ] 6.1 Implement the Liveblocks session-token endpoint
+- [x] 6.1 Implement the Liveblocks session-token endpoint
   - Access tokens scoped per team room from the Auth.js session: members get write until the team is locked, operators get read-only, everyone else denied
   - Done when: a non-member token request returns 403 and a member's token stops granting write after lock
   - _Requirements: 7.2, 10.4, 14.5, 15.1_
@@ -198,3 +198,4 @@
 - Artifact texts are loaded on the team page via getOffering + getAppById (gate/space APIs only have meta). Try-chat is `/chat/{publicSlug||id}` with no query.
 - ScoreSheet computes flagged keys from the revealed matrix (max−min ≥ 2). Criterion keys come from the server page via getTeamForMember + rubricCriterionKeys (do not import scores.ts from client). Member UI never renders space.matrix pre-reveal.
 - Final deliverable extras (autoFinalized, addenda, flaggedCriteria, rubric snapshot) are SSR-loaded; Space GET does not carry them. `markDeliverableLocked` may leave `finalRubric` null — UI uses snapshot fallback. Unresolved chips currently use `state.flaggedCriteria` (may still show after explicit consensus).
+- Liveblocks auth: POST /api/calibration/liveblocks-auth `{ room }`. Room must be `calibration:{teamId}`. Member write until lock; operator read; others 403. Selftest injects authorize (no hosted network). Invalid room is 400.
