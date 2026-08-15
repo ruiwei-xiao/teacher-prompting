@@ -789,6 +789,24 @@ async function getTeamInFile(teamId: string): Promise<Team | null> {
   return assembleTeam(record, members);
 }
 
+async function listTeamsInFile(offeringId?: string): Promise<Team[]> {
+  const data = await readFileData();
+  return data.teams
+    .filter((record) => (offeringId ? record.offeringId === offeringId : true))
+    .slice()
+    .sort((left, right) => {
+      const delta = left.formedAt.localeCompare(right.formedAt);
+      if (delta !== 0) return delta;
+      return left.id.localeCompare(right.id);
+    })
+    .map((record) =>
+      assembleTeam(
+        record,
+        data.members.filter((member) => member.teamId === record.id)
+      )
+    );
+}
+
 async function getTeamForMemberInFile(
   teamId: string,
   userId: string
@@ -1365,6 +1383,33 @@ async function getTeamInPostgres(teamId: string): Promise<Team | null> {
   return assembleTeam(record, members);
 }
 
+async function listTeamsInPostgres(offeringId?: string): Promise<Team[]> {
+  await ensurePostgresStore();
+  const result = offeringId
+    ? await sql<TeamRow>`
+        SELECT
+          id, offering_id, phase, state, formed_at, last_activity_at,
+          scores_revealed_at, finalized_at, auto_finalized, final_rubric
+        FROM calibration_teams
+        WHERE offering_id = ${offeringId}
+        ORDER BY formed_at ASC, id ASC
+      `
+    : await sql<TeamRow>`
+        SELECT
+          id, offering_id, phase, state, formed_at, last_activity_at,
+          scores_revealed_at, finalized_at, auto_finalized, final_rubric
+        FROM calibration_teams
+        ORDER BY formed_at ASC, id ASC
+      `;
+  const teams: Team[] = [];
+  for (const row of result.rows) {
+    const record = rowToStoredTeam(row);
+    const members = await loadMembersInPostgres(record.id);
+    teams.push(assembleTeam(record, members));
+  }
+  return teams;
+}
+
 async function getTeamForMemberInPostgres(
   teamId: string,
   userId: string
@@ -1834,6 +1879,13 @@ export async function getTeam(teamId: string): Promise<Team | null> {
     return getTeamInPostgres(teamId);
   }
   return getTeamInFile(teamId);
+}
+
+export async function listTeams(offeringId?: string): Promise<Team[]> {
+  if (shouldUsePostgres()) {
+    return listTeamsInPostgres(offeringId);
+  }
+  return listTeamsInFile(offeringId);
 }
 
 export async function getTeamForMember(

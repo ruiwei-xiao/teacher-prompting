@@ -99,7 +99,7 @@
   - Done when: before reveal, member B's space payload contains zero of member A's numeric values; after the last present submission both see the full matrix
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 10.2, 10.6, 15.3_
   - _Depends: 2.4_
-- [ ] 4.5 Implement operator endpoints: dashboard, full team read, manual match
+- [x] 4.5 Implement operator endpoints: dashboard, full team read, manual match
   - Dashboard lists 10-day stuck waiters with wait duration and every team with phase, members, last activity, auto-finalized flag
   - Team inspect returns full contents (chat, docs, held/revealed scores, absences, final deliverable) read-only; operator viewing never reveals scores to members or mutates state
   - Manual match validates exactly three distinct queued learners of the same offering and reuses the automatic formation path (including notices)
