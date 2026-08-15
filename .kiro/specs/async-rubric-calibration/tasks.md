@@ -125,7 +125,7 @@
   - Chat panel renders learner and facilitator messages with the facilitator visually distinct; plain composer (no collaborative cursors); Presenter/Critic labels only for the current round
   - Done when: two sessions in different browsers converge on the same chat and phase state within one polling interval
   - _Requirements: 3.2, 3.3, 3.4, 6.2, 7.5, 11.1, 15.2_
-- [ ] 5.3 (P) Build the read-only artifacts panel with try-chat link
+- [x] 5.3 (P) Build the read-only artifacts panel with try-chat link
   - System prompt, deployment brief, transcript excerpt rendered read-only with no authoring affordances; try-chat links to the existing published student chat without prompt overrides
   - Composed into the team space layout slot defined by the space shell (5.2)
   - Done when: no editable control exists on any artifact and try-chat opens the published chat
@@ -195,3 +195,4 @@
 - Tick route exports GET and POST. Design table said POST; Vercel Cron invokes GET. `expireCheckIn` / `recordQueuePing` live on the store.
 - Activity UI helpers live in `lib/calibration-ui/` (paths, form payload, check-in next location). Gate does not poll; match after wait is via notice or reload. Team page at 5.1 is a thin landing only.
 - SpaceLayout polls GET /api/calibration/teams/{teamId} every 10s and on window focus. Recap is retained client-side across polls so last-seen updates do not wipe "since you last visited". Two-browser convergence is the poll contract (live E2E is 8.2).
+- Artifact texts are loaded on the team page via getOffering + getAppById (gate/space APIs only have meta). Try-chat is `/chat/{publicSlug||id}` with no query.

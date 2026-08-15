@@ -2,7 +2,10 @@ import { auth } from "@/auth";
 import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import SpaceLayout from "@/components/calibration/SpaceLayout";
+import { getAppById } from "@/lib/app-store/store";
 import { getSpace } from "@/lib/calibration-api/space";
+import { getOffering } from "@/lib/calibration-store/store";
+import { buildArtifactsView } from "@/lib/calibration-ui/artifacts";
 import { teamSpacePath } from "@/lib/calibration-ui/gate";
 
 export default async function TeamSpacePage({
@@ -49,6 +52,18 @@ export default async function TeamSpacePage({
     );
   }
 
+  const offering = await getOffering(offeringId);
+  const sampleApp = offering?.sampleAppId
+    ? await getAppById(offering.sampleAppId)
+    : null;
+  const artifacts = buildArtifactsView({
+    systemPrompt: sampleApp?.systemPrompt ?? "",
+    deploymentBrief: offering?.deploymentBrief ?? "",
+    transcriptExcerpt: offering?.transcriptExcerpt ?? "",
+    sampleAppId: offering?.sampleAppId ?? sampleApp?.id ?? "",
+    publicSlug: sampleApp?.publicSlug ?? null,
+  });
+
   return (
     <AppShell>
       <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
@@ -56,6 +71,7 @@ export default async function TeamSpacePage({
           teamId={teamId}
           viewerUserId={session.user.id ?? ""}
           initialSpace={result.body}
+          artifacts={artifacts}
         />
       </main>
     </AppShell>

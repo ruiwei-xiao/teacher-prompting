@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ArtifactsPanel from "./ArtifactsPanel";
 import GroupChatPanel from "./GroupChatPanel";
+import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
 import {
   SPACE_POLL_MS,
   currentRoundRoleLabel,
@@ -34,10 +36,12 @@ export default function SpaceLayout({
   teamId,
   viewerUserId,
   initialSpace,
+  artifacts,
 }: {
   teamId: string;
   viewerUserId: string;
   initialSpace: SpaceView;
+  artifacts: ArtifactsView;
 }) {
   const [space, setSpace] = useState<SpaceView>(initialSpace);
   const roleLabel = currentRoundRoleLabel(space, viewerUserId);
@@ -134,10 +138,7 @@ export default function SpaceLayout({
           />
         </div>
         <aside className="flex flex-col gap-6">
-          <PanelSlot
-            title="Artifacts"
-            hint="Sample prompt, brief, and transcript will appear here."
-          />
+          <ArtifactsPanel artifacts={artifacts} />
           <PanelSlot
             title="Score sheet"
             hint="Private scoring and the revealed matrix will appear here."

@@ -259,8 +259,8 @@ async function main(): Promise<void> {
     "SpaceLayout composes GroupChatPanel"
   );
   assert(
-    /artifact/i.test(layoutSource),
-    "SpaceLayout leaves a slot for ArtifactsPanel"
+    layoutSource.includes("ArtifactsPanel"),
+    "SpaceLayout composes ArtifactsPanel"
   );
   assert(
     /score/i.test(layoutSource),
@@ -271,8 +271,7 @@ async function main(): Promise<void> {
     "SpaceLayout leaves a slot for SharedDocEditor"
   );
   assert(
-    !layoutSource.includes("ArtifactsPanel") &&
-      !layoutSource.includes("ScoreSheet") &&
+    !layoutSource.includes("ScoreSheet") &&
       !layoutSource.includes("SharedDocEditor"),
     "later panel components are slots only, not implemented here"
   );
