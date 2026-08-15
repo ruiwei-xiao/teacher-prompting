@@ -76,7 +76,7 @@
   - _Depends: 1.3, 1.4_
 
 - [ ] 4. Application API: access control, space operations, and scheduling
-- [ ] 4.1 Implement the access guard and offering endpoints
+- [x] 4.1 Implement the access guard and offering endpoints
   - Caller resolution: team member (read/write), offering operator (read-only + operator actions), all others denied; operators are not queued as learners unless they check in; joining a team never adds Workspace membership
   - Offering creation (title, sample bot, sample rubric, brief, transcript, facilitator AI config) and course-gate status endpoint
   - Done when: a non-member request to a team endpoint returns 403 and an offering round-trips through create + gate status
@@ -190,3 +190,4 @@
 - TeamStateRecord now includes memberUserIds, respondedUserIds, critiqueStage as official JSONB fields (needed for rotation persist/reload).
 - After executing revealScores, task 4.4 must call store.revealScores then engine.applySpread(state, revealed) — scoresSubmitted has no values so the engine cannot advance scoring→discussion/consensus until spread is applied.
 - Notices: peek via store.hasNotice → send → recordNotice only on success (so Resend failures retry). hasNotice is a non-claiming lookup on both JSON and Postgres.
+- Access guard is `resolveCaller` in lib/calibration-api/access.ts. Gate GET does not check-in. store.getTeam exists for ACL. Matched-learner teamId on the gate is deferred to 4.3.

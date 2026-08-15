@@ -760,6 +760,16 @@ function findStoredTeam(data: CalibrationFileData, teamId: string): StoredTeam |
   return data.teams.find((t) => t.id === teamId) ?? null;
 }
 
+async function getTeamInFile(teamId: string): Promise<Team | null> {
+  const data = await readFileData();
+  const record = findStoredTeam(data, teamId);
+  if (!record) {
+    return null;
+  }
+  const members = data.members.filter((m) => m.teamId === teamId);
+  return assembleTeam(record, members);
+}
+
 async function getTeamForMemberInFile(
   teamId: string,
   userId: string
@@ -1269,6 +1279,16 @@ async function formTeamInPostgres(
   return assembleTeam(record, members);
 }
 
+async function getTeamInPostgres(teamId: string): Promise<Team | null> {
+  await ensurePostgresStore();
+  const record = await loadStoredTeamInPostgres(teamId);
+  if (!record) {
+    return null;
+  }
+  const members = await loadMembersInPostgres(teamId);
+  return assembleTeam(record, members);
+}
+
 async function getTeamForMemberInPostgres(
   teamId: string,
   userId: string
@@ -1682,6 +1702,13 @@ export async function formTeam(
     return formTeamInPostgres(offeringId, memberUserIds);
   }
   return formTeamInFile(offeringId, memberUserIds);
+}
+
+export async function getTeam(teamId: string): Promise<Team | null> {
+  if (shouldUsePostgres()) {
+    return getTeamInPostgres(teamId);
+  }
+  return getTeamInFile(teamId);
 }
 
 export async function getTeamForMember(
