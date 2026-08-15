@@ -49,7 +49,7 @@
   - Consensus: rewrite prompt effect, lock on explicit agreement from all present members, auto-synthesize + lock effect on group timeout; late return before lock joins current phase, no rollback; post-lock edits rejected
   - Done when: lock fires only on all-present agreement or group timeout, and evaluate is idempotent (re-running produces no new effects)
   - _Requirements: 9.3, 9.5, 9.6, 10.1, 10.2, 10.3, 10.5, 11.5_
-- [ ] 2.6 Write the engine selftest matrix
+- [x] 2.6 Write the engine selftest matrix
   - One case per acceptance rule from Requirements 2, 4, 6–10 (quorum, pings, rotation, absences, clock independence, nudges, auto-finalize per phase, reveal conditions, spread, agreement lock)
   - Idempotency case: double evaluation with the same clock yields no new effects
   - Done when: `npx tsx` engine selftest passes with every rule case green

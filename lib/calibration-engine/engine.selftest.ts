@@ -1,10 +1,66 @@
 /**
  * Runtime self-test for calibration-engine queue (Task 2.1),
  * critique rotation (Task 2.2), dual clocks (Task 2.3),
- * merge / blind-scoring (Task 2.4), and discussion / consensus /
- * lock (Task 2.5). Pure evaluation only.
+ * merge / blind-scoring (Task 2.4), discussion / consensus /
+ * lock (Task 2.5), and the Task 2.6 coverage matrix.
+ * Pure evaluation only.
  *
  * Run: npx tsx lib/calibration-engine/engine.selftest.ts
+ *
+ * Coverage index — requirement ID → case name (Requirements 2, 4, 6–10):
+ *   2.1  "1 queued → no formTeam" / "2 queued → no formTeam"
+ *   2.2  "3 queued → exactly one formTeam"
+ *   2.3  "6 days since check-in → one queue_ping"
+ *   2.4  "2 missed pings → expireCheckIn"
+ *   2.5  "10-day unmatched waiter → listForOperator"
+ *   2.6  "manual trio uses the same startTeam path as automatic quorum"
+ *   2.7  "2 queued invents no pair team" / "5 queued leftover pair is not a team"
+ *   4.1  "perPersonDeadlines is its own field (4.1)"
+ *   4.2  "bob critic deadlineAt is T+40h+48h, not T0+48h (4.2)"
+ *   4.3  "member A message does not reset member B's per-person clock (4.3)"
+ *   4.4  "48h silence marks only the non-responder absent for this round (6.6)"
+ *   4.5  "14-day group silence auto-finalizes merge" / discussion / consensus
+ *        + "expired group clock does not auto-finalize critique/scoring"
+ *   4.6  "returner can act at the team's current point (4.6, 6.7)"
+ *        + "return during merge stays in merge (4.6)"
+ *   6.1  "exactly three critique rounds ran (6.1)"
+ *   6.2  "formation announces the Presenter (6.2)"
+ *   6.3  "after presenter share, critics are prompted (6.3)"
+ *   6.4  "round completion emits one revoice (6.4)"
+ *   6.5  "each member was Presenter once (6.5)"
+ *   6.6  "48h silence marks only the non-responder absent for this round (6.6)"
+ *   6.7  "return joins the current round, not a replay of round 1"
+ *   7.1  "third critique round opens merge (7.1)"
+ *   7.2  engine N/A (Liveblocks cursors — task 6.2)
+ *   7.3  engine N/A (live doc updates — task 6.2)
+ *   7.4  "notes docSnapshot resets only the editor's per-person clock (7.4, 4.3)"
+ *   7.5  engine N/A (no cursors on artifacts/chat — task 5.2 / 6.2)
+ *   7.6  "3-day silence nudges only non-contributors (7.6)"
+ *   7.7  "14-day group silence auto-finalizes merge into scoring (7.7)"
+ *   8.1  "all present merge_complete agreements open scoring (8.1)"
+ *   8.2  engine N/A (store score privacy — task 1.3)
+ *   8.3  "score ack context contains no numeric score values (8.3)"
+ *   8.4  "every present member submitted → revealScores (8.4)"
+ *        + "two present submitters reveal without waiting for an absent member (8.4)"
+ *   8.5  "7-day scoring silence marks the non-submitter absent (8.5)"
+ *   8.6  "exactly two submitters are sufficient to reveal after timeout (8.6)"
+ *   8.7  engine N/A (store integer 1–5 CHECK — task 1.3)
+ *   9.1  "3-scorer clarity spread is max−min (9.1)"
+ *   9.2  "3-scorer clarity spread ≥2 is flagged (9.2)"
+ *   9.3  "targeted prompt names a scorer (the extreme / min scorer) (9.3)"
+ *   9.4  "a discussion message may emit revoice or follow-up (9.4, 10.1)"
+ *   9.5  "7-day silence marks alice absent for the clarity exchange (9.5)"
+ *   9.6  "14-day discussion silence finalizes (9.6)"
+ *   9.7  "no ≥2 flags skip discussion and go to consensus (9.7)"
+ *   10.1 "discussion end posts a rewrite prompt (10.1)"
+ *   10.2 "all present final_consensus locks (10.2)"
+ *        + "two present agreements lock when the third is absent (10.2)"
+ *   10.3 "14-day consensus silence finalizes (10.3)"
+ *   10.4 "post-lock docSnapshot is rejected (no state change)"
+ *   10.5 "return keeps the current discussion phase (10.5)"
+ *   10.6 "post-lock return leaves the locked artifact unchanged (10.6)"
+ *   11.5 "double-evaluateTeam at the same clock yields no new effects"
+ *        + "double-evaluateQueue after applying effects yields no new effects"
  */
 import type {
   CheckIn,
@@ -233,6 +289,41 @@ function completeRound(
     );
   }
   return result;
+}
+
+/** Apply queue effects to a check-in set so a same-clock re-eval can be a no-op. */
+function applyQueueEffects(
+  checkIns: CheckIn[],
+  effects: QueueEffect[],
+  now: Date
+): CheckIn[] {
+  const formed = new Set(
+    ofKind(effects, "formTeam").flatMap((effect) => effect.memberUserIds)
+  );
+  const expiredIds = new Set(
+    ofKind(effects, "expireCheckIn").map((effect) => effect.checkInId)
+  );
+  const pingedUsers = new Set(
+    ofKind(effects, "sendNotice")
+      .filter((effect) => effect.notice.kind === "queue_ping")
+      .map((effect) => effect.notice.userId)
+  );
+  return checkIns.map((row) => {
+    if (expiredIds.has(row.id)) {
+      return { ...row, status: "expired" };
+    }
+    if (formed.has(row.userId)) {
+      return { ...row, status: "matched", teamId: "team-applied" };
+    }
+    if (pingedUsers.has(row.userId)) {
+      return {
+        ...row,
+        lastPingAt: now.toISOString(),
+        missedPings: row.missedPings + 1,
+      };
+    }
+    return row;
+  });
 }
 
 function main(): void {
@@ -2462,6 +2553,346 @@ function main(): void {
       NOW
     );
     assertEqual(result.state.phase, "consensus", "one returner agreement does not lock alone");
+  }
+
+  // ========================================================================
+  // Task 2.6 — coverage matrix gaps + double-evaluate idempotency
+  // ========================================================================
+
+  // --- 2.6: operator-selected trio uses the same startTeam path as automatic quorum ---
+  {
+    const leftoverTrio: [string, string, string] = ["u-d", "u-e", "u-f"];
+    const autoEffects = evaluateQueue(
+      [
+        checkIn({ id: "c1", userId: "u1", checkedInAt: isoMsAgo(6 * MS_PER_DAY) }),
+        checkIn({ id: "c2", userId: "u2", checkedInAt: isoMsAgo(5 * MS_PER_DAY) }),
+        checkIn({ id: "c3", userId: "u3", checkedInAt: isoMsAgo(4 * MS_PER_DAY) }),
+        checkIn({ id: "c-d", userId: "u-d", checkedInAt: isoMsAgo(3 * MS_PER_DAY) }),
+        checkIn({ id: "c-e", userId: "u-e", checkedInAt: isoMsAgo(2 * MS_PER_DAY) }),
+        checkIn({ id: "c-f", userId: "u-f", checkedInAt: isoMsAgo(1 * MS_PER_DAY) }),
+      ],
+      NOW
+    );
+    const autoSecond = ofKind(autoEffects, "formTeam")[1];
+    assertEqual(
+      autoSecond?.memberUserIds,
+      leftoverTrio,
+      "precondition: automatic quorum would form this later trio second"
+    );
+    const manual = startTeam(leftoverTrio, NOW);
+    const automatic = startTeam(autoSecond?.memberUserIds ?? leftoverTrio, NOW);
+    assertEqual(
+      manual.state.phase,
+      automatic.state.phase,
+      "manual trio uses the same startTeam path as automatic quorum"
+    );
+    assertEqual(manual.state.round, 1, "manual match opens critique round 1 like automatic quorum");
+    assert(
+      facilitatorKeys(manual.effects).includes("kickoff_recap"),
+      "manual match posts the same kickoff recap as automatic quorum (2.6)"
+    );
+    assertEqual(
+      ofEngineKind(manual.effects, "sendNotice").filter(
+        (effect) => effect.notice.kind === "team_formed"
+      ).length,
+      3,
+      "manual trio still notifies all three members (2.6)"
+    );
+    assertEqual(
+      manual.state,
+      automatic.state,
+      "startTeam state is identical for the same trio whether auto or manual (2.6)"
+    );
+  }
+
+  // --- 4.5: group-clock auto-finalize is phase-gated (critique / scoring never lock) ---
+  {
+    const started = startTeam(TEAM_MEMBERS, NOW);
+    const withExpiredGroup: TeamStateRecord = {
+      ...started.state,
+      groupDeadline: NOW.toISOString(),
+    };
+    const result = evaluateTeam(withExpiredGroup, NOW);
+    assertEqual(
+      result.state.phase,
+      "critique",
+      "expired group clock does not auto-finalize critique (4.5)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "critique ignores an expired group clock (4.5)"
+    );
+  }
+  {
+    const started = enterScoringViaAgreements(NOW);
+    const withExpiredGroup: TeamStateRecord = {
+      ...started.state,
+      groupDeadline: NOW.toISOString(),
+    };
+    const result = evaluateTeam(withExpiredGroup, NOW);
+    assertEqual(
+      result.state.phase,
+      "scoring",
+      "expired group clock does not auto-finalize scoring (4.5)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "scoring ignores an expired group clock (4.5)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "a planted group clock does not reveal scores"
+    );
+  }
+
+  // --- 4.6: returning absent member during merge joins merge, no critique replay ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = markAbsent(result.state, "u-alice", NOW);
+    result = completeRound(result.state, "u-alice", ["u-bob", "u-cara"], NOW);
+    while (result.state.phase === "critique") {
+      const roles = getCritiqueRoles(result.state);
+      result = completeRound(result.state, roles.presenterUserId, roles.criticUserIds, NOW);
+    }
+    assertEqual(result.state.phase, "merge", "precondition: skipped-presenter team reached merge");
+    const beforeReturn = result.state;
+    result = applyLearnerEvent(
+      beforeReturn,
+      { kind: "memberReturned", userId: "u-alice" },
+      NOW
+    );
+    assertEqual(result.state.phase, "merge", "return during merge stays in merge (4.6)");
+    assertEqual(result.state.round, beforeReturn.round, "return during merge does not replay rounds");
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "docSnapshot", userId: "u-alice", docKind: "rubric" },
+      NOW
+    );
+    assert(
+      result.state.respondedUserIds.includes("u-alice"),
+      "returner can contribute in merge from the current point (4.6)"
+    );
+  }
+
+  // --- 7.4: notes docSnapshot resets group + actor clock only (same as rubric) ---
+  {
+    const started = completeAllCritiqueRounds(NOW);
+    const bobBefore = deadlineOfStep(started.state, "u-bob", "merge");
+    const caraBefore = deadlineOfStep(started.state, "u-cara", "merge");
+    const later = new Date(NOW.getTime() + 30 * 60 * 1000);
+    const result = applyLearnerEvent(
+      started.state,
+      { kind: "docSnapshot", userId: "u-alice", docKind: "notes" },
+      later
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-alice", "merge"),
+      new Date(later.getTime() + MERGE_NUDGE_MS).toISOString(),
+      "notes docSnapshot resets only the editor's per-person clock (7.4, 4.3)"
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-bob", "merge"),
+      bobBefore,
+      "notes docSnapshot does not reset bob's per-person clock (7.4, 4.3)"
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-cara", "merge"),
+      caraBefore,
+      "notes docSnapshot does not reset cara's per-person clock"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      new Date(later.getTime() + GROUP_SILENCE_MS).toISOString(),
+      "notes docSnapshot resets the group clock (7.4, 4.3)"
+    );
+    assertEqual(result.state.phase, "merge", "notes snapshot does not leave merge");
+  }
+
+  // --- 8.4: two present submitters reveal without waiting for an already-absent member ---
+  {
+    let result = enterScoringViaAgreements(NOW);
+    const withCaraAbsent: TeamStateRecord = {
+      ...result.state,
+      absenceStepKeys: [
+        ...result.state.absenceStepKeys,
+        { userId: "u-cara", stepKey: "scoring" },
+      ],
+    };
+    result = submitScores(withCaraAbsent, "u-alice", NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "one of two present submissions does not reveal"
+    );
+    result = submitScores(result.state, "u-bob", NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [{ kind: "revealScores" }],
+      "two present submitters reveal without waiting for an absent member (8.4)"
+    );
+  }
+
+  // --- 10.2: two present agreements lock when the third is absent for consensus ---
+  {
+    let result = enterConsensusNoFlags(NOW);
+    const withCaraAbsent: TeamStateRecord = {
+      ...result.state,
+      absenceStepKeys: [
+        ...result.state.absenceStepKeys,
+        { userId: "u-cara", stepKey: "consensus" },
+      ],
+    };
+    result = applyLearnerEvent(
+      withCaraAbsent,
+      { kind: "agreement", userId: "u-alice", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "consensus",
+      "one of two present agreements stays in consensus"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "partial present agreement does not lock when one member is absent"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-bob", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "finalized",
+      "two present agreements lock when the third is absent (10.2)"
+    );
+    const locks = ofEngineKind(result.effects, "lockDeliverable");
+    assertEqual(locks.length, 1, "two-present consensus emits one lockDeliverable");
+    assertEqual(locks[0]?.auto, false, "two-present explicit lock is not auto (10.2)");
+  }
+
+  // --- 10.6: return after lock keeps the group artifact unchanged ---
+  {
+    let result = enterConsensusNoFlags(NOW);
+    for (const userId of TEAM_MEMBERS) {
+      result = applyLearnerEvent(
+        result.state,
+        { kind: "agreement", userId, subject: "final_consensus" },
+        NOW
+      );
+    }
+    assertEqual(result.state.phase, "finalized", "precondition: team is locked");
+    const locked = result.state;
+    const returned = applyLearnerEvent(
+      locked,
+      { kind: "memberReturned", userId: "u-alice" },
+      NOW
+    );
+    assertEqual(returned.effects, [], "post-lock memberReturned emits no effects (10.6)");
+    assertEqual(
+      returned.state,
+      locked,
+      "post-lock return leaves the locked artifact unchanged (10.6)"
+    );
+    assertEqual(returned.state.phase, "finalized", "post-lock return stays finalized (10.6)");
+  }
+
+  // --- 11.5: double-evaluateQueue after applying first-pass effects is a no-op ---
+  {
+    const trio = [
+      checkIn({ id: "q-a", userId: "u-a", checkedInAt: isoMsAgo(3 * MS_PER_DAY) }),
+      checkIn({ id: "q-b", userId: "u-b", checkedInAt: isoMsAgo(2 * MS_PER_DAY) }),
+      checkIn({ id: "q-c", userId: "u-c", checkedInAt: isoMsAgo(1 * MS_PER_DAY) }),
+    ];
+    const first = evaluateQueue(trio, NOW);
+    assertEqual(ofKind(first, "formTeam").length, 1, "precondition: first pass forms a team");
+    const second = evaluateQueue(applyQueueEffects(trio, first, NOW), NOW);
+    assertEqual(
+      second,
+      [],
+      "double-evaluateQueue after applying formTeam yields no new effects"
+    );
+  }
+  {
+    const waiter = [
+      checkIn({
+        id: "q-ping",
+        userId: "u-ping-idemp",
+        checkedInAt: isoMsAgo(QUEUE_PING_MS),
+      }),
+    ];
+    const first = evaluateQueue(waiter, NOW);
+    assertEqual(
+      ofKind(first, "sendNotice").filter((effect) => effect.notice.kind === "queue_ping")
+        .length,
+      1,
+      "precondition: first pass emits a queue_ping"
+    );
+    const second = evaluateQueue(applyQueueEffects(waiter, first, NOW), NOW);
+    assertEqual(
+      ofKind(second, "sendNotice"),
+      [],
+      "double-evaluateQueue after applying a ping yields no new effects"
+    );
+    assertEqual(ofKind(second, "expireCheckIn"), [], "applied ping does not expire at the same clock");
+  }
+  {
+    const expiring = [
+      checkIn({
+        id: "q-exp-idemp",
+        userId: "u-exp-idemp",
+        checkedInAt: isoMsAgo(12 * MS_PER_DAY),
+        lastPingAt: isoMsAgo(QUEUE_PING_MS),
+        missedPings: QUEUE_EXPIRY_MISSED_PINGS,
+      }),
+    ];
+    const first = evaluateQueue(expiring, NOW);
+    assertEqual(ofKind(first, "expireCheckIn").length, 1, "precondition: first pass expires");
+    const second = evaluateQueue(applyQueueEffects(expiring, first, NOW), NOW);
+    assertEqual(
+      second,
+      [],
+      "double-evaluateQueue after applying expireCheckIn yields no new effects"
+    );
+  }
+
+  // --- 11.5: double-evaluateTeam at the same clock is a no-op in every phase ---
+  {
+    const phaseStates: Array<{ name: string; state: TeamStateRecord }> = [
+      { name: "critique", state: startTeam(TEAM_MEMBERS, NOW).state },
+      { name: "merge", state: completeAllCritiqueRounds(NOW).state },
+      { name: "scoring", state: enterScoringViaAgreements(NOW).state },
+      { name: "discussion", state: enterDiscussionWithFlags(NOW).state },
+      { name: "consensus", state: enterConsensusNoFlags(NOW).state },
+    ];
+    for (const { name, state } of phaseStates) {
+      const first = evaluateTeam(state, NOW);
+      const second = evaluateTeam(first.state, NOW);
+      assertEqual(
+        second.effects,
+        [],
+        `double-evaluateTeam in ${name} at the same clock yields no new effects (11.5)`
+      );
+    }
+    let locked = enterConsensusNoFlags(NOW);
+    for (const userId of TEAM_MEMBERS) {
+      locked = applyLearnerEvent(
+        locked.state,
+        { kind: "agreement", userId, subject: "final_consensus" },
+        NOW
+      );
+    }
+    const firstLocked = evaluateTeam(locked.state, NOW);
+    const secondLocked = evaluateTeam(firstLocked.state, NOW);
+    assertEqual(
+      secondLocked.effects,
+      [],
+      "double-evaluateTeam in finalized at the same clock yields no new effects (11.5)"
+    );
   }
 
   if (failures > 0) {
