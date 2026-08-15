@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import ArtifactsPanel from "./ArtifactsPanel";
 import GroupChatPanel from "./GroupChatPanel";
+import ScoreSheet from "./ScoreSheet";
 import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
 import {
   SPACE_POLL_MS,
@@ -37,11 +38,13 @@ export default function SpaceLayout({
   viewerUserId,
   initialSpace,
   artifacts,
+  criterionKeys,
 }: {
   teamId: string;
   viewerUserId: string;
   initialSpace: SpaceView;
   artifacts: ArtifactsView;
+  criterionKeys: string[];
 }) {
   const [space, setSpace] = useState<SpaceView>(initialSpace);
   const roleLabel = currentRoundRoleLabel(space, viewerUserId);
@@ -139,9 +142,14 @@ export default function SpaceLayout({
         </div>
         <aside className="flex flex-col gap-6">
           <ArtifactsPanel artifacts={artifacts} />
-          <PanelSlot
-            title="Score sheet"
-            hint="Private scoring and the revealed matrix will appear here."
+          <ScoreSheet
+            teamId={teamId}
+            viewerUserId={viewerUserId}
+            space={space}
+            criterionKeys={criterionKeys}
+            onSpace={(next) =>
+              setSpace((previous) => retainVisitRecap(previous, next))
+            }
           />
         </aside>
       </div>

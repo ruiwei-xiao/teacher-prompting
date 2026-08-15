@@ -24,6 +24,16 @@ export type SpaceRecapView = {
   messages: SpaceMessage[];
 };
 
+export type SpaceScoreEntry = {
+  criterionKey: string;
+  value: number;
+};
+
+export type SpaceMatrixRow = {
+  userId: string;
+  scores: SpaceScoreEntry[];
+};
+
 export type SpaceView = {
   role: "member" | "operator";
   phase: string;
@@ -34,6 +44,10 @@ export type SpaceView = {
   recap: SpaceRecapView;
   messages: SpaceMessage[];
   locked: boolean;
+  ownScores: SpaceScoreEntry[];
+  submittedBy: string[];
+  revealedAt: string | null;
+  matrix: SpaceMatrixRow[];
 };
 
 export type RoundRoleLabel = "Presenter" | "Critic";
@@ -144,6 +158,58 @@ function readMessages(value: unknown): SpaceMessage[] | null {
   return messages;
 }
 
+function readScoreEntry(value: unknown): SpaceScoreEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.criterionKey !== "string" || !record.criterionKey.trim()) {
+    return null;
+  }
+  if (typeof record.value !== "number" || !Number.isFinite(record.value)) {
+    return null;
+  }
+  return { criterionKey: record.criterionKey, value: record.value };
+}
+
+function readOwnScores(value: unknown): SpaceScoreEntry[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const scores: SpaceScoreEntry[] = [];
+  for (const entry of value) {
+    const row = readScoreEntry(entry);
+    if (!row) return null;
+    scores.push(row);
+  }
+  return scores;
+}
+
+function readSubmittedBy(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  if (!value.every((id) => typeof id === "string")) return null;
+  return value;
+}
+
+function readRevealedAt(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return value;
+  return undefined;
+}
+
+function readMatrix(value: unknown): SpaceMatrixRow[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const rows: SpaceMatrixRow[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.userId !== "string") return null;
+    const scores = readOwnScores(record.scores);
+    if (!scores) return null;
+    rows.push({ userId: record.userId, scores });
+  }
+  return rows;
+}
+
 function readSpaceView(body: unknown): SpaceView | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const record = body as Record<string, unknown>;
@@ -166,7 +232,13 @@ function readSpaceView(body: unknown): SpaceView | null {
   }
   const recapList = readMessages(recapRecord.messages);
   const messages = readMessages(record.messages);
-  if (!recapList || !messages) return null;
+  const ownScores = readOwnScores(record.ownScores);
+  const submittedBy = readSubmittedBy(record.submittedBy);
+  const revealedAt = readRevealedAt(record.revealedAt);
+  const matrix = readMatrix(record.matrix);
+  if (!recapList || !messages || !ownScores || !submittedBy || revealedAt === undefined || !matrix) {
+    return null;
+  }
   return {
     role: record.role,
     phase: record.phase.trim(),
@@ -177,6 +249,10 @@ function readSpaceView(body: unknown): SpaceView | null {
     recap: { since: recapRecord.since, messages: recapList },
     messages,
     locked: record.locked,
+    ownScores,
+    submittedBy,
+    revealedAt,
+    matrix,
   };
 }
 

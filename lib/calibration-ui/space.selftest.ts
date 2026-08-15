@@ -64,6 +64,10 @@ const critiqueSpace = {
   },
   messages: [facilitatorMessage, learnerMessage],
   locked: false,
+  ownScores: [],
+  submittedBy: [],
+  revealedAt: null,
+  matrix: [],
 };
 
 async function main(): Promise<void> {
@@ -263,17 +267,16 @@ async function main(): Promise<void> {
     "SpaceLayout composes ArtifactsPanel"
   );
   assert(
-    /score/i.test(layoutSource),
-    "SpaceLayout leaves a slot for ScoreSheet"
+    layoutSource.includes("ScoreSheet"),
+    "SpaceLayout composes ScoreSheet"
   );
   assert(
     /shared|rubric|notes|document/i.test(layoutSource),
     "SpaceLayout leaves a slot for SharedDocEditor"
   );
   assert(
-    !layoutSource.includes("ScoreSheet") &&
-      !layoutSource.includes("SharedDocEditor"),
-    "later panel components are slots only, not implemented here"
+    !layoutSource.includes("SharedDocEditor"),
+    "SharedDocEditor remains a later slot"
   );
   assert(
     !layoutSource.includes("calibration-engine") &&

@@ -131,7 +131,7 @@
   - Done when: no editable control exists on any artifact and try-chat opens the published chat
   - _Requirements: 1.3, 12.1, 12.2, 12.3, 12.4_
   - _Boundary: ArtifactsPanel_
-- [ ] 5.4 (P) Build the score sheet: private entry, submission status, revealed matrix
+- [x] 5.4 (P) Build the score sheet: private entry, submission status, revealed matrix
   - Integer 1–5 entry per rubric criterion; pre-reveal shows own values and teammates' submitted checkmarks only; post-reveal full matrix with ≥2 spreads highlighted
   - Done when: pre-reveal UI shows no teammate values and post-reveal highlights every flagged criterion
   - _Requirements: 8.1, 8.2, 8.3, 8.7, 9.2_
@@ -196,3 +196,4 @@
 - Activity UI helpers live in `lib/calibration-ui/` (paths, form payload, check-in next location). Gate does not poll; match after wait is via notice or reload. Team page at 5.1 is a thin landing only.
 - SpaceLayout polls GET /api/calibration/teams/{teamId} every 10s and on window focus. Recap is retained client-side across polls so last-seen updates do not wipe "since you last visited". Two-browser convergence is the poll contract (live E2E is 8.2).
 - Artifact texts are loaded on the team page via getOffering + getAppById (gate/space APIs only have meta). Try-chat is `/chat/{publicSlug||id}` with no query.
+- ScoreSheet computes flagged keys from the revealed matrix (max−min ≥ 2). Criterion keys come from the server page via getTeamForMember + rubricCriterionKeys (do not import scores.ts from client). Member UI never renders space.matrix pre-reveal.

@@ -3,8 +3,9 @@ import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import SpaceLayout from "@/components/calibration/SpaceLayout";
 import { getAppById } from "@/lib/app-store/store";
+import { rubricCriterionKeys } from "@/lib/calibration-api/scores";
 import { getSpace } from "@/lib/calibration-api/space";
-import { getOffering } from "@/lib/calibration-store/store";
+import { getOffering, getTeamForMember } from "@/lib/calibration-store/store";
 import { buildArtifactsView } from "@/lib/calibration-ui/artifacts";
 import { teamSpacePath } from "@/lib/calibration-ui/gate";
 
@@ -63,6 +64,10 @@ export default async function TeamSpacePage({
     sampleAppId: offering?.sampleAppId ?? sampleApp?.id ?? "",
     publicSlug: sampleApp?.publicSlug ?? null,
   });
+  const teamView = await getTeamForMember(teamId, session.user.id ?? "");
+  const rubricText =
+    teamView?.docs.find((doc) => doc.docKind === "rubric")?.snapshotText ?? "";
+  const criterionKeys = rubricCriterionKeys(rubricText);
 
   return (
     <AppShell>
@@ -72,6 +77,7 @@ export default async function TeamSpacePage({
           viewerUserId={session.user.id ?? ""}
           initialSpace={result.body}
           artifacts={artifacts}
+          criterionKeys={criterionKeys}
         />
       </main>
     </AppShell>

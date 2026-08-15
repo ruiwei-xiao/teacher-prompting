@@ -219,9 +219,12 @@ async function main(): Promise<void> {
     "SpaceLayout no longer uses the Artifacts PanelSlot"
   );
   assert(
-    !layoutSource.includes("ScoreSheet") &&
-      !layoutSource.includes("SharedDocEditor"),
-    "ScoreSheet and SharedDocEditor remain later slots"
+    layoutSource.includes("ScoreSheet"),
+    "ScoreSheet is composed into SpaceLayout"
+  );
+  assert(
+    !layoutSource.includes("SharedDocEditor"),
+    "SharedDocEditor remains a later slot"
   );
 
   // --- Source: team page loads texts on the server and passes props ---
