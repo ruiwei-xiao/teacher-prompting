@@ -16,7 +16,7 @@
   - Agreement, absence (keyed by team/user/step), addendum records; notice log with unique dedupe key
   - Done when: store selftest passes, including a case proving a pre-reveal read for member B contains no member A score values
   - _Requirements: 8.2, 8.7, 10.6, 13.1, 15.3_
-- [ ] 1.4 (P) Install realtime and email dependencies and document environment conventions
+- [x] 1.4 (P) Install realtime and email dependencies and document environment conventions
   - Add Liveblocks packages, yjs, @lexical/yjs, resend to package.json
   - Document env var names (LIVEBLOCKS_SECRET_KEY, RESEND_API_KEY, CALIBRATION_EMAIL_FROM, CRON_SECRET) per steering conventions
   - Done when: install and production build succeed with the new dependencies
