@@ -166,7 +166,7 @@
   - Done when: selecting three eligible waiters forms a team visible in the progress table
   - _Requirements: 2.5, 2.6, 14.1, 14.2, 14.3, 14.4_
   - _Depends: 4.5_
-- [ ] 7.2 Build the read-only team inspector
+- [x] 7.2 Build the read-only team inspector
   - Full team contents: chat, shared docs (latest snapshots), held or revealed scores, absence marks, final deliverable; no message/edit/reset/advance affordances
   - Done when: the inspector renders held scores for the operator while a member session still cannot see them
   - _Requirements: 14.5, 14.6, 14.7_
@@ -202,3 +202,4 @@
 - SharedDocEditor: one room host (`getYjsProviderForRoom`) plus per-doc `DocScopedProvider` wrappers (`lib/calibration-ui/docs-provider.ts`) so rubric/notes have distinct Y.Docs and awareness; `disconnect()` must not tear down the sibling. Two-browser cursor proof is 8.2.
 - Snapshot debounce is 4000ms POST `{ text }` to docs endpoint. Locked teams still mount SharedDocEditor as read-only (no contenteditable / no snapshot POST). Liveblocks outage banner + last SSR snapshot; `liveblocksDown` does not auto-clear.
 - Operator dashboard is `/activity/{offeringId}/operate`. Manual-match picker uses stuck (10d+) waiters from GET operate. Inspect links: `/activity/{offeringId}/operate/team/{teamId}` (7.2).
+- Operator inspector page calls `inspectTeam` on the server (no extra HTTP route). Held scores come from `inspect.scores.members`; member ScoreSheet still strips `space.matrix` pre-reveal.

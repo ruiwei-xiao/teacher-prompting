@@ -235,17 +235,9 @@ async function main(): Promise<void> {
     process.cwd(),
     "app/activity/[offeringId]/operate/page.tsx"
   );
-  const inspectViewPath = path.join(
-    process.cwd(),
-    "components/calibration/OperatorTeamView.tsx"
-  );
-
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const dashboardSource = await fs.readFile(dashboardPath, "utf8").catch(() => "");
   const pageSource = await fs.readFile(pagePath, "utf8").catch(() => "");
-  const inspectViewSource = await fs
-    .readFile(inspectViewPath, "utf8")
-    .catch(() => "");
 
   assert(helpersSource.length > 0, "lib/calibration-ui/operator.ts exists");
   assert(
@@ -375,11 +367,6 @@ async function main(): Promise<void> {
   assert(
     !pageSource.includes("OperatorTeamView"),
     "operate page does not build OperatorTeamView (7.2)"
-  );
-  assertEqual(
-    inspectViewSource,
-    "",
-    "OperatorTeamView is not created in this task"
   );
 
   if (failures > 0) {
