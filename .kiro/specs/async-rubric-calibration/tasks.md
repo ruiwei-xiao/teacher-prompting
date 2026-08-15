@@ -56,7 +56,7 @@
   - _Requirements: 2.2, 4.1, 6.5, 8.4, 9.1, 10.2, 11.5_
 
 - [ ] 3. Core: facilitator presentation and email notices
-- [ ] 3.1 (P) Build the scripted facilitator message catalog
+- [x] 3.1 (P) Build the scripted facilitator message catalog
   - Templates for kickoff recap, presenter announcement, critic prompt, rotation notice, submission acknowledgment, reveal announcement, targeted disagreement ask, nudges, finalization (incl. auto-finalized labeling)
   - Done when: each scripted kind renders deterministic text from a template context
   - _Requirements: 5.2, 6.2, 6.3, 8.3, 11.1, 11.2_
