@@ -1,6 +1,7 @@
 /**
  * Pure calibration engine. Task 2.1: evaluateQueue. Task 2.2: kickoff + rotation.
  * Task 2.3: dual clocks, absence, rejoin. Task 2.4: merge, scoring, spread.
+ * Task 2.5: discussion, consensus, lock.
  * No I/O. Imports types/constants from calibration-store/types — never store.ts.
  */
 import type {
@@ -19,6 +20,7 @@ import type {
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
+  DISCUSSION_DEADLINE_MS,
   GROUP_SILENCE_MS,
   MERGE_NUDGE_MS,
   OPERATOR_STUCK_LISTING_MS,
@@ -29,6 +31,7 @@ import {
 
 const MERGE_STEP_KEY = "merge";
 const SCORING_STEP_KEY = "scoring";
+const CONSENSUS_STEP_KEY = "consensus";
 const SPREAD_FLAG_THRESHOLD = 2;
 
 const CRITIQUE_ROUND_COUNT = 3;
@@ -152,6 +155,14 @@ function critiqueStepKey(round: number): string {
   return `critique:${round}`;
 }
 
+function discussionStepKey(criterionKey: string): string {
+  return `discussion:${criterionKey}`;
+}
+
+function isDiscussionStepKey(stepKey: string): boolean {
+  return stepKey === "discussion" || stepKey.startsWith("discussion:");
+}
+
 function cloneState(state: TeamStateRecord): TeamStateRecord {
   return {
     phase: state.phase,
@@ -254,6 +265,9 @@ function deadlineMsForPhase(phase: TeamPhase): number | null {
   if (phase === "scoring") {
     return SCORING_DEADLINE_MS;
   }
+  if (phase === "discussion") {
+    return DISCUSSION_DEADLINE_MS;
+  }
   return null;
 }
 
@@ -323,15 +337,32 @@ function resetActorAndGroupClocks(
   now: Date
 ): TeamStateRecord {
   const next = cloneState(state);
-  const durationMs = deadlineMsForPhase(state.phase);
-  if (durationMs !== null) {
-    next.perPersonDeadlines = resetPerPersonDeadlines(
-      next.perPersonDeadlines,
-      [userId],
-      currentStepKey(state),
-      now,
-      durationMs
-    );
+  if (state.phase === "discussion") {
+    const actorSteps = next.perPersonDeadlines
+      .filter((deadline) => deadline.userId === userId && isDiscussionStepKey(deadline.stepKey))
+      .map((deadline) => deadline.stepKey);
+    let deadlines = next.perPersonDeadlines;
+    for (const stepKey of actorSteps) {
+      deadlines = resetPerPersonDeadlines(
+        deadlines,
+        [userId],
+        stepKey,
+        now,
+        DISCUSSION_DEADLINE_MS
+      );
+    }
+    next.perPersonDeadlines = deadlines;
+  } else {
+    const durationMs = deadlineMsForPhase(state.phase);
+    if (durationMs !== null) {
+      next.perPersonDeadlines = resetPerPersonDeadlines(
+        next.perPersonDeadlines,
+        [userId],
+        currentStepKey(state),
+        now,
+        durationMs
+      );
+    }
   }
   if (next.groupDeadline !== null) {
     next.groupDeadline = new Date(now.getTime() + GROUP_SILENCE_MS).toISOString();
@@ -575,29 +606,43 @@ function applyCritiqueMessage(
   return { state: next, effects: [] };
 }
 
+function isReturnableAbsence(state: TeamStateRecord, stepKey: string): boolean {
+  if (stepKey === currentStepKey(state)) {
+    return true;
+  }
+  return state.phase === "discussion" && isDiscussionStepKey(stepKey);
+}
+
 function applyMemberReturned(
   state: TeamStateRecord,
   userId: string,
   now: Date
 ): EngineResult {
-  const stepKey = currentStepKey(state);
-  if (!isAbsentForStep(state, userId, stepKey)) {
+  const matching = state.absenceStepKeys.filter(
+    (entry) => entry.userId === userId && isReturnableAbsence(state, entry.stepKey)
+  );
+  if (matching.length === 0) {
     return { state, effects: [] };
   }
 
   const next = cloneState(state);
+  const cleared = new Set(matching.map((entry) => entry.stepKey));
   next.absenceStepKeys = next.absenceStepKeys.filter(
-    (entry) => !(entry.userId === userId && entry.stepKey === stepKey)
+    (entry) => !(entry.userId === userId && cleared.has(entry.stepKey))
   );
   const durationMs = deadlineMsForPhase(state.phase);
   if (durationMs !== null) {
-    next.perPersonDeadlines = resetPerPersonDeadlines(
-      next.perPersonDeadlines,
-      [userId],
-      stepKey,
-      now,
-      durationMs
-    );
+    let deadlines = next.perPersonDeadlines;
+    for (const stepKey of cleared) {
+      deadlines = resetPerPersonDeadlines(
+        deadlines,
+        [userId],
+        stepKey,
+        now,
+        durationMs
+      );
+    }
+    next.perPersonDeadlines = deadlines;
   }
   return { state: next, effects: [] };
 }
@@ -605,14 +650,25 @@ function applyMemberReturned(
 /**
  * Clock-driven evaluation. Expired per-person clocks mark absence for the
  * current step only and continue with remaining members (4.4, 6.6).
+ * Discussion 7d marks the named scorer absent for that exchange (9.5);
+ * 14d group silence locks discussion or consensus (9.6, 10.3).
  * Does not refresh co-waiters' clocks. Idempotent at the same `now`.
  */
 export function evaluateTeam(state: TeamStateRecord, now: Date): EngineResult {
+  if (state.phase === "finalized") {
+    return { state, effects: [] };
+  }
   if (state.phase === "merge") {
     return evaluateMerge(state, now);
   }
   if (state.phase === "scoring") {
     return evaluateScoring(state, now);
+  }
+  if (state.phase === "discussion") {
+    return evaluateDiscussion(state, now);
+  }
+  if (state.phase === "consensus") {
+    return evaluateConsensus(state, now);
   }
   if (state.phase !== "critique") {
     return { state, effects: [] };
@@ -646,8 +702,11 @@ export function evaluateTeam(state: TeamStateRecord, now: Date): EngineResult {
  * current-step per-person clock (4.3). Merge contributions count toward the
  * 3-day nudge. agreement merge_complete from all present opens scoring (8.1).
  * scoresSubmitted acks without values and reveals when every present member
- * has submitted (8.3, 8.4). memberReturned joins the current phase/round
- * without replaying completed work (4.6, 6.7).
+ * has submitted (8.3, 8.4). Discussion messages revoice/follow up and open
+ * consensus when flagged exchanges are answered (10.1). final_consensus from
+ * all present locks (10.2). memberReturned joins the current phase/round
+ * without replaying completed work (4.6, 6.7, 10.5). After finalized, events
+ * produce no new effects (11.5).
  */
 export function applyLearnerEvent(
   state: TeamStateRecord,
@@ -655,6 +714,10 @@ export function applyLearnerEvent(
   now: Date
 ): EngineResult {
   if (!state.memberUserIds.includes(event.userId)) {
+    return { state, effects: [] };
+  }
+
+  if (state.phase === "finalized") {
     return { state, effects: [] };
   }
 
@@ -674,6 +737,15 @@ export function applyLearnerEvent(
     const withClocks = resetActorAndGroupClocks(state, event.userId, now);
     if (state.phase === "merge") {
       return { state: recordContribution(withClocks, event.userId), effects: [] };
+    }
+    if (state.phase === "discussion") {
+      if (event.kind === "docSnapshot") {
+        return { state: withClocks, effects: [] };
+      }
+      return applyDiscussionMessage(withClocks, event.userId, now);
+    }
+    if (state.phase === "consensus") {
+      return { state: withClocks, effects: [] };
     }
     if (event.kind === "docSnapshot") {
       return { state: withClocks, effects: [] };
@@ -755,6 +827,9 @@ function applyAgreement(
   subject: AgreementSubject,
   now: Date
 ): EngineResult {
+  if (subject === "final_consensus") {
+    return applyFinalConsensus(state, userId);
+  }
   if (subject !== "merge_complete" || state.phase !== "merge") {
     return { state, effects: [] };
   }
@@ -899,6 +974,251 @@ function evaluateScoring(state: TeamStateRecord, now: Date): EngineResult {
   return { state: current, effects };
 }
 
+function namedScorerForCriterion(
+  revealed: RevealedScores,
+  criterionKey: string,
+  memberUserIds: readonly string[]
+): string {
+  let scorerUserId = memberUserIds[0] ?? "";
+  let bestValue = Number.POSITIVE_INFINITY;
+  for (const userId of memberUserIds) {
+    const member = revealed.members.find((row) => row.userId === userId);
+    const score = member?.scores.find((row) => row.criterionKey === criterionKey);
+    if (score !== undefined && score.value < bestValue) {
+      bestValue = score.value;
+      scorerUserId = userId;
+    }
+  }
+  return scorerUserId;
+}
+
+function presentInDiscussion(state: TeamStateRecord): string[] {
+  return state.memberUserIds.filter(
+    (userId) =>
+      !state.absenceStepKeys.some(
+        (entry) => entry.userId === userId && isDiscussionStepKey(entry.stepKey)
+      )
+  );
+}
+
+function allExchangesAnswered(state: TeamStateRecord): boolean {
+  return (
+    state.flaggedCriteria.length > 0 &&
+    state.flaggedCriteria.every(
+      (criterionKey) =>
+        !state.perPersonDeadlines.some(
+          (deadline) => deadline.stepKey === discussionStepKey(criterionKey)
+        )
+    )
+  );
+}
+
+function discussionComplete(state: TeamStateRecord): boolean {
+  if (allExchangesAnswered(state)) {
+    return true;
+  }
+  const present = presentInDiscussion(state);
+  return (
+    present.length > 0 &&
+    present.every((userId) => state.respondedUserIds.includes(userId))
+  );
+}
+
+function unresolvedCriteria(state: TeamStateRecord): string[] {
+  return state.flaggedCriteria.filter((criterionKey) =>
+    state.perPersonDeadlines.some(
+      (deadline) => deadline.stepKey === discussionStepKey(criterionKey)
+    )
+  );
+}
+
+function lockTeam(
+  state: TeamStateRecord,
+  auto: boolean,
+  unresolved: string[]
+): EngineResult {
+  const next = cloneState(state);
+  next.phase = "finalized";
+  const effects: EngineEffect[] = [];
+  if (auto) {
+    effects.push(postFacilitator("llm", "auto_synthesize", { unresolved }));
+  }
+  effects.push({ kind: "lockDeliverable", auto, unresolved });
+  return { state: next, effects };
+}
+
+function enterConsensus(
+  state: TeamStateRecord,
+  now: Date,
+  prefix: EngineEffect[]
+): EngineResult {
+  const next: TeamStateRecord = {
+    ...cloneState(state),
+    phase: "consensus",
+    perPersonDeadlines: [],
+    groupDeadline: new Date(now.getTime() + GROUP_SILENCE_MS).toISOString(),
+    respondedUserIds: [],
+  };
+  return {
+    state: next,
+    effects: [
+      ...prefix,
+      postFacilitator("scripted", "rewrite_prompt", {
+        memberUserIds: next.memberUserIds,
+        flaggedCriteria: next.flaggedCriteria,
+      }),
+    ],
+  };
+}
+
+function enterDiscussion(
+  state: TeamStateRecord,
+  revealed: RevealedScores,
+  flaggedCriteria: string[]
+): EngineResult {
+  const now = new Date(revealed.revealedAt);
+  const deadlineAt = new Date(now.getTime() + DISCUSSION_DEADLINE_MS).toISOString();
+  const perPersonDeadlines: PerPersonDeadline[] = [];
+  const effects: EngineEffect[] = [];
+  for (const criterionKey of flaggedCriteria) {
+    const scorerUserId = namedScorerForCriterion(
+      revealed,
+      criterionKey,
+      state.memberUserIds
+    );
+    perPersonDeadlines.push({
+      userId: scorerUserId,
+      stepKey: discussionStepKey(criterionKey),
+      deadlineAt,
+    });
+    effects.push(
+      postFacilitator("scripted", "targeted_prompt", {
+        criterionKey,
+        scorerUserId,
+      })
+    );
+  }
+  const next: TeamStateRecord = {
+    ...cloneState(state),
+    phase: "discussion",
+    flaggedCriteria,
+    perPersonDeadlines,
+    groupDeadline: new Date(now.getTime() + GROUP_SILENCE_MS).toISOString(),
+    respondedUserIds: [],
+  };
+  return { state: next, effects };
+}
+
+function markAbsentForDiscussion(
+  state: TeamStateRecord,
+  userId: string,
+  stepKey: string
+): EngineResult {
+  if (!state.memberUserIds.includes(userId)) {
+    return { state, effects: [] };
+  }
+  if (isAbsentForStep(state, userId, stepKey)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.absenceStepKeys = [...next.absenceStepKeys, { userId, stepKey }];
+  return {
+    state: next,
+    effects: [{ kind: "markAbsent", userId, stepKey }],
+  };
+}
+
+function applyDiscussionMessage(
+  state: TeamStateRecord,
+  userId: string,
+  now: Date
+): EngineResult {
+  if (state.respondedUserIds.includes(userId)) {
+    return { state, effects: [] };
+  }
+  const next = recordContribution(cloneState(state), userId);
+  next.perPersonDeadlines = next.perPersonDeadlines.filter(
+    (deadline) =>
+      !(deadline.userId === userId && isDiscussionStepKey(deadline.stepKey))
+  );
+  const effects: EngineEffect[] = [
+    postFacilitator("llm", "revoice", { userId }),
+    postFacilitator("llm", "follow_up", { userId }),
+  ];
+  if (discussionComplete(next)) {
+    return prependEffects(enterConsensus(next, now, []), effects);
+  }
+  return { state: next, effects };
+}
+
+function applyFinalConsensus(
+  state: TeamStateRecord,
+  userId: string
+): EngineResult {
+  if (state.phase !== "consensus") {
+    return { state, effects: [] };
+  }
+  if (state.agreementSets.final_consensus.includes(userId)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.agreementSets.final_consensus = [
+    ...next.agreementSets.final_consensus,
+    userId,
+  ];
+  const present = presentUserIds(next, CONSENSUS_STEP_KEY);
+  if (
+    present.length > 0 &&
+    present.every((memberId) => next.agreementSets.final_consensus.includes(memberId))
+  ) {
+    return lockTeam(next, false, []);
+  }
+  return { state: next, effects: [] };
+}
+
+function evaluateDiscussion(state: TeamStateRecord, now: Date): EngineResult {
+  const nowMs = now.getTime();
+  if (
+    state.groupDeadline !== null &&
+    Date.parse(state.groupDeadline) <= nowMs
+  ) {
+    return lockTeam(state, true, unresolvedCriteria(state));
+  }
+
+  const expired = state.perPersonDeadlines.filter(
+    (deadline) =>
+      isDiscussionStepKey(deadline.stepKey) &&
+      Date.parse(deadline.deadlineAt) <= nowMs &&
+      !isAbsentForStep(state, deadline.userId, deadline.stepKey)
+  );
+
+  let current = state;
+  const effects: EngineEffect[] = [];
+  for (const deadline of expired) {
+    const result = markAbsentForDiscussion(
+      current,
+      deadline.userId,
+      deadline.stepKey
+    );
+    current = result.state;
+    effects.push(...result.effects);
+  }
+  if (discussionComplete(current)) {
+    return prependEffects(enterConsensus(current, now, []), effects);
+  }
+  return { state: current, effects };
+}
+
+function evaluateConsensus(state: TeamStateRecord, now: Date): EngineResult {
+  if (
+    state.groupDeadline !== null &&
+    Date.parse(state.groupDeadline) <= now.getTime()
+  ) {
+    return lockTeam(state, true, state.flaggedCriteria);
+  }
+  return { state, effects: [] };
+}
+
 /**
  * Spread per criterion = max − min of revealed scores. Flag at ≥2 (9.1, 9.2).
  */
@@ -926,7 +1246,8 @@ export function computeSpread(revealed: RevealedScores): CriterionSpread[] {
 }
 
 /**
- * Apply revealed spreads: flag ≥2 criteria and skip discussion when none (9.7).
+ * Apply revealed spreads: flag ≥2 criteria, post targeted prompts, and skip
+ * discussion when none (9.3, 9.7, 10.1).
  */
 export function applySpread(
   state: TeamStateRecord,
@@ -938,8 +1259,10 @@ export function applySpread(
   const flaggedCriteria = computeSpread(revealed)
     .filter((row) => row.flagged)
     .map((row) => row.criterionKey);
-  const next = cloneState(state);
-  next.flaggedCriteria = flaggedCriteria;
-  next.phase = flaggedCriteria.length === 0 ? "consensus" : "discussion";
-  return { state: next, effects: [] };
+  if (flaggedCriteria.length === 0) {
+    const next = cloneState(state);
+    next.flaggedCriteria = [];
+    return enterConsensus(next, new Date(revealed.revealedAt), []);
+  }
+  return enterDiscussion(state, revealed, flaggedCriteria);
 }

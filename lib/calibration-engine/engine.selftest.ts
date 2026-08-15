@@ -1,7 +1,8 @@
 /**
  * Runtime self-test for calibration-engine queue (Task 2.1),
- * critique rotation (Task 2.2), dual clocks (Task 2.3), and
- * merge / blind-scoring (Task 2.4). Pure evaluation only.
+ * critique rotation (Task 2.2), dual clocks (Task 2.3),
+ * merge / blind-scoring (Task 2.4), and discussion / consensus /
+ * lock (Task 2.5). Pure evaluation only.
  *
  * Run: npx tsx lib/calibration-engine/engine.selftest.ts
  */
@@ -15,6 +16,7 @@ import type {
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
+  DISCUSSION_DEADLINE_MS,
   GROUP_SILENCE_MS,
   MERGE_NUDGE_MS,
   MS_PER_DAY,
@@ -165,6 +167,51 @@ function revealedFrom(
     })),
     revealedAt,
   };
+}
+
+function enterDiscussionWithFlags(now: Date): EngineResult {
+  let result = enterScoringViaAgreements(now);
+  result = submitScores(result.state, "u-alice", now);
+  result = submitScores(result.state, "u-bob", now);
+  result = submitScores(result.state, "u-cara", now);
+  return applySpread(
+    result.state,
+    revealedFrom([
+      { userId: "u-alice", values: { clarity: 2, evidence: 4 } },
+      { userId: "u-bob", values: { clarity: 3, evidence: 4 } },
+      { userId: "u-cara", values: { clarity: 5, evidence: 4 } },
+    ])
+  );
+}
+
+function enterDiscussionWithTwoFlags(now: Date): EngineResult {
+  let result = enterScoringViaAgreements(now);
+  result = submitScores(result.state, "u-alice", now);
+  result = submitScores(result.state, "u-bob", now);
+  result = submitScores(result.state, "u-cara", now);
+  return applySpread(
+    result.state,
+    revealedFrom([
+      { userId: "u-alice", values: { clarity: 2, evidence: 4 } },
+      { userId: "u-bob", values: { clarity: 3, evidence: 1 } },
+      { userId: "u-cara", values: { clarity: 5, evidence: 4 } },
+    ])
+  );
+}
+
+function enterConsensusNoFlags(now: Date): EngineResult {
+  let result = enterScoringViaAgreements(now);
+  result = submitScores(result.state, "u-alice", now);
+  result = submitScores(result.state, "u-bob", now);
+  result = submitScores(result.state, "u-cara", now);
+  return applySpread(
+    result.state,
+    revealedFrom([
+      { userId: "u-alice", values: { clarity: 3, evidence: 4 } },
+      { userId: "u-bob", values: { clarity: 4, evidence: 4 } },
+      { userId: "u-cara", values: { clarity: 4, evidence: 4 } },
+    ])
+  );
 }
 
 function completeRound(
@@ -1943,6 +1990,478 @@ function main(): void {
       "timeout reveal with a ≥2 flag enters discussion (9.2)"
     );
     assertEqual(advanced.state.flaggedCriteria, ["clarity"], "timeout flags the wide criterion");
+  }
+
+  // ========================================================================
+  // Task 2.5 — discussion, consensus, lock (9.3, 9.5, 9.6, 10.1–10.3, 10.5, 11.5)
+  // ========================================================================
+
+  const expectedDiscussionDeadline = new Date(
+    NOW.getTime() + DISCUSSION_DEADLINE_MS
+  ).toISOString();
+
+  // --- 9.3: entering discussion posts a targeted prompt naming a scorer + criterion ---
+  {
+    const result = enterDiscussionWithFlags(NOW);
+    assertEqual(result.state.phase, "discussion", "flagged spread enters discussion (9.3)");
+    assertEqual(result.state.flaggedCriteria, ["clarity"], "clarity is the flagged criterion");
+
+    const targeted = ofEngineKind(result.effects, "postFacilitator").filter(
+      (effect) => effect.message.key === "targeted_prompt"
+    );
+    assertEqual(targeted.length, 1, "one flagged criterion → one targeted prompt (9.3)");
+    assertEqual(
+      targeted[0]?.message.context.criterionKey,
+      "clarity",
+      "targeted prompt names the flagged criterion (9.3)"
+    );
+    assertEqual(
+      targeted[0]?.message.context.scorerUserId,
+      "u-alice",
+      "targeted prompt names a scorer (the extreme / min scorer) (9.3)"
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-alice", "discussion:clarity"),
+      expectedDiscussionDeadline,
+      "named scorer gets a 7-day per-person clock for that exchange (9.5)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      expectedGroupSilence,
+      "discussion starts the 14-day group silence clock (9.6)"
+    );
+    assert(
+      result.state.perPersonDeadlines !== undefined &&
+        result.state.groupDeadline !== undefined,
+      "discussion keeps per-person and group clocks as independent fields (4.1)"
+    );
+  }
+
+  // --- 9.3: one targeted prompt per flagged criterion, each naming a scorer ---
+  {
+    const result = enterDiscussionWithTwoFlags(NOW);
+    assertEqual(
+      result.state.flaggedCriteria.slice().sort(),
+      ["clarity", "evidence"],
+      "two ≥2 spreads flag both criteria"
+    );
+    const targeted = ofEngineKind(result.effects, "postFacilitator").filter(
+      (effect) => effect.message.key === "targeted_prompt"
+    );
+    assertEqual(targeted.length, 2, "each flagged criterion gets a targeted prompt (9.3)");
+    const byCriterion = Object.fromEntries(
+      targeted.map((effect) => [
+        String(effect.message.context.criterionKey),
+        String(effect.message.context.scorerUserId),
+      ])
+    );
+    assertEqual(byCriterion.clarity, "u-alice", "clarity prompt names alice (min 2)");
+    assertEqual(byCriterion.evidence, "u-bob", "evidence prompt names bob (min 1)");
+    assertEqual(
+      deadlineOfStep(result.state, "u-alice", "discussion:clarity"),
+      expectedDiscussionDeadline,
+      "clarity exchange has a 7-day clock on alice"
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-bob", "discussion:evidence"),
+      expectedDiscussionDeadline,
+      "evidence exchange has a 7-day clock on bob"
+    );
+  }
+
+  // --- 9.5: 7-day no response marks the named scorer absent for that exchange ---
+  {
+    const started = enterDiscussionWithTwoFlags(NOW);
+    const justUnder = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + DISCUSSION_DEADLINE_MS - 1)
+    );
+    assertEqual(
+      ofEngineKind(justUnder.effects, "markAbsent"),
+      [],
+      "just under 7 days marks nobody absent"
+    );
+    assertEqual(justUnder.state.phase, "discussion", "just under 7 days stays in discussion");
+
+    const result = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + DISCUSSION_DEADLINE_MS)
+    );
+    const absences = ofEngineKind(result.effects, "markAbsent");
+    assert(
+      absences.some(
+        (effect) =>
+          effect.userId === "u-alice" && effect.stepKey === "discussion:clarity"
+      ),
+      "7-day silence marks alice absent for the clarity exchange (9.5)"
+    );
+    assert(
+      absences.some(
+        (effect) => effect.userId === "u-bob" && effect.stepKey === "discussion:evidence"
+      ),
+      "7-day silence marks bob absent for the evidence exchange (9.5)"
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "discussion:clarity"
+      ),
+      "alice absence is recorded for discussion:clarity only"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "per-person expiry does not lock; remaining present continue (9.5)"
+    );
+
+    const replayed = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + DISCUSSION_DEADLINE_MS)
+    );
+    assertEqual(
+      replayed.effects,
+      [],
+      "double-evaluateTeam at the same 7d clock yields no new effects (11.5)"
+    );
+  }
+
+  // --- 9.6 / 10.3: 14-day group silence auto-finalizes with unresolved labels ---
+  {
+    const started = enterDiscussionWithFlags(NOW);
+    const justUnder = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + GROUP_SILENCE_MS - 1)
+    );
+    assertEqual(justUnder.state.phase, "discussion", "just under 14 days stays in discussion");
+    assertEqual(
+      ofEngineKind(justUnder.effects, "lockDeliverable"),
+      [],
+      "just under 14 days does not lock"
+    );
+
+    const silenceAt = new Date(NOW.getTime() + GROUP_SILENCE_MS);
+    const result = evaluateTeam(started.state, silenceAt);
+    assertEqual(result.state.phase, "finalized", "14-day discussion silence finalizes (9.6)");
+    const locks = ofEngineKind(result.effects, "lockDeliverable");
+    assertEqual(locks.length, 1, "14-day discussion silence emits one lockDeliverable");
+    assertEqual(locks[0]?.auto, true, "group-timeout lock is auto (9.6, 10.3)");
+    assertEqual(
+      locks[0]?.unresolved,
+      ["clarity"],
+      "auto-finalize labels unresolved flagged criteria (9.6, 10.3)"
+    );
+
+    const replayed = evaluateTeam(result.state, silenceAt);
+    assertEqual(
+      replayed.effects,
+      [],
+      "double-evaluateTeam after discussion lock yields no new effects (11.5)"
+    );
+    assertEqual(replayed.state.phase, "finalized", "replayed lock stays finalized");
+  }
+
+  // --- 10.1: answering the flagged exchange moves to consensus with a rewrite prompt ---
+  {
+    const started = enterDiscussionWithFlags(NOW);
+    const result = applyLearnerEvent(
+      started.state,
+      { kind: "message", userId: "u-alice", body: "I scored 2 because the artifact never names a goal" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "consensus",
+      "answering the only flagged exchange opens consensus (10.1)"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("rewrite_prompt"),
+      "discussion end posts a rewrite prompt (10.1)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      expectedGroupSilence,
+      "consensus starts a 14-day group silence clock (10.3)"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("revoice") ||
+        facilitatorKeys(result.effects).includes("follow_up"),
+      "a discussion message may emit revoice or follow-up (9.4, 10.1)"
+    );
+  }
+
+  // --- 10.1: two flags — one answer stays in discussion; both answers open consensus ---
+  {
+    const started = enterDiscussionWithTwoFlags(NOW);
+    let result = applyLearnerEvent(
+      started.state,
+      { kind: "message", userId: "u-alice", body: "clarity: the prompt never states a goal" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "discussion",
+      "one of two flagged exchanges answered stays in discussion"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("revoice") ||
+        facilitatorKeys(result.effects).includes("follow_up"),
+      "partial discussion answer emits revoice or follow-up (9.4)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "a discussion message does not lock"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "evidence: the transcript has no student work" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "consensus",
+      "all flagged exchanges answered → consensus (10.1)"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("rewrite_prompt"),
+      "last answered exchange posts a rewrite prompt (10.1)"
+    );
+  }
+
+  // --- 10.1: no-flag reveal still posts the rewrite prompt on entering consensus ---
+  {
+    const result = enterConsensusNoFlags(NOW);
+    assertEqual(result.state.phase, "consensus", "no flags skip discussion (9.7, 10.1)");
+    assert(
+      facilitatorKeys(result.effects).includes("rewrite_prompt"),
+      "skip-discussion consensus still posts a rewrite prompt (10.1)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      expectedGroupSilence,
+      "skip-discussion consensus starts the 14-day group clock (10.3)"
+    );
+  }
+
+  // --- 10.2: lock fires only when every present member agrees final_consensus ---
+  {
+    let result = enterConsensusNoFlags(NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-alice", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "one final_consensus stays in consensus");
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "one agreement does not lock (10.2)"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-bob", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "two final_consensus agreements stay in consensus");
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "partial present agreement does not lock (10.2)"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-cara", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(result.state.phase, "finalized", "all present final_consensus locks (10.2)");
+    const locks = ofEngineKind(result.effects, "lockDeliverable");
+    assertEqual(locks.length, 1, "explicit consensus emits one lockDeliverable");
+    assertEqual(locks[0]?.auto, false, "explicit agreement lock is not auto (10.2)");
+    assertEqual(locks[0]?.unresolved, [], "explicit agreement has no unresolved labels");
+  }
+
+  // --- 10.3: consensus 14-day silence auto-synthesizes and locks ---
+  {
+    const started = enterConsensusNoFlags(NOW);
+    const justUnder = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + GROUP_SILENCE_MS - 1)
+    );
+    assertEqual(justUnder.state.phase, "consensus", "just under 14 days stays in consensus");
+    assertEqual(
+      ofEngineKind(justUnder.effects, "lockDeliverable"),
+      [],
+      "just under 14 days does not lock consensus"
+    );
+
+    const silenceAt = new Date(NOW.getTime() + GROUP_SILENCE_MS);
+    const result = evaluateTeam(started.state, silenceAt);
+    assertEqual(result.state.phase, "finalized", "14-day consensus silence finalizes (10.3)");
+    const locks = ofEngineKind(result.effects, "lockDeliverable");
+    assertEqual(locks.length, 1, "consensus timeout emits one lockDeliverable");
+    assertEqual(locks[0]?.auto, true, "consensus timeout lock is auto (10.3)");
+
+    const replayed = evaluateTeam(result.state, silenceAt);
+    assertEqual(
+      replayed.effects,
+      [],
+      "double-evaluateTeam after consensus lock yields no new effects (11.5)"
+    );
+  }
+
+  // --- 10.3: consensus timeout after flagged discussion labels unresolved criteria ---
+  {
+    const discussed = enterDiscussionWithFlags(NOW);
+    const consensus = applyLearnerEvent(
+      discussed.state,
+      { kind: "message", userId: "u-alice", body: "here is my evidence" },
+      NOW
+    );
+    assertEqual(consensus.state.phase, "consensus", "precondition: team reached consensus");
+    const result = evaluateTeam(
+      consensus.state,
+      new Date(NOW.getTime() + GROUP_SILENCE_MS)
+    );
+    assertEqual(result.state.phase, "finalized", "flagged-path consensus timeout still locks");
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable")[0]?.unresolved,
+      ["clarity"],
+      "timeout after disagreement labels the unresolved criterion (10.3)"
+    );
+  }
+
+  // --- 11.5: evaluateTeam / applyLearnerEvent after finalized produce no new effects ---
+  {
+    let result = enterConsensusNoFlags(NOW);
+    for (const userId of TEAM_MEMBERS) {
+      result = applyLearnerEvent(
+        result.state,
+        { kind: "agreement", userId, subject: "final_consensus" },
+        NOW
+      );
+    }
+    assertEqual(result.state.phase, "finalized", "precondition: team is locked");
+    const locked = result.state;
+
+    const evaluated = evaluateTeam(locked, NOW);
+    assertEqual(evaluated.effects, [], "evaluateTeam after finalized emits nothing (11.5)");
+    assertEqual(evaluated.state.phase, "finalized", "evaluateTeam after finalized stays locked");
+
+    const replayed = evaluateTeam(evaluated.state, NOW);
+    assertEqual(
+      replayed.effects,
+      [],
+      "double-evaluateTeam on a finalized team yields no new effects (11.5)"
+    );
+
+    const messaged = applyLearnerEvent(
+      locked,
+      { kind: "message", userId: "u-alice", body: "trying to reopen" },
+      NOW
+    );
+    assertEqual(messaged.effects, [], "message after lock emits no effects (11.5)");
+    assertEqual(messaged.state.phase, "finalized", "message after lock does not reopen");
+
+    const edited = applyLearnerEvent(
+      locked,
+      { kind: "docSnapshot", userId: "u-alice", docKind: "rubric" },
+      NOW
+    );
+    assertEqual(edited.effects, [], "post-lock docSnapshot emits no effects (10.4, 11.5)");
+    assertEqual(edited.state, locked, "post-lock docSnapshot is rejected (no state change)");
+    assertEqual(edited.state.phase, "finalized", "post-lock snapshot leaves the team finalized");
+
+    const agreed = applyLearnerEvent(
+      locked,
+      { kind: "agreement", userId: "u-alice", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(agreed.effects, [], "repeat agreement after lock emits no effects (11.5)");
+  }
+
+  // --- 10.5: late return before lock joins the current phase; no rollback ---
+  {
+    const started = enterDiscussionWithTwoFlags(NOW);
+    let result = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + DISCUSSION_DEADLINE_MS)
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "discussion:clarity"
+      ),
+      "precondition: alice is absent for the clarity exchange"
+    );
+    assertEqual(result.state.phase, "discussion", "precondition: still in discussion");
+
+    const beforeReturn = result.state;
+    result = applyLearnerEvent(
+      beforeReturn,
+      { kind: "memberReturned", userId: "u-alice" },
+      NOW
+    );
+    assertEqual(result.state.phase, "discussion", "return keeps the current discussion phase (10.5)");
+    assertEqual(
+      result.state.phase === "scoring" || result.state.phase === "critique",
+      false,
+      "return does not roll the team back to a prior phase (10.5)"
+    );
+    assertEqual(
+      result.state.flaggedCriteria,
+      beforeReturn.flaggedCriteria,
+      "return does not undo flagged criteria"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "a late return before lock does not lock"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "I am back; here is my clarity evidence" },
+      NOW
+    );
+    assert(
+      result.state.phase === "discussion" || result.state.phase === "consensus",
+      "returner participates from the current point (10.5)"
+    );
+    assert(
+      result.state.phase !== "scoring" && result.state.phase !== "critique",
+      "returner activity does not replay scoring or critique"
+    );
+  }
+
+  // --- 10.5: late return during consensus stays in consensus ---
+  {
+    const started = enterDiscussionWithFlags(NOW);
+    let result = applyLearnerEvent(
+      started.state,
+      { kind: "message", userId: "u-alice", body: "alice answers the exchange" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "precondition: team is in consensus");
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "memberReturned", userId: "u-cara" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "return during consensus stays in consensus (10.5)");
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable"),
+      [],
+      "return during consensus does not lock"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-cara", subject: "final_consensus" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "one returner agreement does not lock alone");
   }
 
   if (failures > 0) {

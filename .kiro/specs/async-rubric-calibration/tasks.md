@@ -44,7 +44,7 @@
   - Spread per criterion = max − min; flag criteria at ≥2; no flags skips discussion
   - Done when: reveal-condition and spread cases (3 scorers, 2 scorers, timeout) return expected effects
   - _Requirements: 4.5, 7.1, 7.6, 7.7, 8.1, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.7_
-- [ ] 2.5 Implement discussion, consensus, lock, and auto-synthesis triggers
+- [x] 2.5 Implement discussion, consensus, lock, and auto-synthesis triggers
   - Targeted-prompt effects naming a scorer per flagged criterion; 7-day per-person absence per exchange; 14-day group silence auto-finalizes with unresolved labels
   - Consensus: rewrite prompt effect, lock on explicit agreement from all present members, auto-synthesize + lock effect on group timeout; late return before lock joins current phase, no rollback; post-lock edits rejected
   - Done when: lock fires only on all-present agreement or group timeout, and evaluate is idempotent (re-running produces no new effects)
