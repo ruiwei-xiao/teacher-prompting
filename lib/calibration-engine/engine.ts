@@ -1,5 +1,6 @@
 /**
  * Pure calibration engine. Task 2.1: evaluateQueue. Task 2.2: kickoff + rotation.
+ * Task 2.3: dual clocks, absence, rejoin.
  * No I/O. Imports types/constants from calibration-store/types — never store.ts.
  */
 import type {
@@ -14,6 +15,7 @@ import type {
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
+  GROUP_SILENCE_MS,
   OPERATOR_STUCK_LISTING_MS,
   QUEUE_EXPIRY_MISSED_PINGS,
   QUEUE_PING_MS,
@@ -222,6 +224,69 @@ function presentCritics(state: TeamStateRecord, stepKey: string): string[] {
   );
 }
 
+function currentStepKey(state: TeamStateRecord): string {
+  return state.phase === "critique" ? critiqueStepKey(state.round) : state.phase;
+}
+
+/** Members the current critique step is waiting on (4.2, 6.6). */
+function waitingUserIds(state: TeamStateRecord): string[] {
+  if (state.phase !== "critique") {
+    return [];
+  }
+  const stepKey = critiqueStepKey(state.round);
+  const { presenterUserId } = rolesOf(state);
+  if (state.critiqueStage === "presenter_share") {
+    if (
+      isAbsentForStep(state, presenterUserId, stepKey) ||
+      state.respondedUserIds.includes(presenterUserId)
+    ) {
+      return [];
+    }
+    return [presenterUserId];
+  }
+  return presentCritics(state, stepKey).filter(
+    (userId) => !state.respondedUserIds.includes(userId)
+  );
+}
+
+function resetPerPersonDeadlines(
+  deadlines: PerPersonDeadline[],
+  userIds: string[],
+  stepKey: string,
+  now: Date
+): PerPersonDeadline[] {
+  const deadlineAt = new Date(now.getTime() + CRITIQUE_DEADLINE_MS).toISOString();
+  return deadlines.map((deadline) =>
+    userIds.includes(deadline.userId) && deadline.stepKey === stepKey
+      ? { ...deadline, deadlineAt }
+      : deadline
+  );
+}
+
+/**
+ * Reset the group clock (if set) and only the actor's current-step clock (4.1, 4.3).
+ * Never writes the two clocks into one field.
+ */
+function resetActorAndGroupClocks(
+  state: TeamStateRecord,
+  userId: string,
+  now: Date
+): TeamStateRecord {
+  const next = cloneState(state);
+  if (state.phase === "critique") {
+    next.perPersonDeadlines = resetPerPersonDeadlines(
+      next.perPersonDeadlines,
+      [userId],
+      critiqueStepKey(state.round),
+      now
+    );
+  }
+  if (next.groupDeadline !== null) {
+    next.groupDeadline = new Date(now.getTime() + GROUP_SILENCE_MS).toISOString();
+  }
+  return next;
+}
+
 function roundSatisfied(state: TeamStateRecord): boolean {
   const stepKey = critiqueStepKey(state.round);
   const { presenterUserId } = rolesOf(state);
@@ -367,10 +432,21 @@ export function markAbsent(
   const { presenterUserId } = rolesOf(next);
 
   if (userId === presenterUserId && next.critiqueStage === "presenter_share") {
-    next = { ...next, critiqueStage: "critic_response" };
+    const remainingCritics = presentCritics(next, stepKey);
+    next = {
+      ...next,
+      critiqueStage: "critic_response",
+      // 4.2: a new individual wait begins for the remaining critics.
+      perPersonDeadlines: resetPerPersonDeadlines(
+        next.perPersonDeadlines,
+        remainingCritics,
+        stepKey,
+        now
+      ),
+    };
     effects.push(
       postFacilitator("scripted", "critic_prompt", {
-        criticUserIds: presentCritics(next, stepKey),
+        criticUserIds: remainingCritics,
         presenterUserId,
         round: next.round,
       })
@@ -383,25 +459,17 @@ export function markAbsent(
   return { state: next, effects };
 }
 
-/**
- * Learner message events advance presenter-share then critic responses (6.3, 6.4).
- * Other event kinds are ignored here (later tasks own merge/scoring/discussion).
- */
-export function applyLearnerEvent(
+function applyCritiqueMessage(
   state: TeamStateRecord,
-  event: LearnerEvent,
+  userId: string,
   now: Date
 ): EngineResult {
-  if (event.kind !== "message" || state.phase !== "critique") {
+  if (state.phase !== "critique") {
     return { state, effects: [] };
   }
   const stepKey = critiqueStepKey(state.round);
   const { presenterUserId, criticUserIds } = rolesOf(state);
-  const { userId } = event;
 
-  if (!state.memberUserIds.includes(userId)) {
-    return { state, effects: [] };
-  }
   if (isAbsentForStep(state, userId, stepKey)) {
     return { state, effects: [] };
   }
@@ -413,14 +481,25 @@ export function applyLearnerEvent(
     if (userId !== presenterUserId) {
       return { state, effects: [] };
     }
-    const next: TeamStateRecord = {
+    let next: TeamStateRecord = {
       ...cloneState(state),
       respondedUserIds: [...state.respondedUserIds, userId],
       critiqueStage: "critic_response",
     };
+    const remainingCritics = presentCritics(next, stepKey);
+    next = {
+      ...next,
+      // 4.2: a new individual wait begins for the remaining critics.
+      perPersonDeadlines: resetPerPersonDeadlines(
+        next.perPersonDeadlines,
+        remainingCritics,
+        stepKey,
+        now
+      ),
+    };
     const effects: EngineEffect[] = [
       postFacilitator("scripted", "critic_prompt", {
-        criticUserIds: presentCritics(next, stepKey),
+        criticUserIds: remainingCritics,
         presenterUserId,
         round: next.round,
       }),
@@ -442,4 +521,91 @@ export function applyLearnerEvent(
     return completeAndRotate(next, now);
   }
   return { state: next, effects: [] };
+}
+
+function applyMemberReturned(
+  state: TeamStateRecord,
+  userId: string,
+  now: Date
+): EngineResult {
+  const stepKey = currentStepKey(state);
+  if (!isAbsentForStep(state, userId, stepKey)) {
+    return { state, effects: [] };
+  }
+
+  const next = cloneState(state);
+  next.absenceStepKeys = next.absenceStepKeys.filter(
+    (entry) => !(entry.userId === userId && entry.stepKey === stepKey)
+  );
+  if (state.phase === "critique") {
+    next.perPersonDeadlines = resetPerPersonDeadlines(
+      next.perPersonDeadlines,
+      [userId],
+      stepKey,
+      now
+    );
+  }
+  return { state: next, effects: [] };
+}
+
+/**
+ * Clock-driven evaluation. Expired per-person clocks mark absence for the
+ * current step only and continue with remaining members (4.4, 6.6).
+ * Does not refresh co-waiters' clocks. Idempotent at the same `now`.
+ */
+export function evaluateTeam(state: TeamStateRecord, now: Date): EngineResult {
+  if (state.phase !== "critique") {
+    return { state, effects: [] };
+  }
+  const nowMs = now.getTime();
+  const stepKey = critiqueStepKey(state.round);
+  const expiredUserIds = waitingUserIds(state).filter((userId) => {
+    const deadline = state.perPersonDeadlines.find(
+      (entry) => entry.userId === userId && entry.stepKey === stepKey
+    );
+    return deadline !== undefined && Date.parse(deadline.deadlineAt) <= nowMs;
+  });
+
+  let current = state;
+  const effects: EngineEffect[] = [];
+  const startedRound = state.round;
+  for (const userId of expiredUserIds) {
+    if (current.phase !== "critique" || current.round !== startedRound) {
+      break;
+    }
+    const result = markAbsent(current, userId, now);
+    current = result.state;
+    effects.push(...result.effects);
+  }
+  return { state: current, effects };
+}
+
+/**
+ * Learner message events advance presenter-share then critic responses (6.3, 6.4).
+ * message / docSnapshot reset the group clock (if set) and only the actor's
+ * current-step per-person clock (4.3). memberReturned joins the current
+ * phase/round without replaying completed work (4.6, 6.7).
+ */
+export function applyLearnerEvent(
+  state: TeamStateRecord,
+  event: LearnerEvent,
+  now: Date
+): EngineResult {
+  if (!state.memberUserIds.includes(event.userId)) {
+    return { state, effects: [] };
+  }
+
+  if (event.kind === "memberReturned") {
+    return applyMemberReturned(state, event.userId, now);
+  }
+
+  if (event.kind === "message" || event.kind === "docSnapshot") {
+    const withClocks = resetActorAndGroupClocks(state, event.userId, now);
+    if (event.kind === "docSnapshot") {
+      return { state: withClocks, effects: [] };
+    }
+    return applyCritiqueMessage(withClocks, event.userId, now);
+  }
+
+  return { state, effects: [] };
 }

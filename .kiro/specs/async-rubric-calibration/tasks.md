@@ -33,7 +33,7 @@
   - Rotation: 3 rounds, one Presenter + two Critics, presenter announcement and critic prompts as effects, revoice effect on round completion, rotation completes only after each member presented once, skipped turn counts as absent
   - Done when: rotation produces expected presenter/critic assignments and effects across all three rounds, including a round with a skipped turn
   - _Requirements: 5.2, 5.3, 6.1, 6.2, 6.3, 6.4, 6.5, 15.2_
-- [ ] 2.3 Implement the dual-clock, absence, and rejoin rules applied across phases
+- [x] 2.3 Implement the dual-clock, absence, and rejoin rules applied across phases
   - Per-person and group clocks as independent fields, never merged; learner activity resets the group clock and only the actor's own step clock
   - Per-person expiry marks absence for the current step only and continues with remaining members (critique 48h as the first consumer); absent members rejoin at the team's current point without replaying completed work
   - Done when: clock rules produce expected states/effects for on-time, absent, and returning members

@@ -13,7 +13,9 @@ import type {
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
+  GROUP_SILENCE_MS,
   MS_PER_DAY,
+  MS_PER_HOUR,
   OPERATOR_STUCK_LISTING_MS,
   QUEUE_EXPIRY_MISSED_PINGS,
   QUEUE_PING_MS,
@@ -21,6 +23,7 @@ import {
 import {
   applyLearnerEvent,
   evaluateQueue,
+  evaluateTeam,
   getCritiqueRoles,
   markAbsent,
   startTeam,
@@ -94,6 +97,14 @@ function noticeKinds(effects: EngineEffect[]): string[] {
 }
 
 const TEAM_MEMBERS: [string, string, string] = ["u-alice", "u-bob", "u-cara"];
+
+function deadlineOf(
+  state: TeamStateRecord,
+  userId: string
+): string | undefined {
+  return state.perPersonDeadlines.find((deadline) => deadline.userId === userId)
+    ?.deadlineAt;
+}
 
 function completeRound(
   state: TeamStateRecord,
@@ -1018,6 +1029,416 @@ function main(): void {
       result.state.respondedUserIds,
       [],
       "round-tripped rotation clears official respondedUserIds"
+    );
+  }
+
+  // ========================================================================
+  // Task 2.3 — dual clocks, absence, rejoin (4.1–4.4, 4.6, 6.6, 6.7)
+  // ========================================================================
+
+  // --- 4.1: per-person and group clocks stay independent fields ---
+  {
+    const { state } = startTeam(TEAM_MEMBERS, NOW);
+    assert(
+      Array.isArray(state.perPersonDeadlines),
+      "perPersonDeadlines is its own field (4.1)"
+    );
+    assert(
+      state.groupDeadline === null || typeof state.groupDeadline === "string",
+      "groupDeadline is its own field, never merged into perPersonDeadlines (4.1)"
+    );
+    assert(
+      !("deadline" in state) && !("timeoutAt" in state) && !("clock" in state),
+      "TeamStateRecord has no merged clock field (4.1)"
+    );
+  }
+
+  // --- 4.2 + 4.3: presenter share at T+40h starts the critic wait clocks
+  //     at T+40h+48h (not T0+48h); one critic post does not move the other ---
+  {
+    const t0Deadline = new Date(NOW.getTime() + CRITIQUE_DEADLINE_MS).toISOString();
+    const shareAt = new Date(NOW.getTime() + 40 * MS_PER_HOUR);
+    const expectedCriticDeadline = new Date(
+      shareAt.getTime() + CRITIQUE_DEADLINE_MS
+    ).toISOString();
+
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      t0Deadline,
+      "precondition: critic clock starts at T0+48h"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-cara"),
+      t0Deadline,
+      "precondition: second critic clock starts at T0+48h"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice shares at T+40h" },
+      shareAt
+    );
+
+    assertEqual(
+      result.state.critiqueStage,
+      "critic_response",
+      "presenter share opens critic_response"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      expectedCriticDeadline,
+      "bob critic deadlineAt is T+40h+48h, not T0+48h (4.2)"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-cara"),
+      expectedCriticDeadline,
+      "cara critic deadlineAt is T+40h+48h, not T0+48h (4.2)"
+    );
+    assert(
+      deadlineOf(result.state, "u-bob") !== t0Deadline,
+      "critic clock is not left at the kickoff T0+48h"
+    );
+
+    const bobAfterShare = deadlineOf(result.state, "u-bob");
+    const later = new Date(shareAt.getTime() + MS_PER_HOUR);
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara critic response" },
+      later
+    );
+
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      bobAfterShare,
+      "one critic post does not move the other critic's clock (4.3)"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-cara"),
+      new Date(later.getTime() + CRITIQUE_DEADLINE_MS).toISOString(),
+      "posting critic's own clock is reset (4.3)"
+    );
+  }
+
+  // --- 6.6 / 4.4: after 48h silence, evaluateTeam marks that person absent
+  //     for this round only and continues with remaining members ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice shares on time" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob responds on time" },
+      NOW
+    );
+    const bobDeadlineBefore = deadlineOf(result.state, "u-bob");
+    const aliceDeadlineBefore = deadlineOf(result.state, "u-alice");
+    assertEqual(result.state.round, 1, "48h case still on round 1 before expiry");
+
+    const expiry = new Date(NOW.getTime() + CRITIQUE_DEADLINE_MS);
+    result = evaluateTeam(result.state, expiry);
+
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-cara", stepKey: "critique:1" }],
+      "48h silence marks only the non-responder absent for this round (6.6)"
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-cara" && entry.stepKey === "critique:1"
+      ),
+      "cara is absent for critique:1 only"
+    );
+    assert(
+      !result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-cara" && entry.stepKey !== "critique:1"
+      ),
+      "cara is not marked absent for any other step"
+    );
+    assert(
+      !result.state.absenceStepKeys.some((entry) => entry.userId === "u-alice"),
+      "on-time presenter is not marked absent"
+    );
+    assert(
+      !result.state.absenceStepKeys.some((entry) => entry.userId === "u-bob"),
+      "on-time critic is not marked absent"
+    );
+    assertEqual(
+      result.state.round,
+      2,
+      "round continues with remaining members after the 48h absence (6.6)"
+    );
+    assertEqual(result.state.phase, "critique", "48h absence stays in critique");
+    assert(
+      facilitatorKeys(result.effects).includes("revoice"),
+      "continuing after critic absence still revoices the completed round"
+    );
+    assert(
+      !result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-cara" && entry.stepKey === "critique:2"
+      ),
+      "absence does not carry into the next round"
+    );
+
+    const replayed = evaluateTeam(result.state, expiry);
+    assertEqual(
+      replayed.effects,
+      [],
+      "evaluateTeam is idempotent at the same clock (no new effects)"
+    );
+
+    assertEqual(
+      aliceDeadlineBefore !== undefined && bobDeadlineBefore !== undefined,
+      true,
+      "on-time members still had per-person clocks before expiry evaluation"
+    );
+  }
+
+  // --- 4.4: expired critic does not reset the other waiting critic's clock ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice shares" },
+      NOW
+    );
+    const bobDeadlineBefore = deadlineOf(result.state, "u-bob");
+    const withCaraExpired: TeamStateRecord = {
+      ...result.state,
+      perPersonDeadlines: result.state.perPersonDeadlines.map((deadline) =>
+        deadline.userId === "u-cara"
+          ? { ...deadline, deadlineAt: NOW.toISOString() }
+          : deadline
+      ),
+    };
+
+    result = evaluateTeam(withCaraExpired, NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-cara", stepKey: "critique:1" }],
+      "only the expired critic is marked absent"
+    );
+    assertEqual(result.state.round, 1, "remaining critic keeps the round open");
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      bobDeadlineBefore,
+      "evaluateTeam does not reset the other member's per-person clock"
+    );
+    assertEqual(
+      result.state.perPersonDeadlines.filter((deadline) => deadline.userId === "u-bob")
+        .length,
+      1,
+      "bob still has exactly one per-person deadline field entry"
+    );
+  }
+
+  // --- 4.3: member A message does not reset member B's clock; does reset groupDeadline ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice shares" },
+      NOW
+    );
+    const staleGroupDeadline = new Date(NOW.getTime() + GROUP_SILENCE_MS).toISOString();
+    const withGroup: TeamStateRecord = {
+      ...result.state,
+      groupDeadline: staleGroupDeadline,
+    };
+    const bobDeadlineBefore = deadlineOf(withGroup, "u-bob");
+    const later = new Date(NOW.getTime() + 60 * 60 * 1000);
+
+    result = applyLearnerEvent(
+      withGroup,
+      { kind: "message", userId: "u-cara", body: "cara critic response" },
+      later
+    );
+
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      bobDeadlineBefore,
+      "member A message does not reset member B's per-person clock (4.3)"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-cara"),
+      new Date(later.getTime() + CRITIQUE_DEADLINE_MS).toISOString(),
+      "actor's own per-person clock is reset for the current step (4.3)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      new Date(later.getTime() + GROUP_SILENCE_MS).toISOString(),
+      "member A message resets groupDeadline (4.3)"
+    );
+    assertEqual(result.state.round, 1, "one critic message does not complete the round");
+    assert(
+      result.state.perPersonDeadlines !== undefined &&
+        result.state.groupDeadline !== undefined,
+      "clocks remain two independent fields after a reset (4.1)"
+    );
+  }
+
+  // --- 4.3: docSnapshot also resets group + actor clock only ---
+  {
+    const started = startTeam(TEAM_MEMBERS, NOW);
+    const staleGroupDeadline = new Date(
+      NOW.getTime() + 2 * GROUP_SILENCE_MS
+    ).toISOString();
+    const withGroup: TeamStateRecord = {
+      ...started.state,
+      groupDeadline: staleGroupDeadline,
+    };
+    const bobDeadlineBefore = deadlineOf(withGroup, "u-bob");
+    const caraDeadlineBefore = deadlineOf(withGroup, "u-cara");
+    const later = new Date(NOW.getTime() + 30 * 60 * 1000);
+
+    const result = applyLearnerEvent(
+      withGroup,
+      { kind: "docSnapshot", userId: "u-alice", docKind: "rubric" },
+      later
+    );
+
+    assertEqual(
+      deadlineOf(result.state, "u-alice"),
+      new Date(later.getTime() + CRITIQUE_DEADLINE_MS).toISOString(),
+      "docSnapshot resets only the editor's per-person clock (4.3)"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-bob"),
+      bobDeadlineBefore,
+      "docSnapshot does not reset bob's per-person clock"
+    );
+    assertEqual(
+      deadlineOf(result.state, "u-cara"),
+      caraDeadlineBefore,
+      "docSnapshot does not reset cara's per-person clock"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      new Date(later.getTime() + GROUP_SILENCE_MS).toISOString(),
+      "docSnapshot resets groupDeadline (4.3)"
+    );
+    assertEqual(
+      result.state.round,
+      1,
+      "docSnapshot does not advance critique rotation"
+    );
+    assertEqual(result.state.critiqueStage, "presenter_share", "docSnapshot is not a share");
+    assertEqual(result.effects, [], "docSnapshot clock reset emits no extra effects");
+  }
+
+  // --- 4.6 / 6.7: returning absent member joins current round/phase, no replay ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = markAbsent(result.state, "u-alice", NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob continues" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara continues" },
+      NOW
+    );
+    assertEqual(result.state.round, 2, "precondition: team is on round 2");
+    assertEqual(
+      getCritiqueRoles(result.state).presenterUserId,
+      "u-bob",
+      "precondition: bob is the current presenter"
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "critique:1"
+      ),
+      "precondition: alice remains absent for the completed round"
+    );
+
+    const beforeReturn = result.state;
+    result = applyLearnerEvent(
+      beforeReturn,
+      { kind: "memberReturned", userId: "u-alice" },
+      NOW
+    );
+
+    assertEqual(result.state.phase, beforeReturn.phase, "return keeps the current phase (6.7)");
+    assertEqual(result.state.round, 2, "return joins the current round, not a replay of round 1");
+    assertEqual(
+      result.state.presenterIndex,
+      beforeReturn.presenterIndex,
+      "return does not undo the presenter rotation"
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "critique:1"
+      ),
+      "completed-round absence is not undone (no replay)"
+    );
+    assert(
+      !result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "critique:2"
+      ),
+      "returner is not absent for the current round"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob presents in round 2" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice critiques from the current point" },
+      NOW
+    );
+    assertEqual(result.state.round, 2, "returner participates in the current round");
+    assert(
+      result.state.respondedUserIds.includes("u-alice"),
+      "returner can act at the team's current point (4.6, 6.7)"
+    );
+    assertEqual(
+      result.state.phase,
+      "critique",
+      "returner activity does not roll the team back to a prior phase"
+    );
+  }
+
+  // --- 6.7: memberReturned mid-round clears only the current-step absence ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice shares" },
+      NOW
+    );
+    result = markAbsent(result.state, "u-cara", NOW);
+    assertEqual(result.state.round, 1, "precondition: still on the absent step");
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "memberReturned", userId: "u-cara" },
+      NOW
+    );
+    assertEqual(result.state.round, 1, "mid-round return stays on the current round");
+    assertEqual(result.state.phase, "critique", "mid-round return stays on the current phase");
+    assert(
+      !result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-cara" && entry.stepKey === "critique:1"
+      ),
+      "returner can rejoin the still-open current step"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara rejoins this step" },
+      NOW
+    );
+    assert(
+      result.state.respondedUserIds.includes("u-cara"),
+      "rejoined member can respond in the current step"
     );
   }
 
