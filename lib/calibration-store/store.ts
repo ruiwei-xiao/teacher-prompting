@@ -1,24 +1,37 @@
 /**
  * CalibrationStore — dual persistence (Postgres + JSON fallback) for
- * offerings, check-ins, teams, members, messages, and document snapshots.
+ * offerings, check-ins, teams, members, messages, document snapshots,
+ * scores, agreements, absences, notices, and addenda.
  * Mirrors lib/workspace-store/store.ts and lib/star-store/store.ts.
  *
- * Task 1.2: offerings, queue, teams, chat, docs. Scores/reveal/agreements/
- * absences/notices/addenda belong to task 1.3.
+ * Task 1.2: offerings, queue, teams, chat, docs.
+ * Task 1.3: score privacy, gated reveal, agreements, absences, notices, addenda.
  */
 import fs from "fs/promises";
 import path from "path";
 import { sql } from "@vercel/postgres";
 import type {
+  AbsenceRecord,
+  AddendumRecord,
+  AgreementRecord,
+  AgreementSubject,
   CalibrationFileData,
   CheckIn,
   CheckInStatus,
+  CriterionScore,
   DocKind,
   DocSnapshot,
+  MemberScoreView,
+  MemberScores,
   Message,
   NewMessage,
+  NoticeRecord,
   Offering,
   OfferingInput,
+  OperatorScoreView,
+  RevealedScores,
+  ScoreRow,
+  StoredNotice,
   StoredTeam,
   Team,
   TeamMember,
@@ -26,6 +39,7 @@ import type {
   TeamStateRecord,
   TeamView,
 } from "./types";
+import { AGREEMENT_SUBJECTS, SCORE_MAX, SCORE_MIN } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DEFAULT_CALIBRATION_FILE = path.join(DATA_DIR, "calibration.json");
@@ -93,6 +107,37 @@ type DocRow = {
   updated_by: string;
 };
 
+type ScoreRowSql = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  criterion_key: string;
+  value: number;
+  submitted_at: string | Date;
+};
+
+type AbsenceRow = {
+  team_id: string;
+  user_id: string;
+  step_key: string;
+  marked_at: string | Date;
+};
+
+type AgreementRow = {
+  team_id: string;
+  user_id: string;
+  subject: string;
+  agreed_at: string | Date;
+};
+
+type AddendumRow = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  body: string;
+  created_at: string | Date;
+};
+
 let postgresReadyPromise: Promise<void> | null = null;
 
 function calibrationFilePath(): string {
@@ -115,6 +160,11 @@ function emptyFileData(): CalibrationFileData {
     members: [],
     messages: [],
     docs: [],
+    scores: [],
+    absences: [],
+    agreements: [],
+    notices: [],
+    addenda: [],
   };
 }
 
@@ -236,6 +286,127 @@ function rowToDoc(row: DocRow): DocSnapshot {
   };
 }
 
+function rowToScore(row: ScoreRowSql): ScoreRow {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    userId: row.user_id,
+    criterionKey: row.criterion_key,
+    value: row.value,
+    submittedAt: toIso(row.submitted_at),
+  };
+}
+
+function rowToAbsence(row: AbsenceRow): AbsenceRecord {
+  return {
+    teamId: row.team_id,
+    userId: row.user_id,
+    stepKey: row.step_key,
+    markedAt: toIso(row.marked_at),
+  };
+}
+
+function rowToAgreement(row: AgreementRow): AgreementRecord {
+  return {
+    teamId: row.team_id,
+    userId: row.user_id,
+    subject: row.subject as AgreementSubject,
+    agreedAt: toIso(row.agreed_at),
+  };
+}
+
+function rowToAddendum(row: AddendumRow): AddendumRecord {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    userId: row.user_id,
+    body: row.body,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function assertValidScores(scores: CriterionScore[]): void {
+  for (const row of scores) {
+    if (
+      !Number.isInteger(row.value) ||
+      row.value < SCORE_MIN ||
+      row.value > SCORE_MAX
+    ) {
+      throw new Error(
+        `Score must be an integer from ${SCORE_MIN} to ${SCORE_MAX}.`
+      );
+    }
+  }
+}
+
+function assertAgreementSubject(
+  subject: string
+): asserts subject is AgreementSubject {
+  if (!(AGREEMENT_SUBJECTS as readonly string[]).includes(subject)) {
+    throw new Error("Invalid agreement subject.");
+  }
+}
+
+function groupScoresByUser(rows: ScoreRow[]): MemberScores[] {
+  const byUser = new Map<string, CriterionScore[]>();
+  for (const row of rows) {
+    const list = byUser.get(row.userId) ?? [];
+    list.push({ criterionKey: row.criterionKey, value: row.value });
+    byUser.set(row.userId, list);
+  }
+  return [...byUser.entries()].map(([userId, scores]) => ({ userId, scores }));
+}
+
+function toMemberScoreView(
+  rows: ScoreRow[],
+  userId: string,
+  revealedAt: string | null
+): MemberScoreView {
+  const ownScores = rows
+    .filter((row) => row.userId === userId)
+    .map((row) => ({ criterionKey: row.criterionKey, value: row.value }));
+  const submittedBy = [...new Set(rows.map((row) => row.userId))];
+  const members: MemberScores[] =
+    revealedAt === null
+      ? ownScores.length > 0
+        ? [{ userId, scores: ownScores }]
+        : []
+      : groupScoresByUser(rows);
+  return { ownScores, submittedBy, revealedAt, members };
+}
+
+function upsertScoreRows(
+  existing: ScoreRow[],
+  teamId: string,
+  userId: string,
+  scores: CriterionScore[],
+  submittedAt: string
+): ScoreRow[] {
+  const next = existing.slice();
+  for (const score of scores) {
+    const idx = next.findIndex(
+      (row) =>
+        row.teamId === teamId &&
+        row.userId === userId &&
+        row.criterionKey === score.criterionKey
+    );
+    const row: ScoreRow = {
+      id: idx === -1 ? crypto.randomUUID() : next[idx].id,
+      teamId,
+      userId,
+      criterionKey: score.criterionKey,
+      value: score.value,
+      submittedAt,
+    };
+    if (idx === -1) {
+      next.push(row);
+    } else {
+      next[idx] = row;
+    }
+  }
+  return next;
+}
+
 function sortMembers(members: TeamMember[]): TeamMember[] {
   return members.slice().sort((a, b) => a.memberIndex - b.memberIndex);
 }
@@ -290,6 +461,11 @@ async function readFileData(): Promise<CalibrationFileData> {
     members: Array.isArray(parsed.members) ? parsed.members : [],
     messages: Array.isArray(parsed.messages) ? parsed.messages : [],
     docs: Array.isArray(parsed.docs) ? parsed.docs : [],
+    scores: Array.isArray(parsed.scores) ? parsed.scores : [],
+    absences: Array.isArray(parsed.absences) ? parsed.absences : [],
+    agreements: Array.isArray(parsed.agreements) ? parsed.agreements : [],
+    notices: Array.isArray(parsed.notices) ? parsed.notices : [],
+    addenda: Array.isArray(parsed.addenda) ? parsed.addenda : [],
   };
 }
 
@@ -395,6 +571,61 @@ async function ensurePostgresStore() {
           updated_at TIMESTAMPTZ NOT NULL,
           updated_by TEXT NOT NULL,
           PRIMARY KEY (team_id, doc_kind)
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS calibration_scores (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          criterion_key TEXT NOT NULL,
+          value INT NOT NULL CHECK (value >= 1 AND value <= 5),
+          submitted_at TIMESTAMPTZ NOT NULL,
+          UNIQUE (team_id, user_id, criterion_key)
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS calibration_absences (
+          team_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          step_key TEXT NOT NULL,
+          marked_at TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (team_id, user_id, step_key)
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS calibration_agreements (
+          team_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          agreed_at TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (team_id, user_id, subject)
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS calibration_notices (
+          id TEXT PRIMARY KEY,
+          offering_id TEXT NOT NULL,
+          team_id TEXT,
+          user_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          dedupe_key TEXT NOT NULL UNIQUE,
+          channel TEXT NOT NULL,
+          sent_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS calibration_addenda (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          body TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL
         )
       `;
     })();
@@ -626,6 +857,187 @@ async function saveDocSnapshotInFile(
   }
   data.teams[idx] = { ...data.teams[idx], lastActivityAt: now };
   await writeFileData(data);
+}
+
+function requireStoredTeam(
+  data: CalibrationFileData,
+  teamId: string
+): { record: StoredTeam; idx: number } {
+  const idx = data.teams.findIndex((t) => t.id === teamId);
+  if (idx === -1) {
+    throw new Error("Team not found.");
+  }
+  return { record: data.teams[idx], idx };
+}
+
+function requireMember(data: CalibrationFileData, teamId: string, userId: string): void {
+  if (!data.members.some((m) => m.teamId === teamId && m.userId === userId)) {
+    throw new Error("User is not a team member.");
+  }
+}
+
+async function submitScoresInFile(
+  teamId: string,
+  userId: string,
+  scores: CriterionScore[]
+): Promise<void> {
+  assertValidScores(scores);
+  const data = await readFileData();
+  const { record } = requireStoredTeam(data, teamId);
+  requireMember(data, teamId, userId);
+  if (record.scoresRevealedAt !== null) {
+    throw new Error("Scores cannot be changed after reveal.");
+  }
+  const now = new Date().toISOString();
+  data.scores = upsertScoreRows(data.scores, teamId, userId, scores, now);
+  await writeFileData(data);
+}
+
+async function revealScoresInFile(
+  teamId: string,
+  revealedAt: Date
+): Promise<RevealedScores> {
+  const data = await readFileData();
+  const { record, idx } = requireStoredTeam(data, teamId);
+  const stamp = record.scoresRevealedAt ?? revealedAt.toISOString();
+  if (record.scoresRevealedAt === null) {
+    data.teams[idx] = { ...record, scoresRevealedAt: stamp };
+    await writeFileData(data);
+  }
+  return {
+    members: groupScoresByUser(data.scores.filter((row) => row.teamId === teamId)),
+    revealedAt: stamp,
+  };
+}
+
+async function getScoresForMemberInFile(
+  teamId: string,
+  userId: string
+): Promise<MemberScoreView | null> {
+  const data = await readFileData();
+  const record = findStoredTeam(data, teamId);
+  if (!record) {
+    return null;
+  }
+  if (!data.members.some((m) => m.teamId === teamId && m.userId === userId)) {
+    return null;
+  }
+  return toMemberScoreView(
+    data.scores.filter((row) => row.teamId === teamId),
+    userId,
+    record.scoresRevealedAt
+  );
+}
+
+async function getScoresForOperatorInFile(
+  teamId: string
+): Promise<OperatorScoreView | null> {
+  const data = await readFileData();
+  const record = findStoredTeam(data, teamId);
+  if (!record) {
+    return null;
+  }
+  return {
+    members: groupScoresByUser(data.scores.filter((row) => row.teamId === teamId)),
+    revealedAt: record.scoresRevealedAt,
+  };
+}
+
+async function recordAgreementInFile(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  const data = await readFileData();
+  requireStoredTeam(data, teamId);
+  requireMember(data, teamId, userId);
+  const exists = data.agreements.some(
+    (row) => row.teamId === teamId && row.userId === userId && row.subject === subject
+  );
+  if (exists) {
+    return;
+  }
+  data.agreements.push({
+    teamId,
+    userId,
+    subject,
+    agreedAt: new Date().toISOString(),
+  });
+  await writeFileData(data);
+}
+
+async function recordAbsenceInFile(
+  teamId: string,
+  userId: string,
+  stepKey: string
+): Promise<void> {
+  const data = await readFileData();
+  requireStoredTeam(data, teamId);
+  const exists = data.absences.some(
+    (row) => row.teamId === teamId && row.userId === userId && row.stepKey === stepKey
+  );
+  if (exists) {
+    return;
+  }
+  data.absences.push({
+    teamId,
+    userId,
+    stepKey,
+    markedAt: new Date().toISOString(),
+  });
+  await writeFileData(data);
+}
+
+async function recordNoticeInFile(notice: NoticeRecord): Promise<boolean> {
+  const data = await readFileData();
+  if (data.notices.some((row) => row.dedupeKey === notice.dedupeKey)) {
+    return false;
+  }
+  const stored: StoredNotice = {
+    ...notice,
+    id: crypto.randomUUID(),
+    sentAt: new Date().toISOString(),
+  };
+  data.notices.push(stored);
+  await writeFileData(data);
+  return true;
+}
+
+async function addAddendumInFile(
+  teamId: string,
+  userId: string,
+  body: string
+): Promise<void> {
+  const data = await readFileData();
+  const { record } = requireStoredTeam(data, teamId);
+  requireMember(data, teamId, userId);
+  if (!isTeamLocked(record)) {
+    throw new Error("addendum is only allowed after the group artifact is locked");
+  }
+  data.addenda.push({
+    id: crypto.randomUUID(),
+    teamId,
+    userId,
+    body,
+    createdAt: new Date().toISOString(),
+  });
+  await writeFileData(data);
+}
+
+async function listAgreementsInFile(teamId: string): Promise<AgreementRecord[]> {
+  const data = await readFileData();
+  return data.agreements.filter((row) => row.teamId === teamId);
+}
+
+async function listAbsencesInFile(teamId: string): Promise<AbsenceRecord[]> {
+  const data = await readFileData();
+  return data.absences.filter((row) => row.teamId === teamId);
+}
+
+async function listAddendaInFile(teamId: string): Promise<AddendumRecord[]> {
+  const data = await readFileData();
+  return data.addenda.filter((row) => row.teamId === teamId);
 }
 
 // --- Postgres implementations ---
@@ -975,6 +1387,239 @@ async function saveDocSnapshotInPostgres(
   `;
 }
 
+async function loadScoresInPostgres(teamId: string): Promise<ScoreRow[]> {
+  const result = await sql<ScoreRowSql>`
+    SELECT id, team_id, user_id, criterion_key, value, submitted_at
+    FROM calibration_scores
+    WHERE team_id = ${teamId}
+    ORDER BY user_id ASC, criterion_key ASC
+  `;
+  return result.rows.map(rowToScore);
+}
+
+async function assertMemberInPostgres(teamId: string, userId: string): Promise<void> {
+  const members = await loadMembersInPostgres(teamId);
+  if (!members.some((m) => m.userId === userId)) {
+    throw new Error("User is not a team member.");
+  }
+}
+
+async function submitScoresInPostgres(
+  teamId: string,
+  userId: string,
+  scores: CriterionScore[]
+): Promise<void> {
+  assertValidScores(scores);
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  await assertMemberInPostgres(teamId, userId);
+  if (current.scoresRevealedAt !== null) {
+    throw new Error("Scores cannot be changed after reveal.");
+  }
+  const now = new Date().toISOString();
+  for (const score of scores) {
+    const id = crypto.randomUUID();
+    await sql`
+      INSERT INTO calibration_scores (
+        id, team_id, user_id, criterion_key, value, submitted_at
+      )
+      VALUES (
+        ${id}, ${teamId}, ${userId}, ${score.criterionKey}, ${score.value}, ${now}
+      )
+      ON CONFLICT (team_id, user_id, criterion_key)
+      DO UPDATE SET
+        value = EXCLUDED.value,
+        submitted_at = EXCLUDED.submitted_at
+    `;
+  }
+}
+
+async function revealScoresInPostgres(
+  teamId: string,
+  revealedAt: Date
+): Promise<RevealedScores> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  const stamp = current.scoresRevealedAt ?? revealedAt.toISOString();
+  if (current.scoresRevealedAt === null) {
+    await sql`
+      UPDATE calibration_teams
+      SET scores_revealed_at = ${stamp}
+      WHERE id = ${teamId} AND scores_revealed_at IS NULL
+    `;
+  }
+  const rows = await loadScoresInPostgres(teamId);
+  return {
+    members: groupScoresByUser(rows),
+    revealedAt: stamp,
+  };
+}
+
+async function getScoresForMemberInPostgres(
+  teamId: string,
+  userId: string
+): Promise<MemberScoreView | null> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    return null;
+  }
+  const members = await loadMembersInPostgres(teamId);
+  if (!members.some((m) => m.userId === userId)) {
+    return null;
+  }
+  const rows = await loadScoresInPostgres(teamId);
+  return toMemberScoreView(rows, userId, current.scoresRevealedAt);
+}
+
+async function getScoresForOperatorInPostgres(
+  teamId: string
+): Promise<OperatorScoreView | null> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    return null;
+  }
+  const rows = await loadScoresInPostgres(teamId);
+  return {
+    members: groupScoresByUser(rows),
+    revealedAt: current.scoresRevealedAt,
+  };
+}
+
+async function recordAgreementInPostgres(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  await assertMemberInPostgres(teamId, userId);
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO calibration_agreements (team_id, user_id, subject, agreed_at)
+    VALUES (${teamId}, ${userId}, ${subject}, ${now})
+    ON CONFLICT (team_id, user_id, subject) DO NOTHING
+  `;
+}
+
+async function recordAbsenceInPostgres(
+  teamId: string,
+  userId: string,
+  stepKey: string
+): Promise<void> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO calibration_absences (team_id, user_id, step_key, marked_at)
+    VALUES (${teamId}, ${userId}, ${stepKey}, ${now})
+    ON CONFLICT (team_id, user_id, step_key) DO NOTHING
+  `;
+}
+
+async function recordNoticeInPostgres(notice: NoticeRecord): Promise<boolean> {
+  await ensurePostgresStore();
+  const stored: StoredNotice = {
+    ...notice,
+    id: crypto.randomUUID(),
+    sentAt: new Date().toISOString(),
+  };
+  const result = await sql`
+    INSERT INTO calibration_notices (
+      id, offering_id, team_id, user_id, kind, dedupe_key, channel, sent_at
+    )
+    VALUES (
+      ${stored.id},
+      ${stored.offeringId},
+      ${stored.teamId},
+      ${stored.userId},
+      ${stored.kind},
+      ${stored.dedupeKey},
+      ${stored.channel},
+      ${stored.sentAt}
+    )
+    ON CONFLICT (dedupe_key) DO NOTHING
+    RETURNING id
+  `;
+  return result.rows.length > 0;
+}
+
+async function addAddendumInPostgres(
+  teamId: string,
+  userId: string,
+  body: string
+): Promise<void> {
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  await assertMemberInPostgres(teamId, userId);
+  if (!isTeamLocked(current)) {
+    throw new Error("addendum is only allowed after the group artifact is locked");
+  }
+  const record: AddendumRecord = {
+    id: crypto.randomUUID(),
+    teamId,
+    userId,
+    body,
+    createdAt: new Date().toISOString(),
+  };
+  await sql`
+    INSERT INTO calibration_addenda (id, team_id, user_id, body, created_at)
+    VALUES (
+      ${record.id}, ${record.teamId}, ${record.userId}, ${record.body}, ${record.createdAt}
+    )
+  `;
+}
+
+async function listAgreementsInPostgres(teamId: string): Promise<AgreementRecord[]> {
+  await ensurePostgresStore();
+  const result = await sql<AgreementRow>`
+    SELECT team_id, user_id, subject, agreed_at
+    FROM calibration_agreements
+    WHERE team_id = ${teamId}
+    ORDER BY agreed_at ASC
+  `;
+  return result.rows.map(rowToAgreement);
+}
+
+async function listAbsencesInPostgres(teamId: string): Promise<AbsenceRecord[]> {
+  await ensurePostgresStore();
+  const result = await sql<AbsenceRow>`
+    SELECT team_id, user_id, step_key, marked_at
+    FROM calibration_absences
+    WHERE team_id = ${teamId}
+    ORDER BY marked_at ASC
+  `;
+  return result.rows.map(rowToAbsence);
+}
+
+async function listAddendaInPostgres(teamId: string): Promise<AddendumRecord[]> {
+  await ensurePostgresStore();
+  const result = await sql<AddendumRow>`
+    SELECT id, team_id, user_id, body, created_at
+    FROM calibration_addenda
+    WHERE team_id = ${teamId}
+    ORDER BY created_at ASC
+  `;
+  return result.rows.map(rowToAddendum);
+}
+
 // --- Public façade ---
 
 export async function createOffering(
@@ -1058,4 +1703,105 @@ export async function saveDocSnapshot(
     return saveDocSnapshotInPostgres(teamId, kind, text, userId);
   }
   return saveDocSnapshotInFile(teamId, kind, text, userId);
+}
+
+export async function submitScores(
+  teamId: string,
+  userId: string,
+  scores: CriterionScore[]
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return submitScoresInPostgres(teamId, userId, scores);
+  }
+  return submitScoresInFile(teamId, userId, scores);
+}
+
+export async function revealScores(
+  teamId: string,
+  revealedAt: Date
+): Promise<RevealedScores> {
+  if (shouldUsePostgres()) {
+    return revealScoresInPostgres(teamId, revealedAt);
+  }
+  return revealScoresInFile(teamId, revealedAt);
+}
+
+export async function getScoresForMember(
+  teamId: string,
+  userId: string
+): Promise<MemberScoreView | null> {
+  if (shouldUsePostgres()) {
+    return getScoresForMemberInPostgres(teamId, userId);
+  }
+  return getScoresForMemberInFile(teamId, userId);
+}
+
+export async function getScoresForOperator(
+  teamId: string
+): Promise<OperatorScoreView | null> {
+  if (shouldUsePostgres()) {
+    return getScoresForOperatorInPostgres(teamId);
+  }
+  return getScoresForOperatorInFile(teamId);
+}
+
+export async function recordAgreement(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return recordAgreementInPostgres(teamId, userId, subject);
+  }
+  return recordAgreementInFile(teamId, userId, subject);
+}
+
+export async function recordAbsence(
+  teamId: string,
+  userId: string,
+  stepKey: string
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return recordAbsenceInPostgres(teamId, userId, stepKey);
+  }
+  return recordAbsenceInFile(teamId, userId, stepKey);
+}
+
+export async function recordNotice(notice: NoticeRecord): Promise<boolean> {
+  if (shouldUsePostgres()) {
+    return recordNoticeInPostgres(notice);
+  }
+  return recordNoticeInFile(notice);
+}
+
+export async function addAddendum(
+  teamId: string,
+  userId: string,
+  body: string
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return addAddendumInPostgres(teamId, userId, body);
+  }
+  return addAddendumInFile(teamId, userId, body);
+}
+
+export async function listAgreements(teamId: string): Promise<AgreementRecord[]> {
+  if (shouldUsePostgres()) {
+    return listAgreementsInPostgres(teamId);
+  }
+  return listAgreementsInFile(teamId);
+}
+
+export async function listAbsences(teamId: string): Promise<AbsenceRecord[]> {
+  if (shouldUsePostgres()) {
+    return listAbsencesInPostgres(teamId);
+  }
+  return listAbsencesInFile(teamId);
+}
+
+export async function listAddenda(teamId: string): Promise<AddendumRecord[]> {
+  if (shouldUsePostgres()) {
+    return listAddendaInPostgres(teamId);
+  }
+  return listAddendaInFile(teamId);
 }

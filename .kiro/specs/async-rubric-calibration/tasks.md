@@ -11,7 +11,7 @@
   - Offerings with artifacts + facilitator AI config; check-ins unique per (offering, learner); teams with serializable state record; members; messages with learner/facilitator author kinds; doc snapshots rejecting writes after lock
   - Done when: entities round-trip on the JSON fallback backend
   - _Requirements: 1.1, 2.1, 3.1, 10.4, 11.1_
-- [ ] 1.3 Implement score privacy, gated reveal, agreements, absences, notices log, and store selftest
+- [x] 1.3 Implement score privacy, gated reveal, agreements, absences, notices log, and store selftest
   - Score rows accept integers 1–5 only; generic reads never return another member's values while unrevealed; reveal is a single team-level transaction
   - Agreement, absence (keyed by team/user/step), addendum records; notice log with unique dedupe key
   - Done when: store selftest passes, including a case proving a pre-reveal read for member B contains no member A score values
@@ -182,3 +182,7 @@
   - Boundary verification: no edit rights appear on the sample bot, no Workspace/Publish/Community surface changes, no live-session mode reachable, activity completes without any external agent room
   - Done when: the full flow completes on a local build and every boundary check is documented as passed
   - _Requirements: 2.2, 5.1, 6.1, 7.2, 8.4, 9.2, 10.2, 12.3, 16.1, 16.2, 16.3, 16.4_
+
+## Implementation Notes
+- `npx tsx` needs unsandboxed/`all` permissions (tsx IPC listen EPERM in the default sandbox).
+- Store JSON override env is `CALIBRATION_DATA_FILE`. Operator held-score reads use `getScoresForOperator` (does not set `scores_revealed_at`). Generic member reads use `getScoresForMember`.

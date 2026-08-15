@@ -1,12 +1,13 @@
 /**
- * Runtime self-test for CalibrationStore persistence (Task 1.2).
+ * Runtime self-test for CalibrationStore persistence (Tasks 1.2–1.3).
  * Forces JSON file mode (no Postgres) for reliable local runs.
  *
  * Run: npx tsx lib/calibration-store/store.selftest.ts
  */
 import fs from "fs/promises";
 import path from "path";
-import type { TeamStateRecord } from "./types";
+import type { MemberScoreView, NoticeRecord, TeamStateRecord } from "./types";
+import { SCORE_MAX, SCORE_MIN } from "./types";
 
 let failures = 0;
 
@@ -46,6 +47,40 @@ function clocksAreIndependent(state: TeamStateRecord): boolean {
   );
 }
 
+function collectCriterionValues(node: unknown): number[] {
+  const values: number[] = [];
+  const walk = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      current.forEach(walk);
+      return;
+    }
+    if (current && typeof current === "object") {
+      const rec = current as Record<string, unknown>;
+      if (
+        typeof rec.value === "number" &&
+        typeof rec.criterionKey === "string"
+      ) {
+        values.push(rec.value);
+      }
+      Object.values(rec).forEach(walk);
+    }
+  };
+  walk(node);
+  return values;
+}
+
+function scoreValuesForUser(
+  view: MemberScoreView | null | undefined,
+  userId: string
+): number[] {
+  if (!view) {
+    return [];
+  }
+  return view.members
+    .filter((member) => member.userId === userId)
+    .flatMap((member) => member.scores.map((row) => row.value));
+}
+
 async function main(): Promise<void> {
   delete process.env.POSTGRES_URL;
   delete process.env.POSTGRES_URL_NON_POOLING;
@@ -58,15 +93,26 @@ async function main(): Promise<void> {
   process.env.CALIBRATION_DATA_FILE = dataFile;
 
   const {
+    addAddendum,
     appendMessage,
     checkIn,
     createOffering,
     formTeam,
     getOffering,
+    getScoresForMember,
+    getScoresForOperator,
     getTeamForMember,
+    listAbsences,
+    listAddenda,
+    listAgreements,
     listQueuedCheckIns,
+    recordAbsence,
+    recordAgreement,
+    recordNotice,
+    revealScores,
     saveDocSnapshot,
     saveTeamState,
+    submitScores,
   } = await import("./store");
 
   try {
@@ -400,6 +446,261 @@ async function main(): Promise<void> {
       [userA, userD],
       "unrelated queued check-ins remain listed"
     );
+
+    // =====================================================================
+    // Task 1.3 — score privacy, reveal, agreements, absences, notices, addenda
+    // =====================================================================
+    const userE = "user_e";
+    const userF = "user_f";
+    const userG = "user_g";
+    const scoreOffering = await createOffering(
+      {
+        title: "Scoring Privacy Offering",
+        sampleAppId: "app_score",
+        sampleRubric: "clarity\nevidence",
+        deploymentBrief: "Score the artifact.",
+        transcriptExcerpt: "Transcript for scoring.",
+        aiProvider: "openai",
+        aiModel: "gpt-4o-mini",
+      },
+      operatorId
+    );
+    await checkIn(scoreOffering.id, userE);
+    await checkIn(scoreOffering.id, userF);
+    await checkIn(scoreOffering.id, userG);
+    const scoreTeam = await formTeam(scoreOffering.id, [userE, userF, userG]);
+
+    // --- integer 1–5 only (Requirement 8.7); bounds from types, never redefined ---
+    await expectThrow(
+      () =>
+        submitScores(scoreTeam.id, userE, [
+          { criterionKey: "clarity", value: SCORE_MIN - 1 },
+        ]),
+      "submitScores rejects a value below SCORE_MIN"
+    );
+    await expectThrow(
+      () =>
+        submitScores(scoreTeam.id, userE, [
+          { criterionKey: "clarity", value: SCORE_MAX + 1 },
+        ]),
+      "submitScores rejects a value above SCORE_MAX"
+    );
+    await expectThrow(
+      () =>
+        submitScores(scoreTeam.id, userE, [{ criterionKey: "clarity", value: 3.5 }]),
+      "submitScores rejects a non-integer score"
+    );
+    await expectThrow(
+      () =>
+        submitScores(scoreTeam.id, userE, [{ criterionKey: "clarity", value: 0 }]),
+      "submitScores rejects 0"
+    );
+
+    const memberAScores = [
+      { criterionKey: "clarity", value: 4 },
+      { criterionKey: "evidence", value: 2 },
+    ];
+    await submitScores(scoreTeam.id, userE, memberAScores);
+
+    // --- pre-reveal member B cannot see member A values (8.2, 15.3) ---
+    const viewBBeforeReveal = await getScoresForMember(scoreTeam.id, userF);
+    assert(viewBBeforeReveal !== null, "member B can read their score sheet");
+    assertEqual(
+      viewBBeforeReveal?.revealedAt ?? null,
+      null,
+      "pre-reveal member read has null revealedAt"
+    );
+    assertEqual(
+      viewBBeforeReveal?.ownScores ?? [],
+      [],
+      "member B has not submitted, so ownScores is empty"
+    );
+    assert(
+      (viewBBeforeReveal?.submittedBy ?? []).includes(userE),
+      "member B can see that member A submitted (boolean / id only)"
+    );
+    assertEqual(
+      scoreValuesForUser(viewBBeforeReveal, userE),
+      [],
+      "pre-reveal member B view contains no member A score values"
+    );
+    assertEqual(
+      collectCriterionValues(viewBBeforeReveal),
+      [],
+      "pre-reveal member B payload has zero criterion numeric values"
+    );
+    const dumpedB = JSON.stringify(viewBBeforeReveal);
+    assert(
+      !dumpedB.includes('"value":4') && !dumpedB.includes('"value":2'),
+      "serialized pre-reveal member B read omits member A's 4 and 2"
+    );
+    assertEqual(
+      (await getTeamForMember(scoreTeam.id, userF))?.team.scoresRevealedAt ?? null,
+      null,
+      "generic team read is still unrevealed after member B score read"
+    );
+
+    // operator / unfiltered read sees held values but does not reveal (15.3)
+    const operatorHeld = await getScoresForOperator(scoreTeam.id);
+    assert(
+      (operatorHeld?.members ?? []).some(
+        (m) =>
+          m.userId === userE &&
+          m.scores.some((s) => s.criterionKey === "clarity" && s.value === 4)
+      ),
+      "operator reader sees held member A scores"
+    );
+    assertEqual(
+      operatorHeld?.revealedAt ?? null,
+      null,
+      "operator reader does not stamp scores_revealed_at"
+    );
+    const viewBAfterOperator = await getScoresForMember(scoreTeam.id, userF);
+    assertEqual(
+      collectCriterionValues(viewBAfterOperator),
+      [],
+      "operator viewing does not expose held scores to member B"
+    );
+    assertEqual(
+      (await getTeamForMember(scoreTeam.id, userF))?.team.scoresRevealedAt ?? null,
+      null,
+      "operator read leaves the team unrevealed"
+    );
+
+    // --- gated reveal is a single team-level transaction ---
+    await submitScores(scoreTeam.id, userF, [
+      { criterionKey: "clarity", value: SCORE_MAX },
+      { criterionKey: "evidence", value: 3 },
+    ]);
+    const revealedAt = new Date("2026-08-20T12:00:00.000Z");
+    const revealed = await revealScores(scoreTeam.id, revealedAt);
+    assertEqual(
+      revealed.revealedAt,
+      revealedAt.toISOString(),
+      "revealScores returns the team-level revealedAt"
+    );
+    assert(
+      revealed.members.some(
+        (m) =>
+          m.userId === userE &&
+          m.scores.some((s) => s.criterionKey === "clarity" && s.value === 4)
+      ),
+      "revealScores is the cross-member reader and includes member A values"
+    );
+    assert(
+      revealed.members.some(
+        (m) =>
+          m.userId === userF &&
+          m.scores.some((s) => s.criterionKey === "clarity" && s.value === SCORE_MAX)
+      ),
+      "revealScores includes member B values"
+    );
+
+    const teamAfterReveal = await getTeamForMember(scoreTeam.id, userF);
+    assertEqual(
+      teamAfterReveal?.team.scoresRevealedAt ?? null,
+      revealedAt.toISOString(),
+      "revealScores persists scoresRevealedAt on the team in the same transaction"
+    );
+    const viewBAfterReveal = await getScoresForMember(scoreTeam.id, userF);
+    assertEqual(
+      viewBAfterReveal?.revealedAt ?? null,
+      revealedAt.toISOString(),
+      "post-reveal member B read reports revealedAt"
+    );
+    assert(
+      scoreValuesForUser(viewBAfterReveal, userE).includes(4),
+      "after reveal, member B can see member A's clarity value"
+    );
+
+    await expectThrow(
+      () =>
+        submitScores(scoreTeam.id, userG, [
+          { criterionKey: "clarity", value: SCORE_MIN },
+        ]),
+      "submitScores rejects further writes after reveal"
+    );
+
+    // --- agreements (keyed by team/user/subject) ---
+    await recordAgreement(scoreTeam.id, userE, "merge_complete");
+    await recordAgreement(scoreTeam.id, userF, "merge_complete");
+    await recordAgreement(scoreTeam.id, userE, "merge_complete");
+    const agreements = await listAgreements(scoreTeam.id);
+    assertEqual(
+      agreements.filter((a) => a.subject === "merge_complete").length,
+      2,
+      "agreements are unique per team/user/subject"
+    );
+    await recordAgreement(scoreTeam.id, userE, "final_consensus");
+    assertEqual(
+      (await listAgreements(scoreTeam.id)).length,
+      3,
+      "same user may agree a different subject"
+    );
+
+    // --- absences (keyed by team/user/step) ---
+    await recordAbsence(scoreTeam.id, userG, "scoring");
+    await recordAbsence(scoreTeam.id, userG, "scoring");
+    assertEqual(
+      (await listAbsences(scoreTeam.id)).length,
+      1,
+      "absences are unique per team/user/step"
+    );
+    await recordAbsence(scoreTeam.id, userG, "discussion:clarity");
+    assertEqual(
+      (await listAbsences(scoreTeam.id)).length,
+      2,
+      "same user may be absent for a different step"
+    );
+
+    // --- notice log dedupe (Requirement 13.1) ---
+    const notice: NoticeRecord = {
+      offeringId: scoreOffering.id,
+      teamId: scoreTeam.id,
+      userId: userE,
+      kind: "scores_revealed",
+      dedupeKey: `${scoreTeam.id}:${userE}:scores_revealed:scoring`,
+      channel: "console",
+    };
+    assertEqual(await recordNotice(notice), true, "recordNotice inserts a new dedupe key");
+    assertEqual(
+      await recordNotice(notice),
+      false,
+      "recordNotice returns false when the dedupe key already exists"
+    );
+
+    // --- addendum only after lock; group artifact unchanged (Requirement 10.6) ---
+    await expectThrow(
+      () => addAddendum(scoreTeam.id, userE, "too early"),
+      "addAddendum rejects writes before the group artifact is locked"
+    );
+    const rubricBeforeAddendum = (await getTeamForMember(team.id, userA))?.docs.find(
+      (d) => d.docKind === "rubric"
+    )?.snapshotText;
+    await addAddendum(team.id, userA, "Personal note after lock");
+    const afterAddendum = await getTeamForMember(team.id, userA);
+    assertEqual(
+      afterAddendum?.docs.find((d) => d.docKind === "rubric")?.snapshotText,
+      rubricBeforeAddendum,
+      "addendum leaves the locked group rubric unchanged"
+    );
+    const addenda = await listAddenda(team.id);
+    assertEqual(addenda.length, 1, "addendum persists after lock");
+    assertEqual(addenda[0]?.userId, userA, "addendum stores the author");
+    assertEqual(addenda[0]?.body, "Personal note after lock", "addendum stores the body");
+
+    const persisted = JSON.parse(await fs.readFile(dataFile, "utf-8")) as {
+      scores?: unknown[];
+      absences?: unknown[];
+      agreements?: unknown[];
+      notices?: unknown[];
+      addenda?: unknown[];
+    };
+    assert(Array.isArray(persisted.scores), "JSON store has scores array");
+    assert(Array.isArray(persisted.absences), "JSON store has absences array");
+    assert(Array.isArray(persisted.agreements), "JSON store has agreements array");
+    assert(Array.isArray(persisted.notices), "JSON store has notices array");
+    assert(Array.isArray(persisted.addenda), "JSON store has addenda array");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

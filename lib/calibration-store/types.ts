@@ -224,6 +224,72 @@ export type TeamView = {
   docs: DocSnapshot[];
 };
 
+export type ScoreRow = {
+  id: string;
+  teamId: string;
+  userId: string;
+  criterionKey: string;
+  value: number;
+  submittedAt: string;
+};
+
+export type AbsenceRecord = {
+  teamId: string;
+  userId: string;
+  stepKey: string;
+  markedAt: string;
+};
+
+export type AgreementRecord = {
+  teamId: string;
+  userId: string;
+  subject: AgreementSubject;
+  agreedAt: string;
+};
+
+export const NOTICE_CHANNELS = ["email", "console"] as const;
+export type NoticeChannel = (typeof NOTICE_CHANNELS)[number];
+
+/** Input persisted by `recordNotice`. `dedupeKey` is unique across the log. */
+export type NoticeRecord = {
+  offeringId: string;
+  teamId: string | null;
+  userId: string;
+  kind: NoticeKind;
+  dedupeKey: string;
+  channel: NoticeChannel;
+};
+
+export type StoredNotice = NoticeRecord & {
+  id: string;
+  sentAt: string;
+};
+
+export type AddendumRecord = {
+  id: string;
+  teamId: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+};
+
+/**
+ * Generic member score read. Pre-reveal, `members` contains only the
+ * caller's own row (if any). Other members' numeric values are never present.
+ */
+export type MemberScoreView = {
+  ownScores: CriterionScore[];
+  submittedBy: string[];
+  revealedAt: string | null;
+  members: MemberScores[];
+};
+
+/** Operator / unfiltered read. Does not mutate `scores_revealed_at`. */
+export type OperatorScoreView = {
+  members: MemberScores[];
+  revealedAt: string | null;
+};
+
 export type CalibrationFileData = {
   offerings: Offering[];
   checkIns: CheckIn[];
@@ -231,6 +297,11 @@ export type CalibrationFileData = {
   members: TeamMember[];
   messages: Message[];
   docs: DocSnapshot[];
+  scores: ScoreRow[];
+  absences: AbsenceRecord[];
+  agreements: AgreementRecord[];
+  notices: StoredNotice[];
+  addenda: AddendumRecord[];
 };
 
 export type CriterionScore = {
