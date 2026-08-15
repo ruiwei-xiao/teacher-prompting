@@ -6,7 +6,7 @@
   - Fixed constants in one place: critique 48h, merge nudge 3d, scoring 7d, discussion 7d, group silence 14d, queue ping 6d, expiry after 2 missed pings, operator stuck-listing 10d, score scale integer 1–5
   - Done when: the types module compiles and every later module imports deadlines/scale from it only
   - _Requirements: 4.1, 8.7_
-- [ ] 1.2 Implement calibration persistence for offerings, queue, teams, chat, and documents
+- [x] 1.2 Implement calibration persistence for offerings, queue, teams, chat, and documents
   - Postgres tables with lazy creation + JSON-file fallback, following the existing store façade pattern
   - Offerings with artifacts + facilitator AI config; check-ins unique per (offering, learner); teams with serializable state record; members; messages with learner/facilitator author kinds; doc snapshots rejecting writes after lock
   - Done when: entities round-trip on the JSON fallback backend

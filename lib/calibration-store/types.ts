@@ -140,6 +140,99 @@ export type CheckIn = {
   teamId: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Persisted entities — offerings, teams, messages, documents (Task 1.2)
+// ---------------------------------------------------------------------------
+
+export const MESSAGE_AUTHOR_KINDS = ["learner", "facilitator"] as const;
+export type MessageAuthorKind = (typeof MESSAGE_AUTHOR_KINDS)[number];
+
+export const MESSAGE_KINDS = [
+  "chat",
+  "announcement",
+  "revoice",
+  "prompt",
+  "doc_comment",
+] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+export type OfferingInput = {
+  title: string;
+  sampleAppId: string;
+  sampleRubric: string;
+  deploymentBrief: string;
+  transcriptExcerpt: string;
+  aiProvider: string;
+  aiModel: string;
+};
+
+export type Offering = OfferingInput & {
+  id: string;
+  operatorUserId: string;
+  createdAt: string;
+};
+
+export type TeamMember = {
+  teamId: string;
+  userId: string;
+  memberIndex: number;
+  lastSeenAt: string | null;
+};
+
+export type Team = {
+  id: string;
+  offeringId: string;
+  phase: TeamPhase;
+  state: TeamStateRecord;
+  formedAt: string;
+  lastActivityAt: string;
+  scoresRevealedAt: string | null;
+  finalizedAt: string | null;
+  autoFinalized: boolean;
+  finalRubric: string | null;
+  members: TeamMember[];
+};
+
+/** Team row as stored on disk (members live in a sibling collection). */
+export type StoredTeam = Omit<Team, "members">;
+
+export type NewMessage = {
+  authorKind: MessageAuthorKind;
+  authorUserId: string | null;
+  kind: MessageKind;
+  body: string;
+  phase: TeamPhase;
+};
+
+export type Message = NewMessage & {
+  id: string;
+  teamId: string;
+  createdAt: string;
+};
+
+export type DocSnapshot = {
+  teamId: string;
+  docKind: DocKind;
+  snapshotText: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type TeamView = {
+  team: Team;
+  messages: Message[];
+  docs: DocSnapshot[];
+};
+
+export type CalibrationFileData = {
+  offerings: Offering[];
+  checkIns: CheckIn[];
+  teams: StoredTeam[];
+  members: TeamMember[];
+  messages: Message[];
+  docs: DocSnapshot[];
+};
+
 export type CriterionScore = {
   criterionKey: string;
   value: number;
