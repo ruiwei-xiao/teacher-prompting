@@ -44,14 +44,14 @@ The selftest injects `now = 2026-08-15T12:00:00.000Z`, sets `CALIBRATION_DATA_FI
 | No live-session / 35-minute mode copy in calibration UI | 16.4 | **PASSED** | Calibration UI sources (`components/calibration`, `lib/calibration-ui` excluding selftests, `app/activity`) contain no `35-minute`, `live-session`, or “everyone must be online” copy |
 | GroupChatPanel / ScoreSheet / ArtifactsPanel have no Liveblocks | 7.5 | **PASSED** | Those three component sources contain no `liveblocks`, `@liveblocks`, `yjs`, or `CollaborationPlugin` |
 | Two-browser named cursors on the shared rubric | 7.2 | **MANUAL** | Wiring (room id, CollaborationPlugin, named cursors, two Yjs docs) is proven in `npx tsx lib/calibration-ui/docs.selftest.ts` (task 6.2). A live dual-browser pass needs Liveblocks keys and two real browsers. This task does not invent a browser harness and does not treat the source wiring as a live PASS |
-| Full flow on a local production build | task 8.2 done-when | **MANUAL / blocked-unrelated** | `npm run build` compiled, then failed TypeScript on a pre-existing error in `lib/calibration-api/space.ts:483` (`Type 'unknown' is not assignable to type 'CriterionScore[]'`). That file was not changed by this task. The scripted handler walk on the JSON fallback completed without that compile step |
+| Full flow on a local production build | task 8.2 done-when | **PASSED** | `npm run build` (2026-08-15, after LOCAL type fixes in `space.ts` / `docs-provider.ts`) compiled activity and calibration routes, including `/activity/**` and `/api/calibration/**` |
 
 ---
 
 ## What this task did not run
 
 - Live dual-browser cursor overlap (requires `LIVEBLOCKS_SECRET_KEY` and two browsers).
-- A green `npm run build`. The failure is unrelated to `e2e.selftest.ts` / this document.
+- A live `next start` browser session. Production `npm run build` is now green.
 - Browser automation. The scripted pass drives `postCheckIn`, `getSpace`, `postMessage`, `postDocSnapshot`, `postScores`, `postAgreement`, and `postAddendum` with an injected clock.
 
 ---

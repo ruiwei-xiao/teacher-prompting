@@ -460,16 +460,19 @@ async function serializeSpace(
   const lastSeenAt = role === "member" ? (member?.lastSeenAt ?? null) : null;
   const roles =
     team.state.phase === "critique" ? getCritiqueRoles(team.state) : null;
-  const scores =
-    role === "member"
-      ? await getScoresForMember(teamId, userId)
-      : await getScoresForOperator(teamId);
-  const ownScores =
-    scores && "ownScores" in scores ? scores.ownScores : [];
-  const submittedBy =
-    scores && "submittedBy" in scores
-      ? scores.submittedBy
-      : (scores?.members.map((row) => row.userId) ?? []);
+  let ownScores: CriterionScore[] = [];
+  let submittedBy: string[] = [];
+  let matrix: MemberScores[] = [];
+  if (role === "member") {
+    const memberView = await getScoresForMember(teamId, userId);
+    ownScores = memberView?.ownScores ?? [];
+    submittedBy = memberView?.submittedBy ?? [];
+    matrix = memberView?.members ?? [];
+  } else {
+    const operatorView = await getScoresForOperator(teamId);
+    submittedBy = operatorView?.members.map((row) => row.userId) ?? [];
+    matrix = operatorView?.members ?? [];
+  }
   return {
     role,
     phase: team.state.phase,
@@ -483,7 +486,7 @@ async function serializeSpace(
     ownScores,
     submittedBy,
     revealedAt: team.scoresRevealedAt,
-    matrix: scores?.members ?? [],
+    matrix,
     locked: team.finalizedAt !== null || team.state.phase === "finalized",
   };
 }

@@ -204,4 +204,4 @@
 - Operator dashboard is `/activity/{offeringId}/operate`. Manual-match picker uses stuck (10d+) waiters from GET operate. Inspect links: `/activity/{offeringId}/operate/team/{teamId}` (7.2).
 - Operator inspector page calls `inspectTeam` on the server (no extra HTTP route). Held scores come from `inspect.scores.members`; member ScoreSheet still strips `space.matrix` pre-reveal.
 - Cross-component integration selftest: `npx tsx lib/calibration-api/integration.selftest.ts` (JSON fallback). Scoring-phase privacy setup may use store helpers; full critique→lock walk is 8.2.
-- E2E: `npx tsx lib/calibration-api/e2e.selftest.ts`. Two-browser cursors and `npm run build` are MANUAL in e2e-boundary.md (build currently fails on space.ts ownScores typing). Facilitator sendChat 401 falls back to scripted templates.
+- E2E: `npx tsx lib/calibration-api/e2e.selftest.ts`. Two-browser cursors remain MANUAL (Liveblocks keys + two browsers). `npm run build` is green after LOCAL type fixes: serializeSpace uses an explicit member/operator score branch; DocScopedProvider on/off matches Lexical Provider overloads.

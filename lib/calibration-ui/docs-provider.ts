@@ -177,20 +177,28 @@ class DocScopedProvider implements Provider {
     this.listeners.clear();
   }
 
+  on(type: "sync", cb: (isSynced: boolean) => void): void;
+  on(type: "status", cb: (arg0: { status: string }) => void): void;
+  on(type: "update", cb: (arg0: unknown) => void): void;
+  on(type: "reload", cb: (doc: Y.Doc) => void): void;
   on(
     type: "sync" | "status" | "update" | "reload",
-    cb: (...args: unknown[]) => void
+    cb: ((isSynced: boolean) => void) | ((arg0: { status: string }) => void) | ((arg0: unknown) => void) | ((doc: Y.Doc) => void)
   ): void {
     const bucket = this.listeners.get(type) ?? new Set();
-    bucket.add(cb);
+    bucket.add(cb as (...args: unknown[]) => void);
     this.listeners.set(type, bucket);
   }
 
+  off(type: "sync", cb: (isSynced: boolean) => void): void;
+  off(type: "update", cb: (arg0: unknown) => void): void;
+  off(type: "status", cb: (arg0: { status: string }) => void): void;
+  off(type: "reload", cb: (doc: Y.Doc) => void): void;
   off(
     type: "sync" | "status" | "update" | "reload",
-    cb: (...args: unknown[]) => void
+    cb: ((isSynced: boolean) => void) | ((arg0: { status: string }) => void) | ((arg0: unknown) => void) | ((doc: Y.Doc) => void)
   ): void {
-    this.listeners.get(type)?.delete(cb);
+    this.listeners.get(type)?.delete(cb as (...args: unknown[]) => void);
   }
 
   private emit(type: string, args: unknown[]): void {
