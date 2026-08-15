@@ -730,6 +730,35 @@ async function listQueuedCheckInsInFile(offeringId?: string): Promise<CheckIn[]>
     });
 }
 
+async function expireCheckInInFile(checkInId: string): Promise<void> {
+  const data = await readFileData();
+  const index = data.checkIns.findIndex(
+    (row) => row.id === checkInId && row.status === "queued"
+  );
+  if (index === -1) {
+    return;
+  }
+  data.checkIns[index] = { ...data.checkIns[index]!, status: "expired" };
+  await writeFileData(data);
+}
+
+async function recordQueuePingInFile(checkInId: string, now: Date): Promise<void> {
+  const data = await readFileData();
+  const index = data.checkIns.findIndex(
+    (row) => row.id === checkInId && row.status === "queued"
+  );
+  if (index === -1) {
+    return;
+  }
+  const current = data.checkIns[index]!;
+  data.checkIns[index] = {
+    ...current,
+    lastPingAt: now.toISOString(),
+    missedPings: current.missedPings + 1,
+  };
+  await writeFileData(data);
+}
+
 async function formTeamInFile(
   offeringId: string,
   memberUserIds: [string, string, string]
@@ -1281,6 +1310,28 @@ async function listQueuedCheckInsInPostgres(
         ORDER BY checked_in_at ASC, id ASC
       `;
   return result.rows.map(rowToCheckIn);
+}
+
+async function expireCheckInInPostgres(checkInId: string): Promise<void> {
+  await ensurePostgresStore();
+  await sql`
+    UPDATE calibration_checkins
+    SET status = ${"expired"}
+    WHERE id = ${checkInId} AND status = ${"queued"}
+  `;
+}
+
+async function recordQueuePingInPostgres(
+  checkInId: string,
+  now: Date
+): Promise<void> {
+  await ensurePostgresStore();
+  const stamped = now.toISOString();
+  await sql`
+    UPDATE calibration_checkins
+    SET last_ping_at = ${stamped}, missed_pings = missed_pings + 1
+    WHERE id = ${checkInId} AND status = ${"queued"}
+  `;
 }
 
 async function loadMembersInPostgres(teamId: string): Promise<TeamMember[]> {
@@ -1862,6 +1913,23 @@ export async function listQueuedCheckIns(offeringId?: string): Promise<CheckIn[]
     return listQueuedCheckInsInPostgres(offeringId);
   }
   return listQueuedCheckInsInFile(offeringId);
+}
+
+export async function expireCheckIn(checkInId: string): Promise<void> {
+  if (shouldUsePostgres()) {
+    return expireCheckInInPostgres(checkInId);
+  }
+  return expireCheckInInFile(checkInId);
+}
+
+export async function recordQueuePing(
+  checkInId: string,
+  now: Date
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return recordQueuePingInPostgres(checkInId, now);
+  }
+  return recordQueuePingInFile(checkInId, now);
 }
 
 export async function formTeam(

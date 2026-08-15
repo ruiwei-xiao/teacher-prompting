@@ -106,7 +106,7 @@
   - Done when: an invalid trio returns 400 leaving the queue unchanged, and a valid trio forms a team identical to quorum formation
   - _Requirements: 2.5, 2.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
   - _Depends: 4.2_
-- [ ] 4.6 Implement the cron tick endpoint and schedule
+- [x] 4.6 Implement the cron tick endpoint and schedule
   - Tick walks queued check-ins and unfinalized teams, runs evaluation, executes effects via the shared executor; authenticated via CRON_SECRET; returns a structured summary (teams evaluated, effects, notices sent/deduped)
   - Add vercel.json with the daily cron entry pointing at the tick route
   - Done when: two consecutive ticks with unchanged clocks send zero duplicate notices and mark no new absences
@@ -192,3 +192,4 @@
 - Notices: peek via store.hasNotice → send → recordNotice only on success (so Resend failures retry). hasNotice is a non-claiming lookup on both JSON and Postgres.
 - Access guard is `resolveCaller` in lib/calibration-api/access.ts. Gate GET does not check-in. store.getTeam exists for ACL. Matched-learner teamId on the gate is deferred to 4.3.
 - executeEffects / executeFormation live in lib/calibration-api/space.ts. Operator space GET serializes only (no evaluateTeam). Member GET opportunistically evaluates.
+- Tick route exports GET and POST. Design table said POST; Vercel Cron invokes GET. `expireCheckIn` / `recordQueuePing` live on the store.
