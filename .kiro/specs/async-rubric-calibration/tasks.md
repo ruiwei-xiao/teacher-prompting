@@ -161,7 +161,7 @@
   - _Depends: 6.2, 4.2_
 
 - [ ] 7. Operator UI
-- [ ] 7.1 Build the operator dashboard with manual matching
+- [x] 7.1 Build the operator dashboard with manual matching
   - Stuck-queue list with wait durations; team progress table (phase, members, last activity, auto-finalized); manual-match picker enforcing three distinct waiters of the same offering
   - Done when: selecting three eligible waiters forms a team visible in the progress table
   - _Requirements: 2.5, 2.6, 14.1, 14.2, 14.3, 14.4_
@@ -201,3 +201,4 @@
 - Liveblocks auth: POST /api/calibration/liveblocks-auth `{ room }`. Room must be `calibration:{teamId}`. Member write until lock; operator read; others 403. Selftest injects authorize (no hosted network). Invalid room is 400.
 - SharedDocEditor: one room host (`getYjsProviderForRoom`) plus per-doc `DocScopedProvider` wrappers (`lib/calibration-ui/docs-provider.ts`) so rubric/notes have distinct Y.Docs and awareness; `disconnect()` must not tear down the sibling. Two-browser cursor proof is 8.2.
 - Snapshot debounce is 4000ms POST `{ text }` to docs endpoint. Locked teams still mount SharedDocEditor as read-only (no contenteditable / no snapshot POST). Liveblocks outage banner + last SSR snapshot; `liveblocksDown` does not auto-clear.
+- Operator dashboard is `/activity/{offeringId}/operate`. Manual-match picker uses stuck (10d+) waiters from GET operate. Inspect links: `/activity/{offeringId}/operate/team/{teamId}` (7.2).
