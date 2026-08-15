@@ -5,8 +5,14 @@ import SpaceLayout from "@/components/calibration/SpaceLayout";
 import { getAppById } from "@/lib/app-store/store";
 import { rubricCriterionKeys } from "@/lib/calibration-api/scores";
 import { getSpace } from "@/lib/calibration-api/space";
-import { getOffering, getTeamForMember } from "@/lib/calibration-store/store";
+import {
+  getOffering,
+  getTeam,
+  getTeamForMember,
+  listAddenda,
+} from "@/lib/calibration-store/store";
 import { buildArtifactsView } from "@/lib/calibration-ui/artifacts";
+import { visibleRubricText } from "@/lib/calibration-ui/deliverable";
 import { teamSpacePath } from "@/lib/calibration-ui/gate";
 
 export default async function TeamSpacePage({
@@ -53,7 +59,12 @@ export default async function TeamSpacePage({
     );
   }
 
-  const offering = await getOffering(offeringId);
+  const [offering, teamView, team, addenda] = await Promise.all([
+    getOffering(offeringId),
+    getTeamForMember(teamId, session.user.id ?? ""),
+    getTeam(teamId),
+    listAddenda(teamId),
+  ]);
   const sampleApp = offering?.sampleAppId
     ? await getAppById(offering.sampleAppId)
     : null;
@@ -64,9 +75,9 @@ export default async function TeamSpacePage({
     sampleAppId: offering?.sampleAppId ?? sampleApp?.id ?? "",
     publicSlug: sampleApp?.publicSlug ?? null,
   });
-  const teamView = await getTeamForMember(teamId, session.user.id ?? "");
-  const rubricText =
+  const rubricSnapshotText =
     teamView?.docs.find((doc) => doc.docKind === "rubric")?.snapshotText ?? "";
+  const rubricText = visibleRubricText(team?.finalRubric, rubricSnapshotText);
   const criterionKeys = rubricCriterionKeys(rubricText);
 
   return (
@@ -78,6 +89,12 @@ export default async function TeamSpacePage({
           initialSpace={result.body}
           artifacts={artifacts}
           criterionKeys={criterionKeys}
+          deliverable={{
+            autoFinalized: team?.autoFinalized ?? false,
+            rubricText,
+            flaggedCriteria: team?.state.flaggedCriteria ?? [],
+            addenda,
+          }}
         />
       </main>
     </AppShell>

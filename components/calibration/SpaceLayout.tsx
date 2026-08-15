@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import ArtifactsPanel from "./ArtifactsPanel";
+import FinalDeliverable from "./FinalDeliverable";
 import GroupChatPanel from "./GroupChatPanel";
 import ScoreSheet from "./ScoreSheet";
 import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
+import { type DeliverableSnapshot } from "@/lib/calibration-ui/deliverable";
 import {
   SPACE_POLL_MS,
   currentRoundRoleLabel,
@@ -39,16 +41,19 @@ export default function SpaceLayout({
   initialSpace,
   artifacts,
   criterionKeys,
+  deliverable,
 }: {
   teamId: string;
   viewerUserId: string;
   initialSpace: SpaceView;
   artifacts: ArtifactsView;
   criterionKeys: string[];
+  deliverable: DeliverableSnapshot;
 }) {
   const [space, setSpace] = useState<SpaceView>(initialSpace);
   const roleLabel = currentRoundRoleLabel(space, viewerUserId);
   const recap = recapMessages(space);
+  const deliverableLocked = space.locked || space.phase === "finalized";
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +107,19 @@ export default function SpaceLayout({
         </div>
       </header>
 
+      {deliverableLocked && (
+        <FinalDeliverable
+          teamId={teamId}
+          viewerUserId={viewerUserId}
+          role={space.role}
+          locked={deliverableLocked}
+          autoFinalized={deliverable.autoFinalized}
+          rubricText={deliverable.rubricText}
+          flaggedCriteria={deliverable.flaggedCriteria}
+          initialAddenda={deliverable.addenda}
+        />
+      )}
+
       {recap.length > 0 && (
         <section
           aria-label="Recap since last visit"
@@ -135,10 +153,12 @@ export default function SpaceLayout({
               setSpace((previous) => retainVisitRecap(previous, next))
             }
           />
-          <PanelSlot
-            title="Shared documents"
-            hint="The shared rubric and notes will open here."
-          />
+          {!deliverableLocked && (
+            <PanelSlot
+              title="Shared documents"
+              hint="The shared rubric and notes will open here."
+            />
+          )}
         </div>
         <aside className="flex flex-col gap-6">
           <ArtifactsPanel artifacts={artifacts} />

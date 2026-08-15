@@ -137,7 +137,7 @@
   - _Requirements: 8.1, 8.2, 8.3, 8.7, 9.2_
   - _Boundary: ScoreSheet_
   - _Depends: 5.2, 4.4_
-- [ ] 5.5 Build the finalized deliverable view and personal addendum
+- [x] 5.5 Build the finalized deliverable view and personal addendum
   - Locked final rubric with unresolved-criteria labels and auto-finalized flag; late returner sees the deliverable and can add a personal addendum; group artifact stays unchanged
   - Done when: after lock, the final rubric renders with unresolved labels, an addendum posts and renders, and an addendum attempt before lock is rejected
   - _Requirements: 10.4, 10.5, 10.6_
@@ -197,3 +197,4 @@
 - SpaceLayout polls GET /api/calibration/teams/{teamId} every 10s and on window focus. Recap is retained client-side across polls so last-seen updates do not wipe "since you last visited". Two-browser convergence is the poll contract (live E2E is 8.2).
 - Artifact texts are loaded on the team page via getOffering + getAppById (gate/space APIs only have meta). Try-chat is `/chat/{publicSlug||id}` with no query.
 - ScoreSheet computes flagged keys from the revealed matrix (max−min ≥ 2). Criterion keys come from the server page via getTeamForMember + rubricCriterionKeys (do not import scores.ts from client). Member UI never renders space.matrix pre-reveal.
+- Final deliverable extras (autoFinalized, addenda, flaggedCriteria, rubric snapshot) are SSR-loaded; Space GET does not carry them. `markDeliverableLocked` may leave `finalRubric` null — UI uses snapshot fallback. Unresolved chips currently use `state.flaggedCriteria` (may still show after explicit consensus).
