@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Foundation: domain model, persistence, and external dependencies
-- [ ] 1.1 Define the calibration domain types and fixed activity constants
+- [x] 1.1 Define the calibration domain types and fixed activity constants
   - Phase set, team state record, engine event/effect unions, notice kinds, document kinds, agreement subjects
   - Fixed constants in one place: critique 48h, merge nudge 3d, scoring 7d, discussion 7d, group silence 14d, queue ping 6d, expiry after 2 missed pings, operator stuck-listing 10d, score scale integer 1–5
   - Done when: the types module compiles and every later module imports deadlines/scale from it only
