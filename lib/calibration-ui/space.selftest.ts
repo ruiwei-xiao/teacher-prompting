@@ -279,6 +279,10 @@ async function main(): Promise<void> {
     "SpaceLayout composes SharedDocEditor"
   );
   assert(
+    !/!deliverableLocked\s*&&\s*\(?\s*<SharedDocEditor/.test(layoutSource),
+    "SpaceLayout still mounts SharedDocEditor when locked"
+  );
+  assert(
     !layoutSource.includes("calibration-engine") &&
       !layoutSource.includes("calibration-store"),
     "SpaceLayout does not import engine/store"

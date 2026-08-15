@@ -1,8 +1,9 @@
 /**
- * Self-test: collaborative rubric/notes editor wiring (Task 6.2).
+ * Self-test: collaborative rubric/notes editor wiring (Tasks 6.2–6.3).
  * Proves room id, two Yjs doc keys, CollaborationPlugin + LiveblocksYjsProvider,
- * identity cursors, SpaceLayout composition, and that chat/artifacts/scores
- * stay free of Liveblocks/Yjs. Two-browser live proof is E2E (task 8.2).
+ * identity cursors, snapshot POST, outage degradation, post-lock read-only,
+ * SpaceLayout composition, and that chat/artifacts/scores stay free of
+ * Liveblocks/Yjs. Two-browser live proof is E2E (task 8.2).
  * Run: npx tsx lib/calibration-ui/docs.selftest.ts
  */
 import fs from "fs/promises";
@@ -12,8 +13,16 @@ import * as Y from "yjs";
 import {
   DOC_YJS_KEYS,
   LIVEBLOCKS_AUTH_ENDPOINT,
+  LIVEBLOCKS_OUTAGE_BANNER,
+  SNAPSHOT_DEBOUNCE_MS,
+  canPushDocSnapshot,
   cursorIdentity,
+  isLiveblocksOutage,
   liveblocksRoomId,
+  shouldShowReadOnly,
+  snapshotApiHref,
+  snapshotPostBody,
+  snapshotsFromDocs,
 } from "./docs";
 import {
   createSharedDocProvider,
@@ -147,6 +156,102 @@ async function main(): Promise<void> {
     cursorIdentity({ name: "", color: "" }).username.length > 0,
     true,
     "blank name still has a display name"
+  );
+
+  // --- Snapshot POST contract (4.3; design: idle debounce ≈3–5s, { text }) ---
+  assert(
+    SNAPSHOT_DEBOUNCE_MS >= 3000 && SNAPSHOT_DEBOUNCE_MS <= 5000,
+    `debounce is 3–5s (got ${SNAPSHOT_DEBOUNCE_MS})`
+  );
+  assertEqual(
+    snapshotApiHref("team_9", "rubric"),
+    "/api/calibration/teams/team_9/docs/rubric",
+    "rubric snapshot POST is /api/calibration/teams/{teamId}/docs/rubric"
+  );
+  assertEqual(
+    snapshotApiHref("team_9", "notes"),
+    "/api/calibration/teams/team_9/docs/notes",
+    "notes snapshot POST is /api/calibration/teams/{teamId}/docs/notes"
+  );
+  assertEqual(
+    snapshotPostBody("Clarity — one-line rationale"),
+    { text: "Clarity — one-line rationale" },
+    "POST body is { text }"
+  );
+  assertEqual(
+    canPushDocSnapshot({ locked: false, role: "member" }),
+    true,
+    "unlocked members push snapshots"
+  );
+  assertEqual(
+    canPushDocSnapshot({ locked: true, role: "member" }),
+    false,
+    "locked members do not push snapshots"
+  );
+  assertEqual(
+    canPushDocSnapshot({ locked: false, role: "operator" }),
+    false,
+    "operators do not push snapshots"
+  );
+  assertEqual(
+    snapshotsFromDocs([
+      { docKind: "rubric", snapshotText: "R1" },
+      { docKind: "notes", snapshotText: "N1" },
+    ]),
+    { rubric: "R1", notes: "N1" },
+    "SSR docs become initial snapshot texts"
+  );
+  assertEqual(
+    snapshotsFromDocs(null),
+    { rubric: "", notes: "" },
+    "missing member docs (operators) become empty snapshots"
+  );
+
+  // --- Read-only: lock (10.4) and Liveblocks outage (design degradation) ---
+  assertEqual(
+    shouldShowReadOnly({ locked: true, liveblocksDown: false }),
+    true,
+    "locked teams are read-only"
+  );
+  assertEqual(
+    shouldShowReadOnly({ locked: false, liveblocksDown: true }),
+    true,
+    "Liveblocks outage is read-only"
+  );
+  assertEqual(
+    shouldShowReadOnly({ locked: false, liveblocksDown: false }),
+    false,
+    "unlocked live editing is not forced read-only"
+  );
+  assertEqual(
+    isLiveblocksOutage({ status: "disconnected" }),
+    true,
+    "disconnected status is an outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({ status: "connected" }),
+    false,
+    "connected status is not an outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({ lostConnection: "lost" }),
+    true,
+    "lost-connection 'lost' is an outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({ lostConnection: "failed" }),
+    true,
+    "lost-connection 'failed' is an outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({ lostConnection: "restored" }),
+    false,
+    "restored connection is not an outage"
+  );
+  assert(
+    /liveblocks is unavailable/i.test(LIVEBLOCKS_OUTAGE_BANNER) &&
+      /read-only/i.test(LIVEBLOCKS_OUTAGE_BANNER),
+    "outage banner says Liveblocks is unavailable and the view is read-only"
   );
 
   // --- Distinct providers per document (7.2, 7.4; CollaborationPlugin cleanup) ---
@@ -372,15 +477,59 @@ async function main(): Promise<void> {
       !editorSource.includes("calibration-api"),
     "SharedDocEditor does not import engine/store/api"
   );
+
+  // --- Source: snapshot push (4.3) ---
   assert(
-    !editorSource.includes("/docs/") &&
-      !editorSource.includes("saveDocSnapshot") &&
-      !editorSource.includes("docSnapshot"),
-    "snapshot POST is out of scope for 6.2"
+    editorSource.includes("SNAPSHOT_DEBOUNCE_MS") &&
+      editorSource.includes("setTimeout"),
+    "SharedDocEditor debounces snapshot POSTs"
   );
   assert(
-    !/outage|read-only snapshot|Liveblocks is unavailable/i.test(editorSource),
-    "outage banner is out of scope for 6.2"
+    editorSource.includes("snapshotApiHref") ||
+      editorSource.includes("/docs/"),
+    "SharedDocEditor POSTs to /api/calibration/teams/{teamId}/docs/{docKind}"
+  );
+  assert(
+    editorSource.includes("snapshotPostBody") ||
+      /["']POST["']/.test(editorSource),
+    "SharedDocEditor POSTs the snapshot"
+  );
+  assert(
+    editorSource.includes("canPushDocSnapshot") ||
+      (editorSource.includes("locked") && editorSource.includes("member")),
+    "snapshot POST is members-only and skipped when locked"
+  );
+  assert(
+    !editorSource.includes("<textarea") &&
+      !editorSource.includes("<textarea "),
+    "shared docs have no chat-style composer"
+  );
+
+  // --- Source: locked / outage read-only (10.4, design degradation) ---
+  assert(
+    editorSource.includes("shouldShowReadOnly") ||
+      editorSource.includes("liveblocksDown"),
+    "SharedDocEditor has a lock/outage read-only path"
+  );
+  assert(
+    editorSource.includes("aria-readonly") ||
+      editorSource.includes('aria-readonly="true"'),
+    "read-only snapshot view exposes no editing affordance"
+  );
+  assert(
+    editorSource.includes("LIVEBLOCKS_OUTAGE_BANNER") ||
+      /Liveblocks is unavailable/i.test(editorSource),
+    "outage path shows a Liveblocks-unavailable banner"
+  );
+  assert(
+    editorSource.includes("useLostConnectionListener") ||
+      editorSource.includes("useStatus") ||
+      editorSource.includes("useErrorListener"),
+    "SharedDocEditor listens for Liveblocks connection loss"
+  );
+  assert(
+    editorSource.includes("CollaborationPlugin"),
+    "unlocked Yjs path still mounts CollaborationPlugin (7.3)"
   );
 
   // --- Source: composed into SpaceLayout; RoomProvider stays in the docs region ---
@@ -391,6 +540,14 @@ async function main(): Promise<void> {
   assert(
     !layoutSource.includes("The shared rubric and notes will open here."),
     "SpaceLayout Shared documents placeholder is gone"
+  );
+  assert(
+    !/!deliverableLocked\s*&&\s*\(?\s*<SharedDocEditor/.test(layoutSource),
+    "SpaceLayout still mounts SharedDocEditor when locked"
+  );
+  assert(
+    layoutSource.includes("locked=") || layoutSource.includes("locked={"),
+    "SpaceLayout passes lock state into SharedDocEditor"
   );
   assert(
     !layoutSource.toLowerCase().includes("liveblocks") &&
@@ -408,6 +565,13 @@ async function main(): Promise<void> {
       !teamPageSource.includes("RoomProvider") &&
       !teamPageSource.toLowerCase().includes("liveblocks"),
     "team page does not wrap the app in RoomProvider"
+  );
+  assert(
+    teamPageSource.includes("snapshotText") ||
+      teamPageSource.includes("snapshotsFromDocs") ||
+      teamPageSource.includes("docSnapshots") ||
+      teamPageSource.includes("snapshots="),
+    "team page passes initial snapshot texts into the space"
   );
 
   // --- Source: no collaborative cursors elsewhere (7.5) ---

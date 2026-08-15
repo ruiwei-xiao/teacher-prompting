@@ -13,6 +13,7 @@ import {
 } from "@/lib/calibration-store/store";
 import { buildArtifactsView } from "@/lib/calibration-ui/artifacts";
 import { visibleRubricText } from "@/lib/calibration-ui/deliverable";
+import { snapshotsFromDocs } from "@/lib/calibration-ui/docs";
 import { teamSpacePath } from "@/lib/calibration-ui/gate";
 
 export default async function TeamSpacePage({
@@ -75,8 +76,8 @@ export default async function TeamSpacePage({
     sampleAppId: offering?.sampleAppId ?? sampleApp?.id ?? "",
     publicSlug: sampleApp?.publicSlug ?? null,
   });
-  const rubricSnapshotText =
-    teamView?.docs.find((doc) => doc.docKind === "rubric")?.snapshotText ?? "";
+  const docSnapshots = snapshotsFromDocs(teamView?.docs);
+  const rubricSnapshotText = docSnapshots.rubric;
   const rubricText = visibleRubricText(team?.finalRubric, rubricSnapshotText);
   const criterionKeys = rubricCriterionKeys(rubricText);
 
@@ -89,6 +90,7 @@ export default async function TeamSpacePage({
           initialSpace={result.body}
           artifacts={artifacts}
           criterionKeys={criterionKeys}
+          snapshots={docSnapshots}
           deliverable={{
             autoFinalized: team?.autoFinalized ?? false,
             rubricText,

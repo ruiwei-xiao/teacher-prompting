@@ -8,6 +8,7 @@ import ScoreSheet from "./ScoreSheet";
 import SharedDocEditor from "./SharedDocEditor";
 import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
 import { type DeliverableSnapshot } from "@/lib/calibration-ui/deliverable";
+import type { SharedDocSnapshots } from "@/lib/calibration-ui/docs";
 import {
   SPACE_POLL_MS,
   currentRoundRoleLabel,
@@ -26,6 +27,7 @@ export default function SpaceLayout({
   artifacts,
   criterionKeys,
   deliverable,
+  snapshots,
 }: {
   teamId: string;
   viewerUserId: string;
@@ -33,6 +35,7 @@ export default function SpaceLayout({
   artifacts: ArtifactsView;
   criterionKeys: string[];
   deliverable: DeliverableSnapshot;
+  snapshots: SharedDocSnapshots;
 }) {
   const [space, setSpace] = useState<SpaceView>(initialSpace);
   const roleLabel = currentRoundRoleLabel(space, viewerUserId);
@@ -137,7 +140,12 @@ export default function SpaceLayout({
               setSpace((previous) => retainVisitRecap(previous, next))
             }
           />
-          {!deliverableLocked && <SharedDocEditor teamId={teamId} />}
+          <SharedDocEditor
+            teamId={teamId}
+            locked={deliverableLocked}
+            role={space.role}
+            snapshots={snapshots}
+          />
         </div>
         <aside className="flex flex-col gap-6">
           <ArtifactsPanel artifacts={artifacts} />

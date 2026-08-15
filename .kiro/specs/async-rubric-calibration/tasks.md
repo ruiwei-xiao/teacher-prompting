@@ -154,7 +154,7 @@
   - Done when: two browsers see each other's named cursors and edits without reload on both documents
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
   - _Depends: 6.1, 5.2_
-- [ ] 6.3 Wire snapshot push, outage degradation, and post-lock read-only behavior
+- [x] 6.3 Wire snapshot push, outage degradation, and post-lock read-only behavior
   - Debounced plain-text snapshot POST feeds facilitator/operator/finalize reads and resets the group clock; Liveblocks outage degrades to a read-only snapshot view with a banner; locked teams render both documents read-only
   - Done when: snapshots appear server-side after the debounce interval, and a locked team shows no editing affordance on either document
   - _Requirements: 4.3, 7.3, 10.4_
@@ -200,3 +200,4 @@
 - Final deliverable extras (autoFinalized, addenda, flaggedCriteria, rubric snapshot) are SSR-loaded; Space GET does not carry them. `markDeliverableLocked` may leave `finalRubric` null — UI uses snapshot fallback. Unresolved chips currently use `state.flaggedCriteria` (may still show after explicit consensus).
 - Liveblocks auth: POST /api/calibration/liveblocks-auth `{ room }`. Room must be `calibration:{teamId}`. Member write until lock; operator read; others 403. Selftest injects authorize (no hosted network). Invalid room is 400.
 - SharedDocEditor: one room host (`getYjsProviderForRoom`) plus per-doc `DocScopedProvider` wrappers (`lib/calibration-ui/docs-provider.ts`) so rubric/notes have distinct Y.Docs and awareness; `disconnect()` must not tear down the sibling. Two-browser cursor proof is 8.2.
+- Snapshot debounce is 4000ms POST `{ text }` to docs endpoint. Locked teams still mount SharedDocEditor as read-only (no contenteditable / no snapshot POST). Liveblocks outage banner + last SSR snapshot; `liveblocksDown` does not auto-clear.
