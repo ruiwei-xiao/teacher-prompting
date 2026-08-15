@@ -1,25 +1,35 @@
 /**
  * Pure calibration engine. Task 2.1: evaluateQueue. Task 2.2: kickoff + rotation.
- * Task 2.3: dual clocks, absence, rejoin.
+ * Task 2.3: dual clocks, absence, rejoin. Task 2.4: merge, scoring, spread.
  * No I/O. Imports types/constants from calibration-store/types — never store.ts.
  */
 import type {
+  AgreementSubject,
   CheckIn,
+  CriterionSpread,
   EngineEffect,
   EngineResult,
   LearnerEvent,
   NoticeSpec,
   PerPersonDeadline,
   QueueEffect,
+  RevealedScores,
+  TeamPhase,
   TeamStateRecord,
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
   GROUP_SILENCE_MS,
+  MERGE_NUDGE_MS,
   OPERATOR_STUCK_LISTING_MS,
   QUEUE_EXPIRY_MISSED_PINGS,
   QUEUE_PING_MS,
+  SCORING_DEADLINE_MS,
 } from "../calibration-store/types";
+
+const MERGE_STEP_KEY = "merge";
+const SCORING_STEP_KEY = "scoring";
+const SPREAD_FLAG_THRESHOLD = 2;
 
 const CRITIQUE_ROUND_COUNT = 3;
 
@@ -228,6 +238,35 @@ function currentStepKey(state: TeamStateRecord): string {
   return state.phase === "critique" ? critiqueStepKey(state.round) : state.phase;
 }
 
+function presentUserIds(state: TeamStateRecord, stepKey: string): string[] {
+  return state.memberUserIds.filter(
+    (userId) => !isAbsentForStep(state, userId, stepKey)
+  );
+}
+
+function deadlineMsForPhase(phase: TeamPhase): number | null {
+  if (phase === "critique") {
+    return CRITIQUE_DEADLINE_MS;
+  }
+  if (phase === "merge") {
+    return MERGE_NUDGE_MS;
+  }
+  if (phase === "scoring") {
+    return SCORING_DEADLINE_MS;
+  }
+  return null;
+}
+
+function deadlinesForStep(
+  userIds: readonly string[],
+  stepKey: string,
+  durationMs: number,
+  now: Date
+): PerPersonDeadline[] {
+  const deadlineAt = new Date(now.getTime() + durationMs).toISOString();
+  return userIds.map((userId) => ({ userId, stepKey, deadlineAt }));
+}
+
 /** Members the current critique step is waiting on (4.2, 6.6). */
 function waitingUserIds(state: TeamStateRecord): string[] {
   if (state.phase !== "critique") {
@@ -253,14 +292,25 @@ function resetPerPersonDeadlines(
   deadlines: PerPersonDeadline[],
   userIds: string[],
   stepKey: string,
-  now: Date
+  now: Date,
+  durationMs: number = CRITIQUE_DEADLINE_MS
 ): PerPersonDeadline[] {
-  const deadlineAt = new Date(now.getTime() + CRITIQUE_DEADLINE_MS).toISOString();
-  return deadlines.map((deadline) =>
+  const deadlineAt = new Date(now.getTime() + durationMs).toISOString();
+  const updated = deadlines.map((deadline) =>
     userIds.includes(deadline.userId) && deadline.stepKey === stepKey
       ? { ...deadline, deadlineAt }
       : deadline
   );
+  const missing = userIds.filter(
+    (userId) =>
+      !updated.some(
+        (deadline) => deadline.userId === userId && deadline.stepKey === stepKey
+      )
+  );
+  return [
+    ...updated,
+    ...missing.map((userId) => ({ userId, stepKey, deadlineAt })),
+  ];
 }
 
 /**
@@ -273,12 +323,14 @@ function resetActorAndGroupClocks(
   now: Date
 ): TeamStateRecord {
   const next = cloneState(state);
-  if (state.phase === "critique") {
+  const durationMs = deadlineMsForPhase(state.phase);
+  if (durationMs !== null) {
     next.perPersonDeadlines = resetPerPersonDeadlines(
       next.perPersonDeadlines,
       [userId],
-      critiqueStepKey(state.round),
-      now
+      currentStepKey(state),
+      now,
+      durationMs
     );
   }
   if (next.groupDeadline !== null) {
@@ -312,10 +364,7 @@ function completeAndRotate(state: TeamStateRecord, now: Date): EngineResult {
   ];
 
   if (state.round >= CRITIQUE_ROUND_COUNT) {
-    return {
-      state: { ...cloneState(state), phase: "merge" },
-      effects,
-    };
+    return enterMerge(state, now, effects);
   }
 
   const nextRound = state.round + 1;
@@ -413,6 +462,9 @@ export function markAbsent(
   userId: string,
   now: Date
 ): EngineResult {
+  if (state.phase === "scoring") {
+    return markAbsentForScoring(state, userId);
+  }
   if (state.phase !== "critique") {
     return { state, effects: [] };
   }
@@ -537,12 +589,14 @@ function applyMemberReturned(
   next.absenceStepKeys = next.absenceStepKeys.filter(
     (entry) => !(entry.userId === userId && entry.stepKey === stepKey)
   );
-  if (state.phase === "critique") {
+  const durationMs = deadlineMsForPhase(state.phase);
+  if (durationMs !== null) {
     next.perPersonDeadlines = resetPerPersonDeadlines(
       next.perPersonDeadlines,
       [userId],
       stepKey,
-      now
+      now,
+      durationMs
     );
   }
   return { state: next, effects: [] };
@@ -554,6 +608,12 @@ function applyMemberReturned(
  * Does not refresh co-waiters' clocks. Idempotent at the same `now`.
  */
 export function evaluateTeam(state: TeamStateRecord, now: Date): EngineResult {
+  if (state.phase === "merge") {
+    return evaluateMerge(state, now);
+  }
+  if (state.phase === "scoring") {
+    return evaluateScoring(state, now);
+  }
   if (state.phase !== "critique") {
     return { state, effects: [] };
   }
@@ -583,8 +643,11 @@ export function evaluateTeam(state: TeamStateRecord, now: Date): EngineResult {
 /**
  * Learner message events advance presenter-share then critic responses (6.3, 6.4).
  * message / docSnapshot reset the group clock (if set) and only the actor's
- * current-step per-person clock (4.3). memberReturned joins the current
- * phase/round without replaying completed work (4.6, 6.7).
+ * current-step per-person clock (4.3). Merge contributions count toward the
+ * 3-day nudge. agreement merge_complete from all present opens scoring (8.1).
+ * scoresSubmitted acks without values and reveals when every present member
+ * has submitted (8.3, 8.4). memberReturned joins the current phase/round
+ * without replaying completed work (4.6, 6.7).
  */
 export function applyLearnerEvent(
   state: TeamStateRecord,
@@ -599,8 +662,19 @@ export function applyLearnerEvent(
     return applyMemberReturned(state, event.userId, now);
   }
 
+  if (event.kind === "agreement") {
+    return applyAgreement(state, event.userId, event.subject, now);
+  }
+
+  if (event.kind === "scoresSubmitted") {
+    return applyScoresSubmitted(state, event.userId);
+  }
+
   if (event.kind === "message" || event.kind === "docSnapshot") {
     const withClocks = resetActorAndGroupClocks(state, event.userId, now);
+    if (state.phase === "merge") {
+      return { state: recordContribution(withClocks, event.userId), effects: [] };
+    }
     if (event.kind === "docSnapshot") {
       return { state: withClocks, effects: [] };
     }
@@ -608,4 +682,264 @@ export function applyLearnerEvent(
   }
 
   return { state, effects: [] };
+}
+
+function recordContribution(state: TeamStateRecord, userId: string): TeamStateRecord {
+  if (state.respondedUserIds.includes(userId)) {
+    return state;
+  }
+  const next = cloneState(state);
+  next.respondedUserIds = [...next.respondedUserIds, userId];
+  return next;
+}
+
+function enterMerge(
+  state: TeamStateRecord,
+  now: Date,
+  prefix: EngineEffect[]
+): EngineResult {
+  const next: TeamStateRecord = {
+    ...cloneState(state),
+    phase: "merge",
+    perPersonDeadlines: deadlinesForStep(
+      state.memberUserIds,
+      MERGE_STEP_KEY,
+      MERGE_NUDGE_MS,
+      now
+    ),
+    groupDeadline: new Date(now.getTime() + GROUP_SILENCE_MS).toISOString(),
+    respondedUserIds: [],
+  };
+  return {
+    state: next,
+    effects: [
+      ...prefix,
+      postFacilitator("scripted", "open_rubric", {
+        memberUserIds: state.memberUserIds,
+      }),
+    ],
+  };
+}
+
+function enterScoring(
+  state: TeamStateRecord,
+  now: Date,
+  prefix: EngineEffect[]
+): EngineResult {
+  const next: TeamStateRecord = {
+    ...cloneState(state),
+    phase: "scoring",
+    perPersonDeadlines: deadlinesForStep(
+      state.memberUserIds,
+      SCORING_STEP_KEY,
+      SCORING_DEADLINE_MS,
+      now
+    ),
+    groupDeadline: null,
+    respondedUserIds: [],
+  };
+  return {
+    state: next,
+    effects: [
+      ...prefix,
+      postFacilitator("scripted", "score_prompt", {
+        memberUserIds: next.memberUserIds,
+      }),
+    ],
+  };
+}
+
+function applyAgreement(
+  state: TeamStateRecord,
+  userId: string,
+  subject: AgreementSubject,
+  now: Date
+): EngineResult {
+  if (subject !== "merge_complete" || state.phase !== "merge") {
+    return { state, effects: [] };
+  }
+  if (state.agreementSets.merge_complete.includes(userId)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.agreementSets.merge_complete = [
+    ...next.agreementSets.merge_complete,
+    userId,
+  ];
+  const present = presentUserIds(next, MERGE_STEP_KEY);
+  if (present.every((memberId) => next.agreementSets.merge_complete.includes(memberId))) {
+    return enterScoring(next, now, []);
+  }
+  return { state: next, effects: [] };
+}
+
+function shouldReveal(state: TeamStateRecord): boolean {
+  if (state.phase !== "scoring") {
+    return false;
+  }
+  if (state.respondedUserIds.length < 1) {
+    return false;
+  }
+  const present = presentUserIds(state, SCORING_STEP_KEY);
+  return (
+    present.length > 0 &&
+    present.every((userId) => state.respondedUserIds.includes(userId))
+  );
+}
+
+function applyScoresSubmitted(
+  state: TeamStateRecord,
+  userId: string
+): EngineResult {
+  if (state.phase !== "scoring") {
+    return { state, effects: [] };
+  }
+  if (isAbsentForStep(state, userId, SCORING_STEP_KEY)) {
+    return { state, effects: [] };
+  }
+  if (state.respondedUserIds.includes(userId)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.respondedUserIds = [...next.respondedUserIds, userId];
+  const effects: EngineEffect[] = [
+    postFacilitator("scripted", "score_ack", { userId }),
+  ];
+  if (shouldReveal(next)) {
+    effects.push({ kind: "revealScores" });
+  }
+  return { state: next, effects };
+}
+
+function markAbsentForScoring(
+  state: TeamStateRecord,
+  userId: string
+): EngineResult {
+  if (!state.memberUserIds.includes(userId)) {
+    return { state, effects: [] };
+  }
+  if (isAbsentForStep(state, userId, SCORING_STEP_KEY)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.absenceStepKeys = [
+    ...next.absenceStepKeys,
+    { userId, stepKey: SCORING_STEP_KEY },
+  ];
+  const effects: EngineEffect[] = [
+    { kind: "markAbsent", userId, stepKey: SCORING_STEP_KEY },
+  ];
+  if (shouldReveal(next)) {
+    effects.push({ kind: "revealScores" });
+  }
+  return { state: next, effects };
+}
+
+function mergeNudgeNotice(state: TeamStateRecord, userId: string): EngineEffect {
+  return {
+    kind: "sendNotice",
+    notice: {
+      kind: "nudge",
+      userId,
+      dedupeKey: `${state.memberUserIds.join(",")}:${userId}:nudge:merge`,
+      deepLink: "/activity",
+    },
+  };
+}
+
+function evaluateMerge(state: TeamStateRecord, now: Date): EngineResult {
+  const nowMs = now.getTime();
+  if (
+    state.groupDeadline !== null &&
+    Date.parse(state.groupDeadline) <= nowMs
+  ) {
+    return enterScoring(state, now, [
+      postFacilitator("scripted", "merge_auto_finalize", { incomplete: true }),
+    ]);
+  }
+
+  const next = cloneState(state);
+  const effects: EngineEffect[] = [];
+  const kept: PerPersonDeadline[] = [];
+  for (const deadline of next.perPersonDeadlines) {
+    const nudgeDue =
+      deadline.stepKey === MERGE_STEP_KEY &&
+      Date.parse(deadline.deadlineAt) <= nowMs &&
+      !next.respondedUserIds.includes(deadline.userId) &&
+      !isAbsentForStep(next, deadline.userId, MERGE_STEP_KEY);
+    if (nudgeDue) {
+      effects.push(mergeNudgeNotice(next, deadline.userId));
+    } else {
+      kept.push(deadline);
+    }
+  }
+  next.perPersonDeadlines = kept;
+  return { state: next, effects };
+}
+
+function evaluateScoring(state: TeamStateRecord, now: Date): EngineResult {
+  const nowMs = now.getTime();
+  const waiting = presentUserIds(state, SCORING_STEP_KEY).filter(
+    (userId) => !state.respondedUserIds.includes(userId)
+  );
+  const expiredUserIds = waiting.filter((userId) => {
+    const deadline = state.perPersonDeadlines.find(
+      (entry) => entry.userId === userId && entry.stepKey === SCORING_STEP_KEY
+    );
+    return deadline !== undefined && Date.parse(deadline.deadlineAt) <= nowMs;
+  });
+
+  let current = state;
+  const effects: EngineEffect[] = [];
+  for (const userId of expiredUserIds) {
+    const result = markAbsent(current, userId, now);
+    current = result.state;
+    effects.push(...result.effects);
+  }
+  return { state: current, effects };
+}
+
+/**
+ * Spread per criterion = max − min of revealed scores. Flag at ≥2 (9.1, 9.2).
+ */
+export function computeSpread(revealed: RevealedScores): CriterionSpread[] {
+  const valuesByCriterion = new Map<string, number[]>();
+  for (const member of revealed.members) {
+    for (const score of member.scores) {
+      const values = valuesByCriterion.get(score.criterionKey) ?? [];
+      values.push(score.value);
+      valuesByCriterion.set(score.criterionKey, values);
+    }
+  }
+  return [...valuesByCriterion.entries()].map(([criterionKey, values]) => {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const spread = max - min;
+    return {
+      criterionKey,
+      min,
+      max,
+      spread,
+      flagged: spread >= SPREAD_FLAG_THRESHOLD,
+    };
+  });
+}
+
+/**
+ * Apply revealed spreads: flag ≥2 criteria and skip discussion when none (9.7).
+ */
+export function applySpread(
+  state: TeamStateRecord,
+  revealed: RevealedScores
+): EngineResult {
+  if (state.phase !== "scoring") {
+    return { state, effects: [] };
+  }
+  const flaggedCriteria = computeSpread(revealed)
+    .filter((row) => row.flagged)
+    .map((row) => row.criterionKey);
+  const next = cloneState(state);
+  next.flaggedCriteria = flaggedCriteria;
+  next.phase = flaggedCriteria.length === 0 ? "consensus" : "discussion";
+  return { state: next, effects: [] };
 }

@@ -1,6 +1,7 @@
 /**
- * Runtime self-test for calibration-engine queue (Task 2.1) and
- * critique rotation (Task 2.2). Pure evaluation only.
+ * Runtime self-test for calibration-engine queue (Task 2.1),
+ * critique rotation (Task 2.2), dual clocks (Task 2.3), and
+ * merge / blind-scoring (Task 2.4). Pure evaluation only.
  *
  * Run: npx tsx lib/calibration-engine/engine.selftest.ts
  */
@@ -9,19 +10,24 @@ import type {
   EngineEffect,
   EngineResult,
   QueueEffect,
+  RevealedScores,
   TeamStateRecord,
 } from "../calibration-store/types";
 import {
   CRITIQUE_DEADLINE_MS,
   GROUP_SILENCE_MS,
+  MERGE_NUDGE_MS,
   MS_PER_DAY,
   MS_PER_HOUR,
   OPERATOR_STUCK_LISTING_MS,
   QUEUE_EXPIRY_MISSED_PINGS,
   QUEUE_PING_MS,
+  SCORING_DEADLINE_MS,
 } from "../calibration-store/types";
 import {
   applyLearnerEvent,
+  applySpread,
+  computeSpread,
   evaluateQueue,
   evaluateTeam,
   getCritiqueRoles,
@@ -104,6 +110,61 @@ function deadlineOf(
 ): string | undefined {
   return state.perPersonDeadlines.find((deadline) => deadline.userId === userId)
     ?.deadlineAt;
+}
+
+function deadlineOfStep(
+  state: TeamStateRecord,
+  userId: string,
+  stepKey: string
+): string | undefined {
+  return state.perPersonDeadlines.find(
+    (deadline) => deadline.userId === userId && deadline.stepKey === stepKey
+  )?.deadlineAt;
+}
+
+function completeAllCritiqueRounds(now: Date): EngineResult {
+  let result = startTeam(TEAM_MEMBERS, now);
+  for (let round = 1; round <= 3; round += 1) {
+    const roles = getCritiqueRoles(result.state);
+    result = completeRound(result.state, roles.presenterUserId, roles.criticUserIds, now);
+  }
+  return result;
+}
+
+function enterScoringViaAgreements(now: Date): EngineResult {
+  let result = completeAllCritiqueRounds(now);
+  for (const userId of TEAM_MEMBERS) {
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId, subject: "merge_complete" },
+      now
+    );
+  }
+  return result;
+}
+
+function submitScores(
+  state: TeamStateRecord,
+  userId: string,
+  now: Date
+): EngineResult {
+  return applyLearnerEvent(state, { kind: "scoresSubmitted", userId }, now);
+}
+
+function revealedFrom(
+  members: Array<{ userId: string; values: Record<string, number> }>,
+  revealedAt: string = NOW.toISOString()
+): RevealedScores {
+  return {
+    members: members.map((member) => ({
+      userId: member.userId,
+      scores: Object.entries(member.values).map(([criterionKey, value]) => ({
+        criterionKey,
+        value,
+      })),
+    })),
+    revealedAt,
+  };
 }
 
 function completeRound(
@@ -1440,6 +1501,448 @@ function main(): void {
       result.state.respondedUserIds.includes("u-cara"),
       "rejoined member can respond in the current step"
     );
+  }
+
+  // ========================================================================
+  // Task 2.4 — merge + blind scoring (4.5, 7.1, 7.6, 7.7, 8.1, 8.3–8.6, 9.1–9.2, 9.7)
+  // ========================================================================
+
+  const expectedMergeNudge = new Date(NOW.getTime() + MERGE_NUDGE_MS).toISOString();
+  const expectedGroupSilence = new Date(NOW.getTime() + GROUP_SILENCE_MS).toISOString();
+
+  // --- 7.1: third critique round opens merge with rubric prompt + dual clocks ---
+  {
+    const result = completeAllCritiqueRounds(NOW);
+    assertEqual(result.state.phase, "merge", "third critique round opens merge (7.1)");
+    assert(
+      facilitatorKeys(result.effects).includes("open_rubric"),
+      "merge posts an open-rubric prompt (7.1)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      expectedGroupSilence,
+      "merge starts the 14-day group silence clock (7.7)"
+    );
+    assert(
+      TEAM_MEMBERS.every(
+        (userId) => deadlineOfStep(result.state, userId, "merge") === expectedMergeNudge
+      ),
+      "merge starts a 3-day per-person contribution clock for every member (7.6)"
+    );
+    assert(
+      result.state.perPersonDeadlines.every((deadline) => deadline.stepKey === "merge"),
+      "merge per-person clocks use the merge step key"
+    );
+    assertEqual(
+      result.state.respondedUserIds,
+      [],
+      "merge starts with no contributions recorded"
+    );
+  }
+
+  // --- 7.6: 3-day no-contribution → nudge that member; contributors are skipped ---
+  {
+    let result = completeAllCritiqueRounds(NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "docSnapshot", userId: "u-alice", docKind: "rubric" },
+      NOW
+    );
+    assert(
+      result.state.respondedUserIds.includes("u-alice"),
+      "a rubric snapshot counts as a merge contribution"
+    );
+
+    const justUnder = new Date(NOW.getTime() + MERGE_NUDGE_MS - 1);
+    const early = evaluateTeam(result.state, justUnder);
+    assertEqual(
+      noticeKinds(early.effects).includes("nudge"),
+      false,
+      "just under 3 days → no merge nudge"
+    );
+
+    const due = new Date(NOW.getTime() + MERGE_NUDGE_MS);
+    result = evaluateTeam(result.state, due);
+    const nudges = ofEngineKind(result.effects, "sendNotice").filter(
+      (effect) => effect.notice.kind === "nudge"
+    );
+    assertEqual(nudges.length, 2, "3-day silence nudges only non-contributors (7.6)");
+    assertEqual(
+      nudges.map((effect) => effect.notice.userId).sort(),
+      ["u-bob", "u-cara"],
+      "nudge targets bob and cara, not contributing alice"
+    );
+    assert(
+      nudges.every((effect) => effect.notice.dedupeKey.includes("nudge")),
+      "merge nudge notices carry a nudge dedupeKey"
+    );
+    assertEqual(result.state.phase, "merge", "a nudge does not leave merge");
+    assert(
+      !result.state.absenceStepKeys.some((entry) => entry.stepKey === "merge"),
+      "a merge nudge does not mark the member absent"
+    );
+
+    const replayed = evaluateTeam(result.state, due);
+    assertEqual(
+      noticeKinds(replayed.effects).includes("nudge"),
+      false,
+      "merge nudge is idempotent at the same clock"
+    );
+  }
+
+  // --- 4.3 in merge: one member's edit resets group + own nudge clock only ---
+  {
+    const started = completeAllCritiqueRounds(NOW);
+    const bobBefore = deadlineOfStep(started.state, "u-bob", "merge");
+    const later = new Date(NOW.getTime() + MS_PER_DAY);
+    const result = applyLearnerEvent(
+      started.state,
+      { kind: "message", userId: "u-alice", body: "alice drafts a criterion" },
+      later
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-bob", "merge"),
+      bobBefore,
+      "alice's merge message does not reset bob's nudge clock (4.3)"
+    );
+    assertEqual(
+      deadlineOfStep(result.state, "u-alice", "merge"),
+      new Date(later.getTime() + MERGE_NUDGE_MS).toISOString(),
+      "alice's own merge nudge clock is reset (4.3)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      new Date(later.getTime() + GROUP_SILENCE_MS).toISOString(),
+      "alice's merge message resets the group clock (4.3)"
+    );
+    assertEqual(result.state.phase, "merge", "a merge message does not advance the phase");
+  }
+
+  // --- 4.5 / 7.7: 14-day group silence auto-finalizes rubric incomplete → scoring ---
+  {
+    const started = completeAllCritiqueRounds(NOW);
+    const justUnder = evaluateTeam(
+      started.state,
+      new Date(NOW.getTime() + GROUP_SILENCE_MS - 1)
+    );
+    assertEqual(justUnder.state.phase, "merge", "just under 14 days stays in merge");
+
+    const silenceAt = new Date(NOW.getTime() + GROUP_SILENCE_MS);
+    const result = evaluateTeam(started.state, silenceAt);
+    assertEqual(
+      result.state.phase,
+      "scoring",
+      "14-day group silence auto-finalizes merge into scoring (7.7)"
+    );
+    assert(
+      ofEngineKind(result.effects, "postFacilitator").some(
+        (effect) =>
+          effect.message.key === "merge_auto_finalize" &&
+          effect.message.context.incomplete === true
+      ),
+      "auto-finalize labels the rubric incomplete (4.5, 7.7)"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("score_prompt"),
+      "auto-finalize asks present members to score (8.1)"
+    );
+    const scoringDeadlineAtSilence = new Date(
+      silenceAt.getTime() + SCORING_DEADLINE_MS
+    ).toISOString();
+    assert(
+      TEAM_MEMBERS.every(
+        (userId) =>
+          deadlineOfStep(result.state, userId, "scoring") === scoringDeadlineAtSilence
+      ),
+      "scoring starts a 7-day per-person clock for every present member (8.5)"
+    );
+    assertEqual(
+      result.state.groupDeadline,
+      null,
+      "scoring does not run a group silence clock"
+    );
+
+    const replayed = evaluateTeam(result.state, new Date(NOW.getTime() + GROUP_SILENCE_MS));
+    assert(
+      !facilitatorKeys(replayed.effects).includes("merge_auto_finalize"),
+      "merge auto-finalize is idempotent after the phase has advanced"
+    );
+  }
+
+  // --- 8.1: all present merge_complete agreements advance to scoring ---
+  {
+    let result = completeAllCritiqueRounds(NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-alice", subject: "merge_complete" },
+      NOW
+    );
+    assertEqual(result.state.phase, "merge", "one merge_complete agreement stays in merge");
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-bob", subject: "merge_complete" },
+      NOW
+    );
+    assertEqual(result.state.phase, "merge", "two merge_complete agreements stay in merge");
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-cara", subject: "merge_complete" },
+      NOW
+    );
+    assertEqual(
+      result.state.phase,
+      "scoring",
+      "all present merge_complete agreements open scoring (8.1)"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("score_prompt"),
+      "agreement-driven scoring posts a score prompt (8.1)"
+    );
+    assert(
+      !facilitatorKeys(result.effects).includes("merge_auto_finalize"),
+      "explicit agreement does not flag the rubric incomplete"
+    );
+    assertEqual(
+      result.state.agreementSets.merge_complete.slice().sort(),
+      [...TEAM_MEMBERS].sort(),
+      "all three merge_complete agreements are recorded"
+    );
+  }
+
+  // --- 8.3 / 8.4: three present submitters → ack without values, then reveal ---
+  {
+    let result = enterScoringViaAgreements(NOW);
+    result = submitScores(result.state, "u-alice", NOW);
+    assert(
+      ofEngineKind(result.effects, "postFacilitator").some(
+        (effect) => effect.message.key === "score_ack"
+      ),
+      "first submission is acknowledged (8.3)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "one submission does not reveal"
+    );
+    const ack = ofEngineKind(result.effects, "postFacilitator").find(
+      (effect) => effect.message.key === "score_ack"
+    );
+    assertEqual(
+      ack?.message.context.userId,
+      "u-alice",
+      "score ack names the submitter"
+    );
+    assert(
+      !JSON.stringify(ack?.message.context ?? {}).match(/"[1-5]"|: [1-5][,}]/),
+      "score ack context contains no numeric score values (8.3)"
+    );
+
+    result = submitScores(result.state, "u-bob", NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "two of three present submissions do not reveal"
+    );
+
+    result = submitScores(result.state, "u-cara", NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [{ kind: "revealScores" }],
+      "every present member submitted → revealScores (8.4)"
+    );
+    assert(
+      ofEngineKind(result.effects, "postFacilitator").some(
+        (effect) => effect.message.key === "score_ack"
+      ),
+      "the last submission is still acknowledged without values (8.3)"
+    );
+    assertEqual(result.state.phase, "scoring", "reveal stays in scoring until spread is applied");
+
+    const replayed = evaluateTeam(result.state, NOW);
+    assertEqual(
+      ofEngineKind(replayed.effects, "revealScores"),
+      [],
+      "evaluateTeam does not re-reveal after all present already submitted"
+    );
+
+    const flaggedRevealed = revealedFrom([
+      { userId: "u-alice", values: { clarity: 2, evidence: 4 } },
+      { userId: "u-bob", values: { clarity: 3, evidence: 4 } },
+      { userId: "u-cara", values: { clarity: 5, evidence: 4 } },
+    ]);
+    const spreads = computeSpread(flaggedRevealed);
+    const clarity = spreads.find((row) => row.criterionKey === "clarity");
+    const evidence = spreads.find((row) => row.criterionKey === "evidence");
+    assertEqual(clarity?.min, 2, "3-scorer clarity min is 2 (9.1)");
+    assertEqual(clarity?.max, 5, "3-scorer clarity max is 5 (9.1)");
+    assertEqual(clarity?.spread, 3, "3-scorer clarity spread is max−min (9.1)");
+    assertEqual(clarity?.flagged, true, "3-scorer clarity spread ≥2 is flagged (9.2)");
+    assertEqual(evidence?.spread, 0, "3-scorer evidence spread is 0");
+    assertEqual(evidence?.flagged, false, "3-scorer evidence spread <2 is not flagged");
+
+    const advanced = applySpread(result.state, flaggedRevealed);
+    assertEqual(
+      advanced.state.phase,
+      "discussion",
+      "3 scorers with a ≥2 flag enter discussion (9.1, 9.2)"
+    );
+    assertEqual(
+      advanced.state.flaggedCriteria,
+      ["clarity"],
+      "only criteria with spread ≥2 are flagged"
+    );
+  }
+
+  // --- 8.5 / 8.6 / 9.7: 7-day absence with exactly two submitters reveals; no flags skip discussion ---
+  {
+    let result = enterScoringViaAgreements(NOW);
+    result = submitScores(result.state, "u-alice", NOW);
+    result = submitScores(result.state, "u-bob", NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "two of three present submissions wait for the third or a timeout"
+    );
+
+    const justUnder = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + SCORING_DEADLINE_MS - 1)
+    );
+    assertEqual(
+      ofEngineKind(justUnder.effects, "markAbsent"),
+      [],
+      "just under 7 days marks nobody absent"
+    );
+    assertEqual(
+      ofEngineKind(justUnder.effects, "revealScores"),
+      [],
+      "just under 7 days does not reveal"
+    );
+
+    result = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + SCORING_DEADLINE_MS)
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-cara", stepKey: "scoring" }],
+      "7-day scoring silence marks the non-submitter absent (8.5)"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [{ kind: "revealScores" }],
+      "exactly two submitters are sufficient to reveal after timeout (8.6)"
+    );
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-cara" && entry.stepKey === "scoring"
+      ),
+      "cara is absent for scoring only"
+    );
+
+    const replayed = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + SCORING_DEADLINE_MS)
+    );
+    assertEqual(
+      ofEngineKind(replayed.effects, "revealScores"),
+      [],
+      "timeout reveal is idempotent at the same clock"
+    );
+
+    const tightRevealed = revealedFrom([
+      { userId: "u-alice", values: { clarity: 3, evidence: 4 } },
+      { userId: "u-bob", values: { clarity: 4, evidence: 4 } },
+    ]);
+    const spreads = computeSpread(tightRevealed);
+    assert(
+      spreads.every((row) => row.flagged === false),
+      "2-scorer spreads of 0 and 1 are not flagged"
+    );
+    assertEqual(
+      spreads.find((row) => row.criterionKey === "clarity")?.spread,
+      1,
+      "2-scorer clarity spread is max−min"
+    );
+
+    const advanced = applySpread(result.state, tightRevealed);
+    assertEqual(
+      advanced.state.phase,
+      "consensus",
+      "no ≥2 flags skip discussion and go to consensus (9.7)"
+    );
+    assertEqual(advanced.state.flaggedCriteria, [], "no-flag reveal stores no flagged criteria");
+  }
+
+  // --- 8.5: 7-day absence with one submission still reveals; leftover waiter does not ---
+  {
+    let result = enterScoringViaAgreements(NOW);
+    result = submitScores(result.state, "u-alice", NOW);
+    const onlyCaraExpired: TeamStateRecord = {
+      ...result.state,
+      perPersonDeadlines: result.state.perPersonDeadlines.map((deadline) =>
+        deadline.userId === "u-cara" && deadline.stepKey === "scoring"
+          ? { ...deadline, deadlineAt: NOW.toISOString() }
+          : deadline
+      ),
+    };
+    result = evaluateTeam(onlyCaraExpired, NOW);
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-cara", stepKey: "scoring" }],
+      "only the expired non-submitter is marked absent"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [],
+      "a still-waiting present member blocks reveal"
+    );
+
+    result = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + SCORING_DEADLINE_MS)
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-bob", stepKey: "scoring" }],
+      "the remaining non-submitter is marked absent at 7 days"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [{ kind: "revealScores" }],
+      "≥1 submission plus remaining present having submitted reveals (8.5)"
+    );
+  }
+
+  // --- timeout spread case: two revealed scores with a ≥2 flag enter discussion ---
+  {
+    let result = enterScoringViaAgreements(NOW);
+    result = submitScores(result.state, "u-alice", NOW);
+    result = submitScores(result.state, "u-bob", NOW);
+    result = evaluateTeam(
+      result.state,
+      new Date(NOW.getTime() + SCORING_DEADLINE_MS)
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "revealScores"),
+      [{ kind: "revealScores" }],
+      "timeout path emits revealScores before spread"
+    );
+
+    const timeoutRevealed = revealedFrom([
+      { userId: "u-alice", values: { clarity: 1 } },
+      { userId: "u-bob", values: { clarity: 5 } },
+    ]);
+    const spreads = computeSpread(timeoutRevealed);
+    assertEqual(spreads[0]?.spread, 4, "timeout 2-scorer spread is max−min");
+    assertEqual(spreads[0]?.flagged, true, "timeout 2-scorer spread ≥2 is flagged");
+    const advanced = applySpread(result.state, timeoutRevealed);
+    assertEqual(
+      advanced.state.phase,
+      "discussion",
+      "timeout reveal with a ≥2 flag enters discussion (9.2)"
+    );
+    assertEqual(advanced.state.flaggedCriteria, ["clarity"], "timeout flags the wide criterion");
   }
 
   if (failures > 0) {

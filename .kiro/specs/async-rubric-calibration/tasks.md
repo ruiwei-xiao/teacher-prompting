@@ -38,7 +38,7 @@
   - Per-person expiry marks absence for the current step only and continues with remaining members (critique 48h as the first consumer); absent members rejoin at the team's current point without replaying completed work
   - Done when: clock rules produce expected states/effects for on-time, absent, and returning members
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.6, 6.6, 6.7_
-- [ ] 2.4 Implement merge and blind-scoring rules: nudges, auto-finalize, gated reveal, spread
+- [x] 2.4 Implement merge and blind-scoring rules: nudges, auto-finalize, gated reveal, spread
   - Merge phase: open shared rubric prompt effect, 3-day no-contribution nudge, 14-day group silence auto-finalizes rubric flagged incomplete
   - Scoring: submission acknowledged without values; reveal fires when every present member submitted or after 7-day absence with at least one submission; two submitters are sufficient
   - Spread per criterion = max − min; flag criteria at ≥2; no flags skips discussion
@@ -188,3 +188,4 @@
 - Store JSON override env is `CALIBRATION_DATA_FILE`. Operator held-score reads use `getScoresForOperator` (does not set `scores_revealed_at`). Generic member reads use `getScoresForMember`.
 - `evaluateQueue` forms teams of 3 via a literal (no TEAM_SIZE constant in types). `formTeam` effect has no offeringId; the executor must recover offering from the check-in set.
 - TeamStateRecord now includes memberUserIds, respondedUserIds, critiqueStage as official JSONB fields (needed for rotation persist/reload).
+- After executing revealScores, task 4.4 must call store.revealScores then engine.applySpread(state, revealed) — scoresSubmitted has no values so the engine cannot advance scoring→discussion/consensus until spread is applied.
