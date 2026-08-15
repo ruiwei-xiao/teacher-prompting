@@ -88,7 +88,7 @@
   - Done when: posting a message advances a waiting round and the facilitator's next prompt appears in the space payload
   - _Requirements: 3.1, 3.2, 3.3, 4.3, 6.2, 6.3, 7.3, 10.4, 11.2_
   - _Depends: 2.5, 3.2, 3.3_
-- [ ] 4.3 Implement check-in and queue endpoints executing team formation
+- [x] 4.3 Implement check-in and queue endpoints executing team formation
   - Check-in endpoint records the learner, runs queue evaluation, and executes formation effects (team creation, recap post, formation notices) through the shared effect executor; returns queue status n of 3
   - Done when: the third check-in forms a team, posts the recap, and records formation notices for all three members
   - _Requirements: 2.1, 2.2, 5.1, 5.2_

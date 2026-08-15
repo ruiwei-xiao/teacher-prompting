@@ -668,7 +668,11 @@ async function getOfferingInFile(offeringId: string): Promise<Offering | null> {
   return data.offerings.find((o) => o.id === offeringId) ?? null;
 }
 
-async function checkInInFile(offeringId: string, userId: string): Promise<CheckIn> {
+async function checkInInFile(
+  offeringId: string,
+  userId: string,
+  now?: Date
+): Promise<CheckIn> {
   const data = await readFileData();
   if (!data.offerings.some((o) => o.id === offeringId)) {
     throw new Error("Offering not found.");
@@ -687,7 +691,7 @@ async function checkInInFile(offeringId: string, userId: string): Promise<CheckI
     offeringId,
     userId,
     status: "queued",
-    checkedInAt: new Date().toISOString(),
+    checkedInAt: (now ?? new Date()).toISOString(),
     lastPingAt: null,
     missedPings: 0,
     teamId: null,
@@ -695,6 +699,21 @@ async function checkInInFile(offeringId: string, userId: string): Promise<CheckI
   data.checkIns.push(record);
   await writeFileData(data);
   return record;
+}
+
+async function getCheckInInFile(
+  offeringId: string,
+  userId: string
+): Promise<CheckIn | null> {
+  const data = await readFileData();
+  return (
+    data.checkIns.find(
+      (c) =>
+        c.offeringId === offeringId &&
+        c.userId === userId &&
+        isActiveCheckInStatus(c.status)
+    ) ?? null
+  );
 }
 
 async function listQueuedCheckInsInFile(offeringId?: string): Promise<CheckIn[]> {
@@ -1154,7 +1173,8 @@ async function getOfferingInPostgres(offeringId: string): Promise<Offering | nul
 
 async function checkInInPostgres(
   offeringId: string,
-  userId: string
+  userId: string,
+  now?: Date
 ): Promise<CheckIn> {
   await ensurePostgresStore();
   const offering = await getOfferingInPostgres(offeringId);
@@ -1179,7 +1199,7 @@ async function checkInInPostgres(
     offeringId,
     userId,
     status: "queued",
-    checkedInAt: new Date().toISOString(),
+    checkedInAt: (now ?? new Date()).toISOString(),
     lastPingAt: null,
     missedPings: 0,
     teamId: null,
@@ -1201,6 +1221,24 @@ async function checkInInPostgres(
     )
   `;
   return record;
+}
+
+async function getCheckInInPostgres(
+  offeringId: string,
+  userId: string
+): Promise<CheckIn | null> {
+  await ensurePostgresStore();
+  const existing = await sql<CheckInRow>`
+    SELECT
+      id, offering_id, user_id, status, checked_in_at,
+      last_ping_at, missed_pings, team_id
+    FROM calibration_checkins
+    WHERE offering_id = ${offeringId}
+      AND user_id = ${userId}
+      AND status IN ('queued', 'matched')
+    LIMIT 1
+  `;
+  return existing.rows[0] ? rowToCheckIn(existing.rows[0]) : null;
 }
 
 async function listQueuedCheckInsInPostgres(
@@ -1753,11 +1791,25 @@ export async function getOffering(offeringId: string): Promise<Offering | null> 
   return getOfferingInFile(offeringId);
 }
 
-export async function checkIn(offeringId: string, userId: string): Promise<CheckIn> {
+export async function checkIn(
+  offeringId: string,
+  userId: string,
+  now?: Date
+): Promise<CheckIn> {
   if (shouldUsePostgres()) {
-    return checkInInPostgres(offeringId, userId);
+    return checkInInPostgres(offeringId, userId, now);
   }
-  return checkInInFile(offeringId, userId);
+  return checkInInFile(offeringId, userId, now);
+}
+
+export async function getCheckIn(
+  offeringId: string,
+  userId: string
+): Promise<CheckIn | null> {
+  if (shouldUsePostgres()) {
+    return getCheckInInPostgres(offeringId, userId);
+  }
+  return getCheckInInFile(offeringId, userId);
 }
 
 export async function listQueuedCheckIns(offeringId?: string): Promise<CheckIn[]> {

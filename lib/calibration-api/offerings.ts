@@ -6,10 +6,10 @@
  * Joining a team / creating an offering never touches Workspace membership.
  */
 import { resolveCaller } from "./access";
+import { queueStatusFor } from "./queue";
 import {
   createOffering as persistOffering,
   getOffering,
-  listQueuedCheckIns,
 } from "@/lib/calibration-store/store";
 import type { Offering, OfferingInput } from "@/lib/calibration-store/types";
 
@@ -142,8 +142,7 @@ export async function getOfferingGate(
   if (!offering) {
     return notFound("Offering not found");
   }
-  const queued = await listQueuedCheckIns(offeringId);
-  const mine = queued.find((checkIn) => checkIn.userId === userId) ?? null;
+  const me = await queueStatusFor(offeringId, userId);
   return {
     ok: true,
     status: 200,
@@ -154,9 +153,9 @@ export async function getOfferingGate(
         artifacts: artifactsMeta(offering),
       },
       me: {
-        checkedIn: mine !== null,
-        queueCount: queued.length,
-        teamId: mine?.teamId ?? null,
+        checkedIn: me.checkedIn,
+        queueCount: me.queueCount,
+        teamId: me.teamId,
         role: offering.operatorUserId === userId ? "operator" : "learner",
       },
     },
