@@ -1,17 +1,30 @@
 /**
- * Runtime self-test for calibration-engine queue rules (Task 2.1).
- * Pure evaluation: synthetic CheckIn[] + clock times → exact QueueEffect[].
+ * Runtime self-test for calibration-engine queue (Task 2.1) and
+ * critique rotation (Task 2.2). Pure evaluation only.
  *
  * Run: npx tsx lib/calibration-engine/engine.selftest.ts
  */
-import type { CheckIn, QueueEffect } from "../calibration-store/types";
+import type {
+  CheckIn,
+  EngineEffect,
+  EngineResult,
+  QueueEffect,
+  TeamStateRecord,
+} from "../calibration-store/types";
 import {
+  CRITIQUE_DEADLINE_MS,
   MS_PER_DAY,
   OPERATOR_STUCK_LISTING_MS,
   QUEUE_EXPIRY_MISSED_PINGS,
   QUEUE_PING_MS,
 } from "../calibration-store/types";
-import { evaluateQueue } from "./engine";
+import {
+  applyLearnerEvent,
+  evaluateQueue,
+  getCritiqueRoles,
+  markAbsent,
+  startTeam,
+} from "./engine";
 
 let failures = 0;
 
@@ -61,6 +74,46 @@ function ofKind<K extends QueueEffect["kind"]>(
 
 function formTeamUserIdSets(effects: QueueEffect[]): string[][] {
   return ofKind(effects, "formTeam").map((effect) => [...effect.memberUserIds]);
+}
+
+function ofEngineKind<K extends EngineEffect["kind"]>(
+  effects: EngineEffect[],
+  kind: K
+): Extract<EngineEffect, { kind: K }>[] {
+  return effects.filter((effect): effect is Extract<EngineEffect, { kind: K }> => {
+    return effect.kind === kind;
+  });
+}
+
+function facilitatorKeys(effects: EngineEffect[]): string[] {
+  return ofEngineKind(effects, "postFacilitator").map((effect) => effect.message.key);
+}
+
+function noticeKinds(effects: EngineEffect[]): string[] {
+  return ofEngineKind(effects, "sendNotice").map((effect) => effect.notice.kind);
+}
+
+const TEAM_MEMBERS: [string, string, string] = ["u-alice", "u-bob", "u-cara"];
+
+function completeRound(
+  state: TeamStateRecord,
+  presenterUserId: string,
+  criticUserIds: string[],
+  now: Date
+): EngineResult {
+  let result = applyLearnerEvent(
+    state,
+    { kind: "message", userId: presenterUserId, body: `${presenterUserId} critique` },
+    now
+  );
+  for (const criticUserId of criticUserIds) {
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: criticUserId, body: `${criticUserId} response` },
+      now
+    );
+  }
+  return result;
 }
 
 function main(): void {
@@ -646,6 +699,325 @@ function main(): void {
       evaluateQueue(input, NOW),
       evaluateQueue(input, NOW),
       "evaluateQueue is deterministic for the same check-ins and clock"
+    );
+  }
+
+  // ========================================================================
+  // Task 2.2 — kickoff + rotating critique rounds (5.2, 5.3, 6.1–6.5, 15.2)
+  // ========================================================================
+
+  const expectedDeadline = new Date(NOW.getTime() + CRITIQUE_DEADLINE_MS).toISOString();
+
+  // --- 5.2 / 5.3 / 6.2: startTeam opens critique round 1 immediately ---
+  {
+    const { state, effects } = startTeam(TEAM_MEMBERS, NOW);
+    assertEqual(state.phase, "critique", "startTeam phase is critique (no kickoff phase)");
+    assertEqual(state.round, 1, "startTeam opens round 1");
+    assertEqual(state.presenterIndex, 0, "startTeam presenterIndex is 0");
+    assertEqual(state.groupDeadline, null, "critique does not start a group clock");
+
+    const roles = getCritiqueRoles(state);
+    assertEqual(roles.presenterUserId, "u-alice", "round 1 presenter is first member");
+    assertEqual(
+      roles.criticUserIds,
+      ["u-bob", "u-cara"],
+      "round 1 critics are the other two members"
+    );
+    assertEqual(roles.criticUserIds.length, 2, "exactly two Critics (15.2)");
+    assert(
+      !("facilitator" in roles) && !("moderator" in roles) && !("scribe" in roles),
+      "no invented learner roles beyond Presenter and Critic (15.2)"
+    );
+
+    const keys = facilitatorKeys(effects);
+    assert(keys.includes("kickoff_recap"), "formation posts a recap (5.2)");
+    assert(keys.includes("presenter_announcement"), "formation announces the Presenter (6.2)");
+    assert(keys.includes("presenter_prompt"), "formation prompts the Presenter to share (6.2)");
+
+    const formed = ofEngineKind(effects, "sendNotice").filter(
+      (effect) => effect.notice.kind === "team_formed"
+    );
+    assertEqual(formed.length, 3, "formation sends team_formed to all three members");
+    assertEqual(
+      formed.map((effect) => effect.notice.userId),
+      TEAM_MEMBERS,
+      "team_formed notices follow member order"
+    );
+    assert(
+      new Set(formed.map((effect) => effect.notice.dedupeKey)).size === 3,
+      "each team_formed notice has a unique dedupeKey"
+    );
+
+    assertEqual(
+      state.perPersonDeadlines.length,
+      3,
+      "round 1 sets a per-person clock for every member"
+    );
+    assert(
+      state.perPersonDeadlines.every(
+        (deadline) =>
+          deadline.stepKey === "critique:1" && deadline.deadlineAt === expectedDeadline
+      ),
+      "kickoff non-response falls to the 48h critique-round clock (5.3)"
+    );
+    assertEqual(
+      state.perPersonDeadlines.map((deadline) => deadline.userId),
+      TEAM_MEMBERS,
+      "per-person deadlines keep member order"
+    );
+  }
+
+  // --- 6.3 / 6.4: presenter share then two critic responses → revoice + rotate ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    const firstPresenter = getCritiqueRoles(result.state).presenterUserId;
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice individual critique" },
+      NOW
+    );
+    assertEqual(result.state.round, 1, "presenter share stays on round 1");
+    assertEqual(result.state.presenterIndex, 0, "presenter share does not rotate yet");
+    assert(
+      facilitatorKeys(result.effects).includes("critic_prompt"),
+      "after presenter share, critics are prompted (6.3)"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob agrees with reasoning" },
+      NOW
+    );
+    assertEqual(result.state.round, 1, "one critic response does not complete the round");
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara disagrees with reasoning" },
+      NOW
+    );
+    assertEqual(result.state.round, 2, "two critic responses rotate to round 2");
+    assert(
+      result.state.presenterIndex !== 0,
+      "round 2 has a different presenterIndex than round 1"
+    );
+
+    const revoices = ofEngineKind(result.effects, "postFacilitator").filter(
+      (effect) => effect.message.key === "revoice"
+    );
+    assertEqual(revoices.length, 1, "round completion emits one revoice (6.4)");
+    assert(
+      revoices[0]?.message.source === "llm" || revoices[0]?.message.source === "scripted",
+      "revoice is postFacilitator with source llm or scripted"
+    );
+
+    const nextRoles = getCritiqueRoles(result.state);
+    assert(nextRoles.presenterUserId !== firstPresenter, "round 2 presenter is a different member");
+    assertEqual(nextRoles.presenterUserId, "u-bob", "rotation advances to the next unused member");
+    assertEqual(
+      nextRoles.criticUserIds,
+      ["u-alice", "u-cara"],
+      "round 2 critics are the other two members"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("presenter_announcement"),
+      "rotation announces the next Presenter"
+    );
+    assert(
+      facilitatorKeys(result.effects).includes("presenter_prompt"),
+      "rotation prompts the next Presenter"
+    );
+    assert(
+      result.state.perPersonDeadlines.every(
+        (deadline) =>
+          deadline.stepKey === "critique:2" && deadline.deadlineAt === expectedDeadline
+      ),
+      "round 2 resets per-person clocks to critique:2 + 48h"
+    );
+  }
+
+  // --- 6.1 / 6.5: after 3 complete rounds, each member was Presenter once ---
+  {
+    const presenters: string[] = [];
+    const criticCounts: Record<string, number> = {
+      "u-alice": 0,
+      "u-bob": 0,
+      "u-cara": 0,
+    };
+
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    for (let round = 1; round <= 3; round += 1) {
+      const roles = getCritiqueRoles(result.state);
+      presenters.push(roles.presenterUserId);
+      for (const criticUserId of roles.criticUserIds) {
+        criticCounts[criticUserId] = (criticCounts[criticUserId] ?? 0) + 1;
+      }
+      assertEqual(result.state.round, round, `before completing, engine is on round ${round}`);
+      assertEqual(roles.criticUserIds.length, 2, `round ${round} has exactly two Critics`);
+      result = completeRound(result.state, roles.presenterUserId, roles.criticUserIds, NOW);
+    }
+
+    assertEqual(presenters.length, 3, "exactly three critique rounds ran (6.1)");
+    assertEqual(
+      [...presenters].sort(),
+      [...TEAM_MEMBERS].sort(),
+      "each member was Presenter once (6.5)"
+    );
+    assertEqual(new Set(presenters).size, 3, "no member presented twice");
+    assertEqual(criticCounts["u-alice"], 2, "alice was Critic twice");
+    assertEqual(criticCounts["u-bob"], 2, "bob was Critic twice");
+    assertEqual(criticCounts["u-cara"], 2, "cara was Critic twice");
+    assertEqual(result.state.phase, "merge", "rotation complete opens merge (no 4th critique round)");
+    assertEqual(result.state.round, 3, "completed rotation stays on round 3");
+  }
+
+  // --- 6.5: skipped presenter counts as absent; next presenter is unused, not a replay ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    assertEqual(
+      getCritiqueRoles(result.state).presenterUserId,
+      "u-alice",
+      "skip case starts with alice as presenter"
+    );
+
+    result = markAbsent(result.state, "u-alice", NOW);
+    assert(
+      result.state.absenceStepKeys.some(
+        (entry) => entry.userId === "u-alice" && entry.stepKey === "critique:1"
+      ),
+      "skipped presenter is recorded absent for this round only"
+    );
+    assertEqual(
+      ofEngineKind(result.effects, "markAbsent"),
+      [{ kind: "markAbsent", userId: "u-alice", stepKey: "critique:1" }],
+      "skip emits markAbsent for the presenter and current step"
+    );
+    assertEqual(result.state.round, 1, "presenter skip does not replay or jump the round");
+    assert(
+      facilitatorKeys(result.effects).includes("critic_prompt"),
+      "after presenter skip, remaining members are prompted as critics"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob continues without alice" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara continues without alice" },
+      NOW
+    );
+
+    assertEqual(result.state.round, 2, "round 1 completes with the remaining two members");
+    assert(
+      facilitatorKeys(result.effects).includes("revoice"),
+      "skipped-presenter round still revoices when remaining responses are in"
+    );
+    const nextRoles = getCritiqueRoles(result.state);
+    assertEqual(
+      nextRoles.presenterUserId,
+      "u-bob",
+      "next presenter is the next unused member, not a replay of alice"
+    );
+    assert(
+      nextRoles.presenterUserId !== "u-alice",
+      "skipped presenter is not reassigned a past round (6.5)"
+    );
+    assertEqual(
+      nextRoles.criticUserIds,
+      ["u-alice", "u-cara"],
+      "round 2 critics are the other two, including the previously absent presenter"
+    );
+  }
+
+  // --- out-of-turn and duplicate messages do not advance rotation ---
+  {
+    let result = startTeam(TEAM_MEMBERS, NOW);
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "critic speaks before presenter" },
+      NOW
+    );
+    assertEqual(result.state.round, 1, "out-of-turn critic message does not advance");
+    assertEqual(result.state.presenterIndex, 0, "out-of-turn message does not rotate presenter");
+    assertEqual(
+      facilitatorKeys(result.effects).includes("critic_prompt"),
+      false,
+      "out-of-turn message does not prompt critics"
+    );
+
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-alice", body: "alice share" },
+      NOW
+    );
+    const afterShare = result.state;
+    result = applyLearnerEvent(
+      afterShare,
+      { kind: "message", userId: "u-bob", body: "bob first" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob duplicate" },
+      NOW
+    );
+    assertEqual(result.state.round, 1, "duplicate critic message does not complete the round");
+  }
+
+  // --- persistence: JSON-round-tripped TeamStateRecord still rotates, incl. skip ---
+  {
+    const started = startTeam(TEAM_MEMBERS, NOW);
+    const reloaded = JSON.parse(JSON.stringify(started.state)) as TeamStateRecord;
+    assertEqual(
+      reloaded.memberUserIds,
+      TEAM_MEMBERS,
+      "JSON round-trip keeps official memberUserIds"
+    );
+    assertEqual(
+      reloaded.respondedUserIds,
+      [],
+      "JSON round-trip keeps official respondedUserIds"
+    );
+    assertEqual(
+      reloaded.critiqueStage,
+      "presenter_share",
+      "JSON round-trip keeps official critiqueStage"
+    );
+
+    let result = markAbsent(reloaded, "u-alice", NOW);
+    assertEqual(result.state.round, 1, "round-tripped skip stays on round 1");
+    assertEqual(
+      result.state.critiqueStage,
+      "critic_response",
+      "round-tripped presenter skip advances official critiqueStage"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-bob", body: "bob after reload" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "message", userId: "u-cara", body: "cara after reload" },
+      NOW
+    );
+    assertEqual(result.state.round, 2, "round-tripped skipped-turn still rotates");
+    assertEqual(
+      getCritiqueRoles(result.state).presenterUserId,
+      "u-bob",
+      "round-tripped skip assigns the next unused presenter"
+    );
+    assertEqual(
+      result.state.critiqueStage,
+      "presenter_share",
+      "round-tripped rotation resets official critiqueStage"
+    );
+    assertEqual(
+      result.state.respondedUserIds,
+      [],
+      "round-tripped rotation clears official respondedUserIds"
     );
   }
 

@@ -168,7 +168,9 @@ function emptyFileData(): CalibrationFileData {
   };
 }
 
-function initialTeamState(): TeamStateRecord {
+function initialTeamState(
+  memberUserIds: [string, string, string] = ["", "", ""]
+): TeamStateRecord {
   return {
     phase: "critique",
     round: 1,
@@ -178,6 +180,9 @@ function initialTeamState(): TeamStateRecord {
     flaggedCriteria: [],
     absenceStepKeys: [],
     agreementSets: { merge_complete: [], final_consensus: [] },
+    memberUserIds,
+    respondedUserIds: [],
+    critiqueStage: "presenter_share",
   };
 }
 
@@ -716,7 +721,7 @@ async function formTeamInFile(
     throw new Error("Offering not found.");
   }
   const now = new Date().toISOString();
-  const state = initialTeamState();
+  const state = initialTeamState(memberUserIds);
   const record: StoredTeam = {
     id: crypto.randomUUID(),
     offeringId,
@@ -1203,7 +1208,7 @@ async function formTeamInPostgres(
     throw new Error("Offering not found.");
   }
   const now = new Date().toISOString();
-  const state = initialTeamState();
+  const state = initialTeamState(memberUserIds);
   const record: StoredTeam = {
     id: crypto.randomUUID(),
     offeringId,

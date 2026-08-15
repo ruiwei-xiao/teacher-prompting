@@ -28,7 +28,7 @@
   - Pure evaluation over check-ins: form team of exactly 3 course-wide; 6-day ping effect; expire + notify after 2 missed pings; surface 10-day waiters for the operator; no solo/pair fallback path
   - Done when: given synthetic check-in sets and clock times, evaluation returns the exact expected effects
   - _Requirements: 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.7_
-- [ ] 2.2 Implement kickoff and rotating critique rounds
+- [x] 2.2 Implement kickoff and rotating critique rounds
   - Team formation effects: recap post + formation notices; open round 1 immediately (kickoff non-response falls to the round clock)
   - Rotation: 3 rounds, one Presenter + two Critics, presenter announcement and critic prompts as effects, revoice effect on round completion, rotation completes only after each member presented once, skipped turn counts as absent
   - Done when: rotation produces expected presenter/critic assignments and effects across all three rounds, including a round with a skipped turn
@@ -187,3 +187,4 @@
 - `npx tsx` needs unsandboxed/`all` permissions (tsx IPC listen EPERM in the default sandbox).
 - Store JSON override env is `CALIBRATION_DATA_FILE`. Operator held-score reads use `getScoresForOperator` (does not set `scores_revealed_at`). Generic member reads use `getScoresForMember`.
 - `evaluateQueue` forms teams of 3 via a literal (no TEAM_SIZE constant in types). `formTeam` effect has no offeringId; the executor must recover offering from the check-in set.
+- TeamStateRecord now includes memberUserIds, respondedUserIds, critiqueStage as official JSONB fields (needed for rotation persist/reload).

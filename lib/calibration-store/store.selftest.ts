@@ -292,6 +292,9 @@ async function main(): Promise<void> {
       flaggedCriteria: [],
       absenceStepKeys: [],
       agreementSets: { merge_complete: [], final_consensus: [] },
+      memberUserIds: [userA, userB, userC],
+      respondedUserIds: [userA],
+      critiqueStage: "critic_response",
     };
     await saveTeamState(team.id, nextState);
     const afterState = await getTeamForMember(team.id, userC);
@@ -310,6 +313,21 @@ async function main(): Promise<void> {
       afterState?.team.state.groupDeadline,
       groupAt,
       "saveTeamState persists group clock"
+    );
+    assertEqual(
+      afterState?.team.state.memberUserIds,
+      [userA, userB, userC],
+      "saveTeamState persists official memberUserIds"
+    );
+    assertEqual(
+      afterState?.team.state.respondedUserIds,
+      [userA],
+      "saveTeamState persists official respondedUserIds"
+    );
+    assertEqual(
+      afterState?.team.state.critiqueStage,
+      "critic_response",
+      "saveTeamState persists official critiqueStage"
     );
     assert(
       afterState !== null && clocksAreIndependent(afterState.team.state),

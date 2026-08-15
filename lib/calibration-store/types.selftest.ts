@@ -8,6 +8,7 @@ import {
   AGREEMENT_SUBJECTS,
   CRITIQUE_DEADLINE_HOURS,
   CRITIQUE_DEADLINE_MS,
+  CRITIQUE_STAGES,
   DISCUSSION_DEADLINE_DAYS,
   DISCUSSION_DEADLINE_MS,
   DOC_KINDS,
@@ -196,6 +197,12 @@ function main(): void {
   const noticeKind: NoticeKind = "queue_ping";
   assertEqual(noticeKind, "queue_ping", "NoticeKind accepts queue_ping");
 
+  assertEqual(
+    [...CRITIQUE_STAGES],
+    ["presenter_share", "critic_response"],
+    "CritiqueStage is presenter_share|critic_response"
+  );
+
   // --- dual independent clocks on TeamStateRecord (Requirement 4.1) ---
   const perPersonAt = "2026-08-17T00:00:00.000Z";
   const groupAt = "2026-08-29T00:00:00.000Z";
@@ -210,6 +217,9 @@ function main(): void {
     flaggedCriteria: [],
     absenceStepKeys: [],
     agreementSets: { merge_complete: [], final_consensus: [] },
+    memberUserIds: ["user_a", "user_b", "user_c"],
+    respondedUserIds: [],
+    critiqueStage: "presenter_share",
   };
 
   assert(
@@ -234,6 +244,24 @@ function main(): void {
     !Object.prototype.hasOwnProperty.call(state, "deadline"),
     "TeamStateRecord has no merged deadline field"
   );
+  assert(
+    Object.prototype.hasOwnProperty.call(state, "memberUserIds"),
+    "TeamStateRecord has official memberUserIds"
+  );
+  assert(
+    Object.prototype.hasOwnProperty.call(state, "respondedUserIds"),
+    "TeamStateRecord has official respondedUserIds"
+  );
+  assert(
+    Object.prototype.hasOwnProperty.call(state, "critiqueStage"),
+    "TeamStateRecord has official critiqueStage"
+  );
+  assertEqual(
+    state.memberUserIds,
+    ["user_a", "user_b", "user_c"],
+    "memberUserIds is a 3-tuple"
+  );
+  assertEqual(state.critiqueStage, "presenter_share", "critiqueStage is a CritiqueStage");
 
   // --- EngineEffect union (exact kinds from design Components) ---
   const effects: EngineEffect[] = [

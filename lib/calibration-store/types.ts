@@ -109,10 +109,15 @@ export type AbsenceStepKey = {
   stepKey: string;
 };
 
+export const CRITIQUE_STAGES = ["presenter_share", "critic_response"] as const;
+export type CritiqueStage = (typeof CRITIQUE_STAGES)[number];
+
 /**
  * Serializable team-state record the engine evaluates.
  * `perPersonDeadlines` and `groupDeadline` are independent clocks and must
  * never be merged into a single deadline field (Requirement 4.1).
+ * Rotation progress is first-class (`memberUserIds`, `respondedUserIds`,
+ * `critiqueStage`) so a JSON persist/reload stays a valid TeamStateRecord.
  */
 export type TeamStateRecord = {
   phase: TeamPhase;
@@ -123,6 +128,9 @@ export type TeamStateRecord = {
   flaggedCriteria: string[];
   absenceStepKeys: AbsenceStepKey[];
   agreementSets: Record<AgreementSubject, string[]>;
+  memberUserIds: [string, string, string];
+  respondedUserIds: string[];
+  critiqueStage: CritiqueStage;
 };
 
 // ---------------------------------------------------------------------------

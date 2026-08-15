@@ -19,6 +19,7 @@ import type {
   PerPersonDeadline,
   QueueEffect,
   RevealedScores,
+  CritiqueStage,
   TeamPhase,
   TeamStateRecord,
 } from "./types";
@@ -26,6 +27,7 @@ import {
   ACTIVITY_PHASES,
   AGREEMENT_SUBJECTS,
   CRITIQUE_DEADLINE_MS,
+  CRITIQUE_STAGES,
   DOC_KINDS,
   GROUP_SILENCE_MS,
   NOTICE_KINDS,
@@ -42,6 +44,17 @@ type AssertClocksAreSeparateFields = TeamStateRecord extends {
   : never;
 
 const clocksAreSeparate: AssertClocksAreSeparateFields = true;
+
+type AssertRotationFieldsAreOfficial = TeamStateRecord extends {
+  memberUserIds: [string, string, string];
+  respondedUserIds: string[];
+  critiqueStage: CritiqueStage;
+}
+  ? true
+  : never;
+
+const rotationFieldsAreOfficial: AssertRotationFieldsAreOfficial = true;
+const critiqueStages: readonly CritiqueStage[] = CRITIQUE_STAGES;
 
 const teamPhases: readonly TeamPhase[] = TEAM_PHASES;
 const activityPhases: readonly ActivityPhase[] = ACTIVITY_PHASES;
@@ -67,6 +80,9 @@ const state: TeamStateRecord = {
     merge_complete: ["user_a"],
     final_consensus: [],
   },
+  memberUserIds: ["user_a", "user_b", "user_c"],
+  respondedUserIds: ["user_a"],
+  critiqueStage: "critic_response",
 };
 
 const facilitatorMessage: FacilitatorMessageSpec = {
@@ -151,6 +167,8 @@ const engine: CalibrationEngine = {
 
 export const __calibrationTypesCompileCheck = {
   clocksAreSeparate,
+  rotationFieldsAreOfficial,
+  critiqueStages,
   teamPhases,
   activityPhases,
   docKinds,
