@@ -61,7 +61,7 @@
   - Done when: each scripted kind renders deterministic text from a template context
   - _Requirements: 5.2, 6.2, 6.3, 8.3, 11.1, 11.2_
   - _Boundary: calibration-facilitator templates_
-- [ ] 3.2 Implement LLM-worded facilitation with scripted fallback
+- [x] 3.2 Implement LLM-worded facilitation with scripted fallback
   - Revoicing of critiques, disagreement follow-ups, document-aware comments quoting the latest snapshot (flag vague criteria / missing rationale), best-available final synthesis for group-timeout lock
   - Uses the existing sendChat adapter with the offering's provider/model; any failure falls back to the scripted variant without blocking
   - Done when: with a stubbed sendChat failure, every facilitator call still returns a scripted post

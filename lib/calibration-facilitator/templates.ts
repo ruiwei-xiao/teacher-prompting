@@ -24,6 +24,7 @@ export const SCRIPTED_KINDS = [
   "merge_auto_finalize",
   "follow_up",
   "auto_synthesize",
+  "doc_comment",
   "finalize",
 ] as const;
 
@@ -182,6 +183,12 @@ const TEMPLATES: Record<ScriptedKind, (ctx: TemplateContext) => string> = {
         ? ` Unresolved criteria are labeled unresolved: ${listItems(unresolved)}.`
         : ` Unresolved parts are labeled unresolved.`;
     return `A best-available final rubric has been locked from the work collected so far.${label}`;
+  },
+
+  doc_comment: (ctx) => {
+    const snapshot = asString(ctx.snapshotText) ?? asString(ctx.snapshotQuote);
+    const quote = snapshot !== undefined ? ` Latest snapshot: "${snapshot}".` : "";
+    return `Looking at the shared document, please tighten vague or unmeasurable criteria and add a one-line rationale where one is missing.${quote}`;
   },
 
   finalize: (ctx) => {
