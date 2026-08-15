@@ -325,8 +325,8 @@ async function main(): Promise<void> {
     "SpaceLayout still does not import engine/store"
   );
   assert(
-    !layoutSource.includes("SharedDocEditor"),
-    "SharedDocEditor remains a later slot"
+    layoutSource.includes("SharedDocEditor"),
+    "SharedDocEditor is composed into SpaceLayout"
   );
 
   assert(

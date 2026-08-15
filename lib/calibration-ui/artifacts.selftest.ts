@@ -223,8 +223,8 @@ async function main(): Promise<void> {
     "ScoreSheet is composed into SpaceLayout"
   );
   assert(
-    !layoutSource.includes("SharedDocEditor"),
-    "SharedDocEditor remains a later slot"
+    layoutSource.includes("SharedDocEditor"),
+    "SharedDocEditor is composed into SpaceLayout"
   );
 
   // --- Source: team page loads texts on the server and passes props ---

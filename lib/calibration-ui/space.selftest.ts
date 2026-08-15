@@ -272,11 +272,11 @@ async function main(): Promise<void> {
   );
   assert(
     /shared|rubric|notes|document/i.test(layoutSource),
-    "SpaceLayout leaves a slot for SharedDocEditor"
+    "SpaceLayout has a shared-documents region"
   );
   assert(
-    !layoutSource.includes("SharedDocEditor"),
-    "SharedDocEditor remains a later slot"
+    layoutSource.includes("SharedDocEditor"),
+    "SpaceLayout composes SharedDocEditor"
   );
   assert(
     !layoutSource.includes("calibration-engine") &&

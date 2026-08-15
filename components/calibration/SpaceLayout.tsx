@@ -5,6 +5,7 @@ import ArtifactsPanel from "./ArtifactsPanel";
 import FinalDeliverable from "./FinalDeliverable";
 import GroupChatPanel from "./GroupChatPanel";
 import ScoreSheet from "./ScoreSheet";
+import SharedDocEditor from "./SharedDocEditor";
 import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
 import { type DeliverableSnapshot } from "@/lib/calibration-ui/deliverable";
 import {
@@ -17,23 +18,6 @@ import {
   spaceApiHref,
   type SpaceView,
 } from "@/lib/calibration-ui/space";
-
-function PanelSlot({
-  title,
-  hint,
-}: {
-  title: string;
-  hint: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-5 dark:border-zinc-700 dark:bg-zinc-900/40">
-      <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-200">
-        {title}
-      </h2>
-      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">{hint}</p>
-    </section>
-  );
-}
 
 export default function SpaceLayout({
   teamId,
@@ -153,12 +137,7 @@ export default function SpaceLayout({
               setSpace((previous) => retainVisitRecap(previous, next))
             }
           />
-          {!deliverableLocked && (
-            <PanelSlot
-              title="Shared documents"
-              hint="The shared rubric and notes will open here."
-            />
-          )}
+          {!deliverableLocked && <SharedDocEditor teamId={teamId} />}
         </div>
         <aside className="flex flex-col gap-6">
           <ArtifactsPanel artifacts={artifacts} />

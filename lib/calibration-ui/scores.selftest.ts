@@ -455,8 +455,8 @@ async function main(): Promise<void> {
     "SpaceLayout Score sheet placeholder is gone"
   );
   assert(
-    !layoutSource.includes("SharedDocEditor"),
-    "SharedDocEditor remains a later slot"
+    layoutSource.includes("SharedDocEditor"),
+    "SharedDocEditor is composed into SpaceLayout"
   );
   assert(
     !layoutSource.toLowerCase().includes("liveblocks") &&

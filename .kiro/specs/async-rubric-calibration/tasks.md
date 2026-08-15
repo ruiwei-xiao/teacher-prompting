@@ -149,7 +149,7 @@
   - Done when: a non-member token request returns 403 and a member's token stops granting write after lock
   - _Requirements: 7.2, 10.4, 14.5, 15.1_
   - _Depends: 1.4, 4.1_
-- [ ] 6.2 Build the collaborative editor with live cursors on rubric and notes
+- [x] 6.2 Build the collaborative editor with live cursors on rubric and notes
   - Lexical CollaborationPlugin + Liveblocks Yjs provider; one room per team with rubric and notes documents; cursors/selections show identity; no cursors anywhere else
   - Done when: two browsers see each other's named cursors and edits without reload on both documents
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
@@ -199,3 +199,4 @@
 - ScoreSheet computes flagged keys from the revealed matrix (max−min ≥ 2). Criterion keys come from the server page via getTeamForMember + rubricCriterionKeys (do not import scores.ts from client). Member UI never renders space.matrix pre-reveal.
 - Final deliverable extras (autoFinalized, addenda, flaggedCriteria, rubric snapshot) are SSR-loaded; Space GET does not carry them. `markDeliverableLocked` may leave `finalRubric` null — UI uses snapshot fallback. Unresolved chips currently use `state.flaggedCriteria` (may still show after explicit consensus).
 - Liveblocks auth: POST /api/calibration/liveblocks-auth `{ room }`. Room must be `calibration:{teamId}`. Member write until lock; operator read; others 403. Selftest injects authorize (no hosted network). Invalid room is 400.
+- SharedDocEditor: one room host (`getYjsProviderForRoom`) plus per-doc `DocScopedProvider` wrappers (`lib/calibration-ui/docs-provider.ts`) so rubric/notes have distinct Y.Docs and awareness; `disconnect()` must not tear down the sibling. Two-browser cursor proof is 8.2.
