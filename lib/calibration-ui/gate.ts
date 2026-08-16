@@ -75,7 +75,7 @@ export function checkInApiHref(offeringId: string): string {
 
 /** Pre-quorum copy. Denominator is the literal 3. */
 export function queueStatusLabel(queueCount: number): string {
-  return `${queueCount} of 3 checked in`;
+  return `${queueCount} of 3 have joined`;
 }
 
 /** After check-in: stay on the gate until teamId is set, then enter the team space. */

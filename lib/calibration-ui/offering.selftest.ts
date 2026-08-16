@@ -5,10 +5,14 @@
 import fs from "fs/promises";
 import path from "path";
 import {
+  ACTIVITY_HREF,
+  ACTIVITY_NEW_HREF,
   OFFERING_CREATE_API,
   OWN_BOTS_API,
   buildOfferingCreatePayload,
+  isCalibrationPath,
   parseOfferingCreateResponse,
+  parseOfferingListResponse,
   parseOwnBotsResponse,
 } from "./offering";
 
@@ -86,6 +90,26 @@ async function main(): Promise<void> {
   });
   assertEqual(anthropic.aiProvider, "anthropic", "splits anthropic provider");
   assertEqual(anthropic.aiModel, "claude-sonnet-4-6", "splits anthropic model");
+  assertEqual(
+    "facilitatorApiKey" in anthropic,
+    false,
+    "omits facilitator key when using the sample bot key"
+  );
+
+  const customKey = buildOfferingCreatePayload({
+    title: "Pilot",
+    sampleAppId: "app_1",
+    sampleRubric: "C1",
+    deploymentBrief: "Brief",
+    transcriptExcerpt: "Transcript",
+    facilitatorSelection: "openai:gpt-5.4-mini",
+    facilitatorApiKey: "  sk-fac  ",
+  });
+  assertEqual(
+    customKey.facilitatorApiKey,
+    "sk-fac",
+    "includes a custom facilitator key when provided"
+  );
 
   // --- Own-bot list from GET /api/apps (AppGrid shape) ---
   const bots = parseOwnBotsResponse(200, {
@@ -171,6 +195,11 @@ async function main(): Promise<void> {
       formSource.includes('"POST"'),
     "OfferingCreateForm POSTs the offering"
   );
+  assert(
+    formSource.includes("operatePageHref") ||
+      formSource.includes("/operate"),
+    "create form sends the operator to progress, not the join page"
+  );
   for (const field of [
     "title",
     "sampleAppId",
@@ -207,6 +236,16 @@ async function main(): Promise<void> {
     "form includes facilitator provider/model"
   );
   assert(
+    formSource.includes("Use the sample bot") ||
+      formSource.includes("sample bot"),
+    "form can use the sample bot API key"
+  );
+  assert(
+    formSource.includes("Use a different API key") ||
+      formSource.includes("facilitatorApiKey"),
+    "form can supply a different facilitator API key"
+  );
+  assert(
     !formSource.includes("calibration-engine") &&
       !formSource.includes("calibration-store"),
     "OfferingCreateForm does not import engine/store"
@@ -225,6 +264,46 @@ async function main(): Promise<void> {
     pageSource.includes("/activity/new") || pageSource.includes("callbackUrl"),
     "sign-in callback returns to the offering form"
   );
+
+  assertEqual(ACTIVITY_HREF, "/activity", "hub path");
+  assertEqual(ACTIVITY_NEW_HREF, "/activity/new", "create path");
+  assert(isCalibrationPath("/activity"), "hub is a calibration path");
+  assert(isCalibrationPath("/activity/new"), "create is a calibration path");
+  assert(!isCalibrationPath("/"), "home is not a calibration path");
+
+  const listed = parseOfferingListResponse(200, {
+    offerings: [
+      {
+        id: "off_1",
+        title: "Pilot",
+        createdAt: "2026-08-15T00:00:00.000Z",
+      },
+    ],
+  });
+  assert(listed.ok === true, "200 list is ok");
+  if (listed.ok) {
+    assertEqual(listed.offerings.length, 1, "parses one offering");
+    assertEqual(listed.offerings[0]?.id, "off_1", "list item id");
+  }
+
+  const sidebarPath = path.join(
+    process.cwd(),
+    "components/app-shell/WorkspaceSidebar.tsx"
+  );
+  const hubPath = path.join(process.cwd(), "app/activity/page.tsx");
+  const sidebarSource = await fs.readFile(sidebarPath, "utf8").catch(() => "");
+  const hubSource = await fs.readFile(hubPath, "utf8").catch(() => "");
+  assert(
+    sidebarSource.includes("ACTIVITY_HREF") ||
+      sidebarSource.includes("/activity"),
+    "sidebar links to the calibration hub"
+  );
+  assert(
+    sidebarSource.includes("Activities"),
+    "sidebar shows an Activities item"
+  );
+  assert(hubSource.includes("ACTIVITY_NEW_HREF") || hubSource.includes("/activity/new"), "hub links to create");
+  assert(hubSource.includes("listMyOfferings"), "hub loads the operator's offerings");
 
   if (failures > 0) {
     console.error(`\noffering.selftest: ${failures} failure(s)`);

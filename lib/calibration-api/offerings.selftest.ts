@@ -45,7 +45,8 @@ async function main(): Promise<void> {
   process.env.CALIBRATION_DATA_FILE = path.join(tempDir, "calibration.json");
   process.env.WORKSPACES_DATA_FILE = path.join(tempDir, "workspaces.json");
 
-  const { createOffering, getOfferingGate, getTeamAccess } = await import("./offerings");
+  const { createOffering, getOfferingGate, getTeamAccess, listMyOfferings } =
+    await import("./offerings");
   const { formTeam, getOffering, listQueuedCheckIns } = await import(
     "../calibration-store/store"
   );
@@ -104,6 +105,11 @@ async function main(): Promise<void> {
       operatorId,
       "create stores operator as owner"
     );
+    assertEqual(
+      offering!.facilitatorApiKey,
+      undefined,
+      "create response does not include a facilitator key"
+    );
 
     const persisted = await getOffering(offering!.id);
     assert(persisted !== null, "getOffering finds created offering");
@@ -149,6 +155,52 @@ async function main(): Promise<void> {
       400,
       "create with empty title → 400"
     );
+
+    assertEqual(
+      (await listMyOfferings(null)).status,
+      401,
+      "unauthenticated list → 401"
+    );
+    const mine = await listMyOfferings(operatorId);
+    assertEqual(mine.status, 200, "operator list → 200");
+    assert(mine.ok === true, "operator list ok");
+    if (mine.ok) {
+      assertEqual(mine.body.offerings.length, 1, "list includes the created offering");
+      assertEqual(mine.body.offerings[0]?.id, offering!.id, "list item id");
+      assertEqual(
+        mine.body.offerings[0]?.title,
+        offeringInput.title,
+        "list item title"
+      );
+    }
+    const strangerList = await listMyOfferings("stranger_op");
+    assert(strangerList.ok === true, "other operator list ok");
+    if (strangerList.ok) {
+      assertEqual(
+        strangerList.body.offerings.length,
+        0,
+        "list mine does not leak another operator's offerings"
+      );
+    }
+
+    const createdWithKey = await createOffering(operatorId, {
+      ...offeringInput,
+      title: "Keyed offering",
+      facilitatorApiKey: "  sk-fac  ",
+    });
+    assertEqual(createdWithKey.status, 200, "create with facilitator key → 200");
+    assert(
+      createdWithKey.ok === true &&
+        !("facilitatorApiKey" in createdWithKey.body.offering),
+      "create response omits the facilitator key"
+    );
+    if (createdWithKey.ok) {
+      assertEqual(
+        (await getOffering(createdWithKey.body.offering.id))?.facilitatorApiKey,
+        "sk-fac",
+        "store keeps the facilitator key override"
+      );
+    }
 
     // --- gate GET returns artifacts meta + my queue/team status (not checked in) ---
     assertEqual(

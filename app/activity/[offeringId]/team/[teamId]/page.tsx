@@ -70,6 +70,7 @@ export default async function TeamSpacePage({
     ? await getAppById(offering.sampleAppId)
     : null;
   const artifacts = buildArtifactsView({
+    sampleRubric: offering?.sampleRubric ?? "",
     systemPrompt: sampleApp?.systemPrompt ?? "",
     deploymentBrief: offering?.deploymentBrief ?? "",
     transcriptExcerpt: offering?.transcriptExcerpt ?? "",

@@ -45,6 +45,7 @@ export default function ArtifactsPanel({
       <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
         Sample bot materials for this activity. These texts cannot be changed here.
       </p>
+      <ArtifactBlock title="Sample rubric" text={artifacts.sampleRubric} />
       <ArtifactBlock title="System prompt" text={artifacts.systemPrompt} />
       <ArtifactBlock title="Deployment brief" text={artifacts.deploymentBrief} />
       <ArtifactBlock title="Transcript excerpt" text={artifacts.transcriptExcerpt} />

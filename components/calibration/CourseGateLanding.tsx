@@ -49,7 +49,7 @@ export default function CourseGateLanding({
         router.push(next);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to check in");
+      setError(e instanceof Error ? e.message : "Failed to join");
     } finally {
       setBusy(false);
     }
@@ -58,20 +58,19 @@ export default function CourseGateLanding({
   return (
     <section className="mx-auto w-full max-w-xl">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
-        Rubric Calibration
+        Collaborative activity
       </p>
       <h1 className="mt-2 text-3xl font-bold text-slate-900 dark:text-zinc-100">
         {offeringTitle}
       </h1>
       <p className="mt-3 text-sm text-slate-600 dark:text-zinc-400">
-        Enter to join the matching queue. Teams form when three learners from
-        this offering have checked in.
+        Join to wait for two other learners. A team of three starts together.
       </p>
 
       {initial.role === "operator" && !checkedIn && (
         <p className="mt-3 text-sm text-slate-500 dark:text-zinc-500">
-          You are viewing this offering as the operator. Enter only if you also
-          want to join as a learner.
+          You are viewing this activity as the instructor. Join only if you
+          also want to take part as a learner.
         </p>
       )}
 
@@ -79,7 +78,7 @@ export default function CourseGateLanding({
         {checkedIn ? (
           <div className="space-y-2">
             <p className="text-sm text-slate-600 dark:text-zinc-400">
-              You are in the matching queue.
+              You have joined. Waiting for teammates.
             </p>
             <QueueStatus queueCount={queueCount} />
           </div>
@@ -88,9 +87,9 @@ export default function CourseGateLanding({
             type="button"
             onClick={() => void handleEnter()}
             disabled={busy}
-            className="inline-flex h-11 items-center rounded-lg bg-sky-600 px-5 text-white hover:bg-sky-700 disabled:opacity-50"
+            className="pressable inline-flex h-11 items-center rounded-xl bg-sky-700 px-5 text-sm font-semibold text-white shadow-sm hover-ok:bg-sky-800 disabled:opacity-50 dark:bg-sky-600 dark:hover-ok:bg-sky-500"
           >
-            {busy ? "Checking in…" : "Enter"}
+            {busy ? "Joining…" : "Join"}
           </button>
         )}
 

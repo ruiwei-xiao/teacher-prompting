@@ -3,6 +3,9 @@
  * Stuck-queue list, team progress columns, and manual-match picker.
  * Does not import the calibration engine, store, or API modules.
  */
+import { labelForUserId, readUserLabels } from "@/lib/auth/user-label";
+
+export { labelForUserId };
 
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
@@ -14,6 +17,7 @@ export type StuckWaiterView = {
   offeringId: string;
   waitedMs: number;
   checkedInAt: string;
+  stuck: boolean;
 };
 
 export type TeamProgressView = {
@@ -26,8 +30,11 @@ export type TeamProgressView = {
 
 export type OperatorDashboardView = {
   offeringId: string;
+  queueCount: number;
+  waiters: StuckWaiterView[];
   stuckWaiters: StuckWaiterView[];
   teams: TeamProgressView[];
+  labels: Record<string, string>;
 };
 
 const DAY_MS = 86_400_000;
@@ -51,7 +58,7 @@ export function operatePageHref(offeringId: string): string {
   return `/activity/${offeringId}/operate`;
 }
 
-/** GET stuck waiters + team progress. */
+/** GET queued learners + team progress. */
 export function operateDashboardApiHref(offeringId: string): string {
   return `/api/calibration/offerings/${offeringId}/operate`;
 }
@@ -126,6 +133,7 @@ export type InspectorInspect = {
   absences: InspectorAbsence[];
   docs: InspectorDoc[];
   finalDeliverable: InspectorDeliverable;
+  labels?: Record<string, string>;
 };
 
 export type InspectorView = {
@@ -143,6 +151,7 @@ export type InspectorView = {
   canEditDocs: false;
   canResetClocks: false;
   canAdvancePhase: false;
+  labels: Record<string, string>;
 };
 
 function readInspectorMessage(value: unknown): InspectorMessage | null {
@@ -358,6 +367,7 @@ export function parseInspect(
       absences,
       docs,
       finalDeliverable,
+      labels: readUserLabels(record.labels),
     },
   };
 }
@@ -390,6 +400,7 @@ export function buildInspectorView(inspect: InspectorInspect): InspectorView {
     canEditDocs: false,
     canResetClocks: false,
     canAdvancePhase: false,
+    labels: { ...(inspect.labels ?? {}) },
   };
 }
 
@@ -404,11 +415,14 @@ export function matchPostBody(ids: string[]): { userIds: string[] } {
   return { userIds: ids.map((id) => id.trim()) };
 }
 
-/** Human-readable wait duration for 10–14 day stuck waiters. */
+/** Human-readable wait duration (days and leftover hours). */
 export function formatWaitDuration(waitedMs: number): string {
   const ms = Number.isFinite(waitedMs) ? Math.max(0, Math.floor(waitedMs)) : 0;
   const days = Math.floor(ms / DAY_MS);
   const hours = Math.floor((ms % DAY_MS) / HOUR_MS);
+  if (days === 0) {
+    return hours === 0 ? "less than 1h" : `${hours}h`;
+  }
   return `${days}d ${hours}h`;
 }
 
@@ -432,6 +446,7 @@ function readStuckWaiter(value: unknown): StuckWaiterView | null {
     offeringId: record.offeringId.trim(),
     waitedMs: record.waitedMs,
     checkedInAt: record.checkedInAt.trim(),
+    stuck: record.stuck === true,
   };
 }
 
@@ -483,6 +498,15 @@ export function parseDashboardResponse(
     if (!waiter) return { ok: false, error: "Invalid dashboard response" };
     stuckWaiters.push(waiter);
   }
+  const waiters: StuckWaiterView[] = [];
+  const rawWaiters = Array.isArray(record.waiters)
+    ? record.waiters
+    : record.stuckWaiters;
+  for (const row of rawWaiters) {
+    const waiter = readStuckWaiter(row);
+    if (!waiter) return { ok: false, error: "Invalid dashboard response" };
+    waiters.push(waiter);
+  }
   const teams: TeamProgressView[] = [];
   for (const row of record.teams) {
     const team = readTeamProgress(row);
@@ -493,8 +517,16 @@ export function parseDashboardResponse(
     ok: true,
     view: {
       offeringId: record.offeringId.trim(),
+      queueCount:
+        typeof record.queueCount === "number" &&
+        Number.isFinite(record.queueCount) &&
+        record.queueCount >= 0
+          ? Math.floor(record.queueCount)
+          : 0,
+      waiters,
       stuckWaiters,
       teams,
+      labels: readUserLabels(record.labels),
     },
   };
 }

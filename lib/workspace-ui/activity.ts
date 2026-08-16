@@ -105,20 +105,24 @@ function stringPayload(
 }
 
 /** Human-readable one-line summary for a feed row. */
-export function formatActivitySummary(event: WorkspaceActivityEvent): string {
+export function formatActivitySummary(
+  event: WorkspaceActivityEvent,
+  labels: Record<string, string> = {}
+): string {
   const { type, payload, actorUserId } = event;
+  const person = (userId: string) => labels[userId]?.trim() || userId;
   switch (type) {
     case "member.joined": {
       const userId = stringPayload(payload, "userId") ?? actorUserId;
-      return `Member joined: ${userId}`;
+      return `Member joined: ${person(userId)}`;
     }
     case "member.left": {
       const userId = stringPayload(payload, "userId") ?? actorUserId;
-      return `Member left: ${userId}`;
+      return `Member left: ${person(userId)}`;
     }
     case "member.removed": {
       const userId = stringPayload(payload, "userId") ?? "member";
-      return `Member removed: ${userId}`;
+      return `Member removed: ${person(userId)}`;
     }
     case "bot.placed": {
       const appId = stringPayload(payload, "appId") ?? "bot";

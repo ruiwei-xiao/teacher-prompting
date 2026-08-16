@@ -6,7 +6,14 @@
 import { parseModelSelection } from "@/lib/app-store/model-selection";
 
 export const OFFERING_CREATE_API = "/api/calibration/offerings";
+export const OFFERING_LIST_API = "/api/calibration/offerings";
 export const OWN_BOTS_API = "/api/apps";
+export const ACTIVITY_HREF = "/activity";
+export const ACTIVITY_NEW_HREF = "/activity/new";
+
+export function isCalibrationPath(pathname: string): boolean {
+  return pathname === ACTIVITY_HREF || pathname.startsWith(`${ACTIVITY_HREF}/`);
+}
 
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
@@ -20,6 +27,7 @@ export type OfferingCreatePayload = {
   transcriptExcerpt: string;
   aiProvider: string;
   aiModel: string;
+  facilitatorApiKey?: string;
 };
 
 export type OwnBotOption = {
@@ -51,10 +59,12 @@ export function buildOfferingCreatePayload(input: {
   deploymentBrief: string;
   transcriptExcerpt: string;
   facilitatorSelection: string;
+  facilitatorApiKey?: string;
 }): OfferingCreatePayload {
   const { provider, model } = parseModelSelection(
     input.facilitatorSelection.trim()
   );
+  const facilitatorApiKey = input.facilitatorApiKey?.trim();
   return {
     title: input.title.trim(),
     sampleAppId: input.sampleAppId.trim(),
@@ -63,6 +73,7 @@ export function buildOfferingCreatePayload(input: {
     transcriptExcerpt: input.transcriptExcerpt.trim(),
     aiProvider: provider,
     aiModel: model,
+    ...(facilitatorApiKey ? { facilitatorApiKey } : {}),
   };
 }
 
@@ -116,4 +127,44 @@ export function parseOfferingCreateResponse(
     return { ok: false, error: "Invalid offering response" };
   }
   return { ok: true, offeringId: offeringId.trim() };
+}
+
+export type OfferingListItem = {
+  id: string;
+  title: string;
+  createdAt: string;
+};
+
+/** Parse GET /api/calibration/offerings (operator's own offerings). */
+export function parseOfferingListResponse(
+  status: number,
+  body: unknown
+): ParseResult<{ offerings: OfferingListItem[] }> {
+  if (status !== 200) {
+    return {
+      ok: false,
+      error: errorFromBody(body, "Failed to load offerings"),
+    };
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "Invalid offerings response" };
+  }
+  const raw = (body as { offerings?: unknown }).offerings;
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "Invalid offerings response" };
+  }
+  const offerings: OfferingListItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.id !== "string" || !rec.id.trim()) continue;
+    if (typeof rec.title !== "string") continue;
+    if (typeof rec.createdAt !== "string") continue;
+    offerings.push({
+      id: rec.id.trim(),
+      title: rec.title,
+      createdAt: rec.createdAt,
+    });
+  }
+  return { ok: true, offerings };
 }

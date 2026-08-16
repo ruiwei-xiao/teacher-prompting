@@ -272,6 +272,22 @@ export async function getUserById(id: string) {
   return getUserByIdFromFile(id);
 }
 
+export async function getUsersByIds(
+  ids: string[]
+): Promise<Map<string, StoredUser>> {
+  const unique = [
+    ...new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0)),
+  ];
+  const found = new Map<string, StoredUser>();
+  await Promise.all(
+    unique.map(async (id) => {
+      const user = await getUserById(id);
+      if (user) found.set(id, user);
+    })
+  );
+  return found;
+}
+
 export async function createUser(input: {
   email: string;
   passwordHash: string;

@@ -6,6 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import CreateWorkspaceDialog from "@/components/workspace/CreateWorkspaceDialog";
 import { isStarredPath, STARRED_HREF } from "@/lib/star-ui/nav";
 import {
+  ACTIVITY_HREF,
+  isCalibrationPath,
+} from "@/lib/calibration-ui/offering";
+import {
   MY_BOTS_HREF,
   parseWorkspacesListResponse,
   workspaceHubHref,
@@ -41,6 +45,7 @@ export default function WorkspaceSidebar({
       pathname === MY_BOTS_HREF ||
       pathname.startsWith("/create"));
   const onStarred = navReady && isStarredPath(pathname);
+  const onCalibration = navReady && isCalibrationPath(pathname);
 
   async function loadWorkspaces() {
     setError("");
@@ -97,6 +102,14 @@ export default function WorkspaceSidebar({
         aria-current={onStarred ? "page" : undefined}
       >
         Starred
+      </Link>
+      <Link
+        href={ACTIVITY_HREF}
+        onClick={() => onNavigate?.()}
+        className={navItemClass(onCalibration)}
+        aria-current={onCalibration ? "page" : undefined}
+      >
+        Activities
       </Link>
 
       <div className="mt-6 text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-500">

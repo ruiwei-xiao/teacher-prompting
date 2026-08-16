@@ -120,7 +120,7 @@ export default function ScoreSheet({
       {view.mode === "readonly" && (
         <p className="mt-4 text-sm text-slate-600 dark:text-zinc-400">
           {space.role === "operator"
-            ? "Operator view. Scoring is read-only."
+            ? "Instructor view. Scoring is read-only."
             : "Scoring opens after the team rubric is finalized."}
         </p>
       )}

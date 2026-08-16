@@ -69,12 +69,18 @@ async function main(): Promise<void> {
 
   // --- View model carries the three artifact texts (12.1, 12.4) ---
   const view = buildArtifactsView({
+    sampleRubric: "Criterion 1: clarity",
     systemPrompt: "You are a patient lab tutor.",
     deploymentBrief: "Use this bot in week-3 lab.",
     transcriptExcerpt: "Student: help\nTutor: walk me through the setup.",
     sampleAppId: "app_1",
     publicSlug: "sample-tutor",
   });
+  assertEqual(
+    view.sampleRubric,
+    "Criterion 1: clarity",
+    "view model includes sample rubric text"
+  );
   assertEqual(
     view.systemPrompt,
     "You are a patient lab tutor.",
@@ -104,6 +110,7 @@ async function main(): Promise<void> {
   assert(isReadOnlyArtifactView(view), "built view is a read-only artifact view");
 
   const noSlugView = buildArtifactsView({
+    sampleRubric: "C1",
     systemPrompt: "Be concise.",
     deploymentBrief: "Brief",
     transcriptExcerpt: "Transcript",
@@ -175,6 +182,11 @@ async function main(): Promise<void> {
       !panelSource.toLowerCase().includes("yjs") &&
       !panelSource.toLowerCase().includes("cursor"),
     "ArtifactsPanel has no collaborative cursors"
+  );
+  assert(
+    panelSource.includes("sampleRubric") ||
+      /sample rubric/i.test(panelSource),
+    "ArtifactsPanel renders the sample rubric"
   );
   assert(
     panelSource.includes("systemPrompt") ||

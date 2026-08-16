@@ -156,7 +156,7 @@ export default function GroupChatPanel({
           </form>
         ) : (
           <p className="text-sm text-slate-500 dark:text-zinc-400">
-            You are viewing as the operator. Chat is read-only.
+            You are viewing as the instructor. Chat is read-only.
           </p>
         )}
       </div>

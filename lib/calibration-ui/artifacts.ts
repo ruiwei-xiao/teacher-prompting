@@ -5,6 +5,7 @@
  */
 
 export type ArtifactsView = {
+  sampleRubric: string;
   systemPrompt: string;
   deploymentBrief: string;
   transcriptExcerpt: string;
@@ -26,6 +27,7 @@ export function tryChatHref(app: TryChatApp): string {
 }
 
 export function buildArtifactsView(input: {
+  sampleRubric: string;
   systemPrompt: string;
   deploymentBrief: string;
   transcriptExcerpt: string;
@@ -37,6 +39,7 @@ export function buildArtifactsView(input: {
       ? input.publicSlug.trim()
       : null;
   return {
+    sampleRubric: input.sampleRubric,
     systemPrompt: input.systemPrompt,
     deploymentBrief: input.deploymentBrief,
     transcriptExcerpt: input.transcriptExcerpt,

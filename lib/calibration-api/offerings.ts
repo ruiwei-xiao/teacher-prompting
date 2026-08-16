@@ -5,11 +5,13 @@
  *
  * Joining a team / creating an offering never touches Workspace membership.
  */
+import { publicOffering } from "./facilitator-key";
 import { resolveCaller } from "./access";
 import { queueStatusFor } from "./queue";
 import {
   createOffering as persistOffering,
   getOffering,
+  listOfferingsForOperator,
 } from "@/lib/calibration-store/store";
 import type { Offering, OfferingInput } from "@/lib/calibration-store/types";
 
@@ -24,6 +26,12 @@ export type OfferingArtifactsMeta = {
   hasSampleRubric: boolean;
   hasDeploymentBrief: boolean;
   hasTranscriptExcerpt: boolean;
+};
+
+export type OfferingListItem = {
+  id: string;
+  title: string;
+  createdAt: string;
 };
 
 export type GateView = {
@@ -96,6 +104,12 @@ function parseOfferingInput(body: unknown): OfferingInput | ApiError {
   if (typeof aiProvider !== "string") return aiProvider;
   const aiModel = readRequiredString(input.aiModel, "aiModel");
   if (typeof aiModel !== "string") return aiModel;
+  const rawKey = input.facilitatorApiKey;
+  if (rawKey !== undefined && rawKey !== null && typeof rawKey !== "string") {
+    return { error: "Invalid facilitatorApiKey" };
+  }
+  const facilitatorApiKey =
+    typeof rawKey === "string" && rawKey.trim() ? rawKey.trim() : undefined;
   return {
     title,
     sampleAppId,
@@ -104,6 +118,7 @@ function parseOfferingInput(body: unknown): OfferingInput | ApiError {
     transcriptExcerpt,
     aiProvider,
     aiModel,
+    ...(facilitatorApiKey ? { facilitatorApiKey } : {}),
   };
 }
 
@@ -126,7 +141,26 @@ export async function createOffering(
     return badRequest(parsed.error);
   }
   const offering = await persistOffering(parsed, userId);
-  return { ok: true, status: 200, body: { offering } };
+  return { ok: true, status: 200, body: { offering: publicOffering(offering) } };
+}
+
+/** Operator's own offerings only (design: GET list mine). */
+export async function listMyOfferings(
+  userId: string | null
+): Promise<ApiResult<{ offerings: OfferingListItem[] }>> {
+  if (!userId) return unauthorized();
+  const offerings = await listOfferingsForOperator(userId);
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      offerings: offerings.map((offering) => ({
+        id: offering.id,
+        title: offering.title,
+        createdAt: offering.createdAt,
+      })),
+    },
+  };
 }
 
 /**

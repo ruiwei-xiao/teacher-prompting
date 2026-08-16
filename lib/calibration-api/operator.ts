@@ -5,6 +5,7 @@
  *
  * Session is resolved by route wrappers; these accept userId for testability.
  */
+import { resolveUserLabels } from "@/lib/auth/resolve-labels";
 import { resolveCaller } from "./access";
 import type { ApiResult } from "./offerings";
 import {
@@ -41,6 +42,7 @@ export type StuckWaiter = {
   offeringId: string;
   waitedMs: number;
   checkedInAt: string;
+  stuck: boolean;
 };
 
 export type TeamProgress = {
@@ -53,8 +55,11 @@ export type TeamProgress = {
 
 export type OperatorDashboard = {
   offeringId: string;
+  queueCount: number;
+  waiters: StuckWaiter[];
   stuckWaiters: StuckWaiter[];
   teams: TeamProgress[];
+  labels: Record<string, string>;
 };
 
 export type FinalDeliverableView = {
@@ -71,6 +76,7 @@ export type OperatorTeamInspect = {
   absences: AbsenceRecord[];
   docs: DocSnapshot[];
   finalDeliverable: FinalDeliverableView;
+  labels: Record<string, string>;
 };
 
 export type ManualMatchView = {
@@ -130,8 +136,9 @@ function readMatchUserIds(body: unknown): [string, string, string] | { error: st
 }
 
 /**
- * Offering dashboard: 10-day stuck waiters with wait duration, plus every
- * formed team (phase, members, last activity, auto-finalized). Read-only.
+ * Offering dashboard: every queued learner (wait duration + 10-day stuck
+ * flag), plus every formed team (phase, members, last activity,
+ * auto-finalized). Read-only.
  */
 export async function getOperatorDashboard(
   userId: string | null,
@@ -150,8 +157,8 @@ export async function getOperatorDashboard(
   const now = clock(deps);
   const nowMs = now.getTime();
   const queued = await listQueuedCheckIns(offeringId);
-  const stuckWaiters: StuckWaiter[] = queued
-    .filter((checkIn) => isStuckWaiter(checkIn, nowMs))
+  const waiters: StuckWaiter[] = queued
+    .slice()
     .sort(compareCheckIns)
     .map((checkIn) => ({
       checkInId: checkIn.id,
@@ -159,7 +166,9 @@ export async function getOperatorDashboard(
       offeringId: checkIn.offeringId,
       waitedMs: nowMs - Date.parse(checkIn.checkedInAt),
       checkedInAt: checkIn.checkedInAt,
+      stuck: isStuckWaiter(checkIn, nowMs),
     }));
+  const stuckWaiters = waiters.filter((waiter) => waiter.stuck);
 
   const teams = (await listTeams(offeringId)).map((team) => ({
     teamId: team.id,
@@ -168,14 +177,21 @@ export async function getOperatorDashboard(
     lastActivityAt: team.lastActivityAt,
     autoFinalized: team.autoFinalized,
   }));
+  const labels = await resolveUserLabels([
+    ...waiters.map((waiter) => waiter.userId),
+    ...teams.flatMap((team) => team.members),
+  ]);
 
   return {
     ok: true,
     status: 200,
     body: {
       offeringId,
+      queueCount: queued.length,
+      waiters,
       stuckWaiters,
       teams,
+      labels,
     },
   };
 }
@@ -213,6 +229,19 @@ export async function inspectTeam(
   ]);
   const memberId = caller.team.members[0]?.userId;
   const view = memberId ? await getTeamForMember(teamId, memberId) : null;
+  const scoreMembers = scores ?? {
+    members: [],
+    revealedAt: caller.team.scoresRevealedAt,
+  };
+  const labels = await resolveUserLabels([
+    ...caller.team.members.map((member) => member.userId),
+    ...scoreMembers.members.map((row) => row.userId),
+    ...absences.map((row) => row.userId),
+    ...addenda.map((row) => row.userId),
+    ...spaceResult.body.messages
+      .map((message) => message.authorUserId)
+      .filter((id): id is string => typeof id === "string"),
+  ]);
 
   return {
     ok: true,
@@ -220,7 +249,7 @@ export async function inspectTeam(
     body: {
       role: "operator",
       space: spaceResult.body,
-      scores: scores ?? { members: [], revealedAt: caller.team.scoresRevealedAt },
+      scores: scoreMembers,
       absences,
       docs: view?.docs ?? [],
       finalDeliverable: {
@@ -229,6 +258,7 @@ export async function inspectTeam(
         finalizedAt: caller.team.finalizedAt,
         addenda,
       },
+      labels,
     },
   };
 }

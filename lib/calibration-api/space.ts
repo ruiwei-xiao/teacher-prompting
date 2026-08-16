@@ -5,7 +5,9 @@
  *
  * Session is resolved by route wrappers; these accept userId for testability.
  */
+import { resolveUserLabels } from "@/lib/auth/resolve-labels";
 import { resolveCaller } from "./access";
+import { resolveFacilitatorApiKey } from "./facilitator-key";
 import type { ApiResult } from "./offerings";
 import {
   applyLearnerEvent,
@@ -165,15 +167,30 @@ function asScriptedKind(key: string): ScriptedKind | null {
   return isScriptedKind(key) ? key : null;
 }
 
-function teamContext(
+async function withDisplayNames(
+  context: Record<string, unknown>,
+  memberUserIds: string[]
+): Promise<Record<string, unknown>> {
+  const displayNames = await resolveUserLabels(memberUserIds);
+  const existing =
+    context.displayNames &&
+    typeof context.displayNames === "object" &&
+    !Array.isArray(context.displayNames)
+      ? (context.displayNames as Record<string, unknown>)
+      : {};
+  return { ...context, displayNames: { ...displayNames, ...existing } };
+}
+
+async function teamContext(
   offering: Offering,
-  spec: FacilitatorMessageSpec
-): TeamContext {
+  spec: FacilitatorMessageSpec,
+  memberUserIds: string[]
+): Promise<TeamContext> {
   return {
-    ...spec.context,
+    ...(await withDisplayNames(spec.context, memberUserIds)),
     aiProvider: offering.aiProvider,
     aiModel: offering.aiModel,
-    apiKey: "",
+    apiKey: await resolveFacilitatorApiKey(offering),
   };
 }
 
@@ -217,14 +234,18 @@ async function renderFacilitatorBody(
 ): Promise<{ body: string; kind: MessageKind }> {
   const kind = messageKindFor(spec.key);
   const scripted = asScriptedKind(spec.key);
+  const namedContext = await withDisplayNames(
+    spec.context,
+    state.memberUserIds
+  );
   if (spec.source === "scripted") {
     if (!scripted) {
       throw new Error(`Unknown scripted facilitator kind: ${spec.key}`);
     }
-    return { body: facilitator.renderScripted(scripted, spec.context), kind };
+    return { body: facilitator.renderScripted(scripted, namedContext), kind };
   }
 
-  const ctx = teamContext(offering, spec);
+  const ctx = await teamContext(offering, spec, state.memberUserIds);
   if (spec.key === "revoice") {
     return {
       body: await facilitator.revoice(latestLearnerBody(view), ctx),
@@ -265,7 +286,7 @@ async function renderFacilitatorBody(
       view?.docs[0];
     if (!snapshot) {
       if (scripted) {
-        return { body: facilitator.renderScripted(scripted, spec.context), kind };
+        return { body: facilitator.renderScripted(scripted, namedContext), kind };
       }
       return { body: "", kind: "doc_comment" };
     }
@@ -273,7 +294,7 @@ async function renderFacilitatorBody(
     return { body: comment ?? "", kind: "doc_comment" };
   }
   if (scripted) {
-    return { body: facilitator.renderScripted(scripted, spec.context), kind };
+    return { body: facilitator.renderScripted(scripted, namedContext), kind };
   }
   throw new Error(`Unknown facilitator message key: ${spec.key}`);
 }

@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { createOffering } from "@/lib/calibration-api/offerings";
+import {
+  createOffering,
+  listMyOfferings,
+} from "@/lib/calibration-api/offerings";
+
+export async function GET() {
+  const session = await auth();
+  const userId = session?.user?.id ?? null;
+  const result = await listMyOfferings(userId);
+  return NextResponse.json(result.body, { status: result.status });
+}
 
 export async function POST(req: NextRequest) {
   try {

@@ -50,19 +50,19 @@ const DEFAULT_LOG_FILE = path.join(process.cwd(), ".data", "calibration-notices.
 
 const NOTICE_COPY: Record<NoticeKind, { subject: string; summary: string }> = {
   team_formed: {
-    subject: "Your Rubric Calibration team is ready",
+    subject: "Your team activity is ready",
     summary: "Your group has formed and the team space is ready.",
   },
   your_turn: {
-    subject: "It is your turn in Rubric Calibration",
+    subject: "It is your turn in the team activity",
     summary: "The activity is waiting on your current turn.",
   },
   targeted_prompt: {
-    subject: "A teammate needs your take in Rubric Calibration",
+    subject: "A teammate needs your take",
     summary: "There is a targeted prompt waiting for you in the team space.",
   },
   nudge: {
-    subject: "A reminder for your Rubric Calibration step",
+    subject: "A reminder for your team activity step",
     summary: "A per-person reminder is due for your current step.",
   },
   scores_revealed: {
@@ -74,16 +74,16 @@ const NOTICE_COPY: Record<NoticeKind, { subject: string; summary: string }> = {
     summary: "The activity is finalized and the team rubric is locked.",
   },
   queue_ping: {
-    subject: "Are you still waiting for a Rubric Calibration team?",
+    subject: "Are you still waiting for a team?",
     summary: "Please re-confirm that you are still interested in joining a team.",
   },
   queue_expired: {
-    subject: "You are no longer in the Rubric Calibration queue",
-    summary: "Your check-in expired after missed re-confirmation notices.",
+    subject: "You are no longer waiting for a team",
+    summary: "Your place in the queue expired after missed re-confirmation notices.",
   },
   manual_match: {
-    subject: "You have been matched into a Rubric Calibration team",
-    summary: "An operator matched you into a team and the space is ready.",
+    subject: "You have been matched into a team",
+    summary: "An instructor matched you into a team and the space is ready.",
   },
 };
 

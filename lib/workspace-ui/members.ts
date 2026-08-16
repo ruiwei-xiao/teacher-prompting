@@ -2,6 +2,7 @@
  * Client-safe Workspace members helpers: search, role changes, remove,
  * ownership transfer, and self-leave affordances.
  */
+import { userDisplayLabel } from "@/lib/auth/user-label";
 import type {
   WorkspaceMembership,
   WorkspaceRole,
@@ -16,14 +17,14 @@ export type AssignableMemberRole = "facilitator" | "participant";
 /** Membership row enriched for display (from GET members). */
 export type WorkspaceMemberListItem = WorkspaceMembership & {
   email?: string | null;
+  name?: string | null;
 };
 
-/** Prefer email; fall back to user id when unresolved. */
+/** Prefer name, then email; fall back to user id when unresolved. */
 export function memberDisplayLabel(
-  member: Pick<WorkspaceMemberListItem, "userId" | "email">
+  member: Pick<WorkspaceMemberListItem, "userId" | "email" | "name">
 ): string {
-  const email = member.email?.trim();
-  return email || member.userId;
+  return userDisplayLabel(member);
 }
 
 function isFacilitationRole(role: WorkspaceRole): boolean {
@@ -61,7 +62,11 @@ function isMembership(value: unknown): value is WorkspaceMembership {
 function isMemberListItem(value: unknown): value is WorkspaceMemberListItem {
   if (!isMembership(value)) return false;
   const email = (value as { email?: unknown }).email;
-  return email === undefined || email === null || typeof email === "string";
+  const name = (value as { name?: unknown }).name;
+  const emailOk =
+    email === undefined || email === null || typeof email === "string";
+  const nameOk = name === undefined || name === null || typeof name === "string";
+  return emailOk && nameOk;
 }
 
 /** Owners and Facilitators may manage members (except Owner constraints). */
@@ -123,6 +128,7 @@ export function filterMembersByQuery(
   return members.filter((m) => {
     if (m.userId.toLowerCase().includes(q)) return true;
     if (m.email?.toLowerCase().includes(q)) return true;
+    if (m.name?.toLowerCase().includes(q)) return true;
     return false;
   });
 }

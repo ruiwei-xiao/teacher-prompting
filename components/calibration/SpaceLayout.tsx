@@ -74,7 +74,7 @@ export default function SpaceLayout({
     <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <header className="rounded-2xl border border-white/60 bg-white/70 px-5 py-4 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80">
         <p className="text-xs font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
-          Rubric Calibration
+          Team activity
         </p>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
           <div>

@@ -159,6 +159,11 @@ async function main(): Promise<void> {
     );
     assertEqual(offering.aiProvider, "openai", "createOffering stores AI provider");
     assertEqual(offering.aiModel, "gpt-4o-mini", "createOffering stores AI model");
+    assertEqual(
+      offering.facilitatorApiKey,
+      undefined,
+      "createOffering omits facilitator key when unused"
+    );
     assert(
       typeof offering.createdAt === "string" && offering.createdAt.length > 0,
       "createOffering stores createdAt"
@@ -192,8 +197,19 @@ async function main(): Promise<void> {
         transcriptExcerpt: "Other transcript",
         aiProvider: "anthropic",
         aiModel: "claude-sonnet-4",
+        facilitatorApiKey: "  sk-fac  ",
       },
       operatorId
+    );
+    assertEqual(
+      offering2.facilitatorApiKey,
+      "sk-fac",
+      "createOffering stores a custom facilitator key"
+    );
+    assertEqual(
+      (await getOffering(offering2.id))?.facilitatorApiKey,
+      "sk-fac",
+      "getOffering round-trips a custom facilitator key"
     );
 
     // --- check-in unique per (offering, learner) (Requirement 2.1) ---

@@ -172,6 +172,8 @@ export type OfferingInput = {
   transcriptExcerpt: string;
   aiProvider: string;
   aiModel: string;
+  /** When omitted, the facilitator uses the sample bot's stored API key. */
+  facilitatorApiKey?: string;
 };
 
 export type Offering = OfferingInput & {

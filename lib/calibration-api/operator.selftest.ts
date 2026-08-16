@@ -197,12 +197,25 @@ async function main(): Promise<void> {
     const learnerDash = await getOperatorDashboard(stuckA, offering!.id, { now });
     assertEqual(learnerDash.status, 403, "queued learner GET operate → 403");
 
-    // --- 10-day waiter appears; 9-day waiter does not ---
+    // --- every queued learner appears; only 10-day waiters are marked stuck ---
     const dash = await getOperatorDashboard(operatorId, offering!.id, { now });
     assertEqual(dash.status, 200, "operator GET operate → 200");
     assert(dash.ok === true, "operator dashboard ok");
     if (dash.ok) {
+      assert(
+        dash.body.queueCount >= dash.body.stuckWaiters.length,
+        "dashboard queue count includes every waiting learner"
+      );
+      assert(
+        dash.body.labels !== undefined && typeof dash.body.labels === "object",
+        "dashboard includes person labels"
+      );
+      const waiterIds = dash.body.waiters.map((row) => row.userId);
       const stuckIds = dash.body.stuckWaiters.map((row) => row.userId);
+      assert(
+        waiterIds.includes(stuckA) && waiterIds.includes(recentB),
+        "dashboard waiters lists every queued learner"
+      );
       assert(
         stuckIds.includes(stuckA),
         "10-day waiter appears on dashboard (2.5, 14.1)"
@@ -211,6 +224,11 @@ async function main(): Promise<void> {
         !stuckIds.includes(recentB),
         "waiter under 10 days is not listed as stuck"
       );
+      const recentRow = dash.body.waiters.find((row) => row.userId === recentB);
+      assert(recentRow !== undefined, "recent waiter row exists");
+      if (recentRow) {
+        assertEqual(recentRow.stuck, false, "waiter under 10 days is not stuck");
+      }
       const stuckRow = dash.body.stuckWaiters.find((row) => row.userId === stuckA);
       assert(stuckRow !== undefined, "stuck waiter row exists");
       if (stuckRow) {
@@ -219,6 +237,7 @@ async function main(): Promise<void> {
           offering!.id,
           "stuck waiter includes offering identity (14.1)"
         );
+        assertEqual(stuckRow.stuck, true, "10-day waiter is marked stuck");
         assert(
           stuckRow.waitedMs >= OPERATOR_STUCK_LISTING_MS,
           "stuck waiter includes wait duration of at least 10 days (14.1)"

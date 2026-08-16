@@ -119,6 +119,11 @@ async function main(): Promise<void> {
 
   // --- Wait duration is human-readable for 10–14 day stuck waiters (2.5, 14.1) ---
   assertEqual(
+    formatWaitDuration(3 * HOUR_MS),
+    "3h",
+    "same-day wait formats as hours only"
+  );
+  assertEqual(
     formatWaitDuration(10 * DAY_MS),
     "10d 0h",
     "10-day wait formats as 10d 0h"
@@ -145,6 +150,7 @@ async function main(): Promise<void> {
   // --- parseDashboard keeps stuck waiters + team progress columns (14.1, 14.4) ---
   const dashboardBody = {
     offeringId: "off_1",
+    queueCount: 2,
     stuckWaiters: [
       {
         checkInId: "ci_1",
@@ -167,12 +173,24 @@ async function main(): Promise<void> {
   const dashboard = parseDashboardResponse(200, dashboardBody);
   assert(dashboard.ok === true, "200 dashboard is ok");
   if (dashboard.ok) {
+    assertEqual(dashboard.view.labels, {}, "dashboard labels default to empty");
     assertEqual(dashboard.view.offeringId, "off_1", "dashboard keeps offering identity");
+    assertEqual(dashboard.view.queueCount, 2, "dashboard keeps matching queue count");
     assertEqual(dashboard.view.stuckWaiters.length, 1, "dashboard lists stuck waiters");
+    assertEqual(
+      dashboard.view.waiters.length,
+      1,
+      "dashboard waiters falls back to stuckWaiters when waiters is omitted"
+    );
     assertEqual(
       dashboard.view.stuckWaiters[0]?.waitedMs,
       10 * DAY_MS,
       "stuck waiter keeps wait duration"
+    );
+    assertEqual(
+      dashboard.view.stuckWaiters[0]?.stuck,
+      false,
+      "stuck flag defaults to false when the API omits it"
     );
     assertEqual(
       dashboard.view.stuckWaiters[0]?.offeringId,
@@ -194,6 +212,61 @@ async function main(): Promise<void> {
       dashboard.view.teams[0]?.autoFinalized,
       false,
       "team row keeps auto-finalized"
+    );
+  }
+
+  const allWaitersBody = {
+    offeringId: "off_1",
+    queueCount: 2,
+    waiters: [
+      {
+        checkInId: "ci_recent",
+        userId: "u-recent",
+        offeringId: "off_1",
+        waitedMs: 2 * DAY_MS,
+        checkedInAt: "2026-08-13T00:00:00.000Z",
+        stuck: false,
+      },
+      {
+        checkInId: "ci_1",
+        userId: "u-stuck",
+        offeringId: "off_1",
+        waitedMs: 10 * DAY_MS,
+        checkedInAt: "2026-08-01T00:00:00.000Z",
+        stuck: true,
+      },
+    ],
+    stuckWaiters: [
+      {
+        checkInId: "ci_1",
+        userId: "u-stuck",
+        offeringId: "off_1",
+        waitedMs: 10 * DAY_MS,
+        checkedInAt: "2026-08-01T00:00:00.000Z",
+        stuck: true,
+      },
+    ],
+    teams: [],
+  };
+  const allWaiters = parseDashboardResponse(200, allWaitersBody);
+  assert(allWaiters.ok === true, "200 dashboard with waiters is ok");
+  if (allWaiters.ok) {
+    assertEqual(allWaiters.view.waiters.length, 2, "dashboard lists every queued learner");
+    assertEqual(allWaiters.view.waiters[0]?.stuck, false, "recent waiter is not stuck");
+    assertEqual(allWaiters.view.waiters[1]?.stuck, true, "10-day waiter is stuck");
+    assertEqual(allWaiters.view.stuckWaiters.length, 1, "stuckWaiters stays the 10-day subset");
+  }
+
+  const labeled = parseDashboardResponse(200, {
+    ...allWaitersBody,
+    labels: { "u-recent": "recent@school.edu", "u-stuck": "Stuck Student" },
+  });
+  assert(labeled.ok === true, "200 dashboard with labels is ok");
+  if (labeled.ok) {
+    assertEqual(
+      labeled.view.labels["u-stuck"],
+      "Stuck Student",
+      "dashboard keeps person labels"
     );
   }
 
@@ -280,6 +353,18 @@ async function main(): Promise<void> {
     "OperatorDashboard is a client component"
   );
   assert(
+    dashboardSource.includes("Learners"),
+    "dashboard lists every learner, not only the 10-day stuck queue"
+  );
+  assert(
+    dashboardSource.includes("Waiting") || dashboardSource.includes("waitedMs"),
+    "dashboard shows waiting status"
+  );
+  assert(
+    dashboardSource.includes("Team ") || dashboardSource.includes("teamIndex"),
+    "dashboard shows which team a joined learner is on"
+  );
+  assert(
     dashboardSource.includes("formatWaitDuration") ||
       dashboardSource.includes("waitedMs"),
     "dashboard renders wait duration"
@@ -339,6 +424,12 @@ async function main(): Promise<void> {
       !dashboardSource.includes("calibration-store") &&
       !dashboardSource.includes("calibration-api"),
     "OperatorDashboard does not import engine/store/api"
+  );
+  assert(
+    dashboardSource.includes("Copy link") ||
+      dashboardSource.includes("joinUrl") ||
+      dashboardSource.includes("offeringGatePath"),
+    "dashboard shows the learner join link"
   );
   assert(
     !dashboardSource.includes("OperatorTeamView"),

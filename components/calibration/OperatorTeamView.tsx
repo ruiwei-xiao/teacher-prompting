@@ -1,4 +1,5 @@
 import {
+  labelForUserId,
   operatePageHref,
   type InspectorView,
 } from "@/lib/calibration-ui/operator";
@@ -72,7 +73,7 @@ export default function OperatorTeamView({
           href={operatePageHref(offeringId)}
           className="mt-3 inline-block text-sm font-medium text-sky-700 hover:underline dark:text-sky-400"
         >
-          Back to dashboard
+          Back to progress
         </a>
       </header>
 
@@ -106,7 +107,9 @@ export default function OperatorTeamView({
                     >
                       {facilitator
                         ? "Facilitator"
-                        : message.authorUserId || "Learner"}
+                        : message.authorUserId
+                          ? labelForUserId(message.authorUserId, view.labels)
+                          : "Learner"}
                     </p>
                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800 dark:text-zinc-200">
                       {message.body}
@@ -155,7 +158,7 @@ export default function OperatorTeamView({
                     className="border-b border-slate-100 last:border-0 dark:border-zinc-800"
                   >
                     <td className="py-2 pr-4 text-slate-900 dark:text-zinc-100">
-                      {row.userId}
+                      {labelForUserId(row.userId, view.labels)}
                     </td>
                     {keys.map((key) => (
                       <td
@@ -185,7 +188,8 @@ export default function OperatorTeamView({
           <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-zinc-300">
             {view.absences.map((row) => (
               <li key={`${row.userId}:${row.stepKey}:${row.markedAt}`}>
-                {row.userId} · {row.stepKey} · {row.markedAt}
+                {labelForUserId(row.userId, view.labels)} · {row.stepKey} ·{" "}
+                {row.markedAt}
               </li>
             ))}
           </ul>
@@ -208,7 +212,7 @@ export default function OperatorTeamView({
             {deliverable.addenda.map((row) => (
               <li key={row.id}>
                 <span className="font-medium text-slate-900 dark:text-zinc-100">
-                  {row.userId}
+                  {labelForUserId(row.userId, view.labels)}
                 </span>
                 {": "}
                 {row.body}

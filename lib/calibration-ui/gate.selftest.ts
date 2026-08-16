@@ -86,17 +86,17 @@ async function main(): Promise<void> {
   // --- QueueStatus label is "n of 3" (2.1); literal 3, no TEAM_SIZE ---
   assertEqual(
     queueStatusLabel(0),
-    "0 of 3 checked in",
+    "0 of 3 have joined",
     "empty queue is 0 of 3"
   );
   assertEqual(
     queueStatusLabel(1),
-    "1 of 3 checked in",
+    "1 of 3 have joined",
     "first check-in is 1 of 3"
   );
   assertEqual(
     queueStatusLabel(2),
-    "2 of 3 checked in",
+    "2 of 3 have joined",
     "pre-quorum second check-in is 2 of 3"
   );
   assert(

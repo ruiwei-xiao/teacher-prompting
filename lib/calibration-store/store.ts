@@ -54,6 +54,7 @@ type OfferingRow = {
   transcript_excerpt: string;
   ai_provider: string;
   ai_model: string;
+  facilitator_api_key?: string | null;
   created_at: string | Date;
 };
 
@@ -208,6 +209,13 @@ function parseTeamState(raw: unknown): TeamStateRecord {
   throw new Error("Invalid team state record.");
 }
 
+function optionalFacilitatorApiKey(
+  input: OfferingInput
+): string | undefined {
+  const trimmed = input.facilitatorApiKey?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function toIso(value: string | Date): string {
   return new Date(value).toISOString();
 }
@@ -228,6 +236,9 @@ function rowToOffering(row: OfferingRow): Offering {
     aiProvider: row.ai_provider,
     aiModel: row.ai_model,
     createdAt: toIso(row.created_at),
+    ...(row.facilitator_api_key?.trim()
+      ? { facilitatorApiKey: row.facilitator_api_key.trim() }
+      : {}),
   };
 }
 
@@ -497,8 +508,13 @@ async function ensurePostgresStore() {
           transcript_excerpt TEXT NOT NULL,
           ai_provider TEXT NOT NULL,
           ai_model TEXT NOT NULL,
+          facilitator_api_key TEXT,
           created_at TIMESTAMPTZ NOT NULL
         )
+      `;
+      await sql`
+        ALTER TABLE calibration_offerings
+        ADD COLUMN IF NOT EXISTS facilitator_api_key TEXT
       `;
 
       await sql`
@@ -657,6 +673,9 @@ async function createOfferingInFile(
     aiProvider: input.aiProvider,
     aiModel: input.aiModel,
     createdAt: new Date().toISOString(),
+    ...(optionalFacilitatorApiKey(input)
+      ? { facilitatorApiKey: optionalFacilitatorApiKey(input) }
+      : {}),
   };
   data.offerings.push(offering);
   await writeFileData(data);
@@ -666,6 +685,16 @@ async function createOfferingInFile(
 async function getOfferingInFile(offeringId: string): Promise<Offering | null> {
   const data = await readFileData();
   return data.offerings.find((o) => o.id === offeringId) ?? null;
+}
+
+async function listOfferingsForOperatorInFile(
+  operatorUserId: string
+): Promise<Offering[]> {
+  const data = await readFileData();
+  return data.offerings
+    .filter((offering) => offering.operatorUserId === operatorUserId)
+    .slice()
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 async function checkInInFile(
@@ -1182,11 +1211,15 @@ async function createOfferingInPostgres(
     aiProvider: input.aiProvider,
     aiModel: input.aiModel,
     createdAt: new Date().toISOString(),
+    ...(optionalFacilitatorApiKey(input)
+      ? { facilitatorApiKey: optionalFacilitatorApiKey(input) }
+      : {}),
   };
   await sql`
     INSERT INTO calibration_offerings (
       id, operator_user_id, title, sample_app_id, sample_rubric,
-      deployment_brief, transcript_excerpt, ai_provider, ai_model, created_at
+      deployment_brief, transcript_excerpt, ai_provider, ai_model,
+      facilitator_api_key, created_at
     )
     VALUES (
       ${offering.id},
@@ -1198,6 +1231,7 @@ async function createOfferingInPostgres(
       ${offering.transcriptExcerpt},
       ${offering.aiProvider},
       ${offering.aiModel},
+      ${offering.facilitatorApiKey ?? null},
       ${offering.createdAt}
     )
   `;
@@ -1209,13 +1243,30 @@ async function getOfferingInPostgres(offeringId: string): Promise<Offering | nul
   const result = await sql<OfferingRow>`
     SELECT
       id, operator_user_id, title, sample_app_id, sample_rubric,
-      deployment_brief, transcript_excerpt, ai_provider, ai_model, created_at
+      deployment_brief, transcript_excerpt, ai_provider, ai_model,
+      facilitator_api_key, created_at
     FROM calibration_offerings
     WHERE id = ${offeringId}
     LIMIT 1
   `;
   const row = result.rows[0];
   return row ? rowToOffering(row) : null;
+}
+
+async function listOfferingsForOperatorInPostgres(
+  operatorUserId: string
+): Promise<Offering[]> {
+  await ensurePostgresStore();
+  const result = await sql<OfferingRow>`
+    SELECT
+      id, operator_user_id, title, sample_app_id, sample_rubric,
+      deployment_brief, transcript_excerpt, ai_provider, ai_model,
+      facilitator_api_key, created_at
+    FROM calibration_offerings
+    WHERE operator_user_id = ${operatorUserId}
+    ORDER BY created_at DESC
+  `;
+  return result.rows.map(rowToOffering);
 }
 
 async function checkInInPostgres(
@@ -1885,6 +1936,15 @@ export async function getOffering(offeringId: string): Promise<Offering | null> 
     return getOfferingInPostgres(offeringId);
   }
   return getOfferingInFile(offeringId);
+}
+
+export async function listOfferingsForOperator(
+  operatorUserId: string
+): Promise<Offering[]> {
+  if (shouldUsePostgres()) {
+    return listOfferingsForOperatorInPostgres(operatorUserId);
+  }
+  return listOfferingsForOperatorInFile(operatorUserId);
 }
 
 export async function checkIn(

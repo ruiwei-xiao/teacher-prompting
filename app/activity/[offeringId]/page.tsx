@@ -43,10 +43,10 @@ export default async function CourseGatePage({
         <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
           <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
             <h1 className="text-2xl font-semibold text-slate-900 dark:text-zinc-100">
-              Offering not found
+              Activity not found
             </h1>
             <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
-              This course-gate link is not available.
+              This join link is not available.
             </p>
           </div>
         </main>
