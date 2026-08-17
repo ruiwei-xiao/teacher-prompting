@@ -5,6 +5,7 @@
  *
  * Session is resolved by route wrappers; these accept userId for testability.
  */
+import { getAppById } from "@/lib/app-store/store";
 import { resolveUserLabels } from "@/lib/auth/resolve-labels";
 import { resolveCaller } from "./access";
 import type { ApiResult } from "./offerings";
@@ -22,12 +23,14 @@ import {
   listAddenda,
   listQueuedCheckIns,
   listTeams,
+  updateOfferingFacilitatorKey,
 } from "@/lib/calibration-store/store";
 import type {
   AbsenceRecord,
   AddendumRecord,
   CheckIn,
   DocSnapshot,
+  Offering,
   OperatorScoreView,
   Team,
   TeamPhase,
@@ -53,6 +56,18 @@ export type TeamProgress = {
   autoFinalized: boolean;
 };
 
+export type OfferingSetupView = {
+  title: string;
+  sampleAppId: string;
+  sampleBotName: string;
+  sampleRubric: string;
+  deploymentBrief: string;
+  transcriptExcerpt: string;
+  aiProvider: string;
+  aiModel: string;
+  facilitatorKeySource: "bot" | "custom";
+};
+
 export type OperatorDashboard = {
   offeringId: string;
   queueCount: number;
@@ -60,6 +75,7 @@ export type OperatorDashboard = {
   stuckWaiters: StuckWaiter[];
   teams: TeamProgress[];
   labels: Record<string, string>;
+  setup: OfferingSetupView;
 };
 
 export type FinalDeliverableView = {
@@ -108,6 +124,29 @@ function compareCheckIns(left: CheckIn, right: CheckIn): number {
     return left.checkedInAt < right.checkedInAt ? -1 : 1;
   }
   return left.id < right.id ? -1 : 1;
+}
+
+async function offeringSetup(offering: Offering): Promise<OfferingSetupView> {
+  let sampleBotName = offering.sampleAppId;
+  try {
+    const app = await getAppById(offering.sampleAppId, offering.operatorUserId);
+    if (app?.name?.trim()) sampleBotName = app.name.trim();
+  } catch {
+    // Progress still loads if the sample bot is missing.
+  }
+  return {
+    title: offering.title,
+    sampleAppId: offering.sampleAppId,
+    sampleBotName,
+    sampleRubric: offering.sampleRubric,
+    deploymentBrief: offering.deploymentBrief,
+    transcriptExcerpt: offering.transcriptExcerpt,
+    aiProvider: offering.aiProvider,
+    aiModel: offering.aiModel,
+    facilitatorKeySource: offering.facilitatorApiKey?.trim()
+      ? "custom"
+      : "bot",
+  };
 }
 
 function isStuckWaiter(checkIn: CheckIn, nowMs: number): boolean {
@@ -192,8 +231,60 @@ export async function getOperatorDashboard(
       stuckWaiters,
       teams,
       labels,
+      setup: await offeringSetup(caller.offering),
     },
   };
+}
+
+function readFacilitatorKeyPatch(
+  body: unknown
+): { source: "bot" } | { source: "custom"; apiKey: string } | { error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { error: "Facilitator key update requires a source" };
+  }
+  const record = body as Record<string, unknown>;
+  if (record.facilitatorKeySource === "bot") {
+    return { source: "bot" };
+  }
+  if (record.facilitatorKeySource === "custom") {
+    if (
+      typeof record.facilitatorApiKey !== "string" ||
+      !record.facilitatorApiKey.trim()
+    ) {
+      return { error: "A new API key is required to replace the saved key" };
+    }
+    return { source: "custom", apiKey: record.facilitatorApiKey.trim() };
+  }
+  return { error: "Facilitator key update requires a source" };
+}
+
+/**
+ * Operator-only facilitator key change. Never returns the stored key.
+ * `bot` clears the override; `custom` replaces it.
+ */
+export async function patchOperatorFacilitatorKey(
+  userId: string | null,
+  offeringId: string,
+  body: unknown,
+  deps?: OperatorDeps
+): Promise<ApiResult<OperatorDashboard>> {
+  if (!userId) return unauthorized();
+  const caller = await resolveCaller(userId, { offeringId });
+  if (caller.role === "not_found") {
+    return notFound("Offering not found");
+  }
+  if (caller.role !== "operator") {
+    return forbidden();
+  }
+  const parsed = readFacilitatorKeyPatch(body);
+  if ("error" in parsed) {
+    return badRequest(parsed.error);
+  }
+  await updateOfferingFacilitatorKey(
+    offeringId,
+    parsed.source === "bot" ? null : parsed.apiKey
+  );
+  return getOperatorDashboard(userId, offeringId, deps);
 }
 
 /**

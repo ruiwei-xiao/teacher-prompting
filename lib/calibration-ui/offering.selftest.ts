@@ -10,6 +10,7 @@ import {
   OFFERING_CREATE_API,
   OWN_BOTS_API,
   buildOfferingCreatePayload,
+  hubStatusLabel,
   isCalibrationPath,
   parseOfferingCreateResponse,
   parseOfferingListResponse,
@@ -284,7 +285,71 @@ async function main(): Promise<void> {
   if (listed.ok) {
     assertEqual(listed.offerings.length, 1, "parses one offering");
     assertEqual(listed.offerings[0]?.id, "off_1", "list item id");
+    assertEqual(listed.offerings[0]?.isInstructor, false, "missing flags default false");
+    assertEqual(listed.offerings[0]?.joined, false, "missing joined defaults false");
+    assertEqual(listed.offerings[0]?.teamId, null, "missing teamId defaults null");
   }
+
+  const labeled = parseOfferingListResponse(200, {
+    offerings: [
+      {
+        id: "off_2",
+        title: "Joined",
+        createdAt: "2026-08-16T00:00:00.000Z",
+        isInstructor: true,
+        joined: true,
+        queueCount: 2,
+        teamId: null,
+      },
+    ],
+  });
+  assert(labeled.ok === true, "200 labeled list is ok");
+  if (labeled.ok) {
+    assertEqual(labeled.offerings[0]?.isInstructor, true, "parses instructor flag");
+    assertEqual(labeled.offerings[0]?.joined, true, "parses joined flag");
+    assertEqual(labeled.offerings[0]?.queueCount, 2, "parses queue count");
+  }
+
+  assertEqual(
+    hubStatusLabel({
+      isInstructor: true,
+      joined: false,
+      teamId: null,
+      queueCount: 0,
+    }),
+    "Instructor",
+    "created-only card is Instructor"
+  );
+  assertEqual(
+    hubStatusLabel({
+      isInstructor: false,
+      joined: true,
+      teamId: null,
+      queueCount: 2,
+    }),
+    "Waiting · 2 of 3",
+    "joined waiting card shows queue"
+  );
+  assertEqual(
+    hubStatusLabel({
+      isInstructor: false,
+      joined: true,
+      teamId: "team_9",
+      queueCount: 0,
+    }),
+    "On a team",
+    "matched learner card is On a team"
+  );
+  assertEqual(
+    hubStatusLabel({
+      isInstructor: true,
+      joined: true,
+      teamId: "team_9",
+      queueCount: 0,
+    }),
+    "Instructor · On a team",
+    "creator who joined a formed team keeps both roles"
+  );
 
   const sidebarPath = path.join(
     process.cwd(),
@@ -303,7 +368,17 @@ async function main(): Promise<void> {
     "sidebar shows an Activities item"
   );
   assert(hubSource.includes("ACTIVITY_NEW_HREF") || hubSource.includes("/activity/new"), "hub links to create");
-  assert(hubSource.includes("listMyOfferings"), "hub loads the operator's offerings");
+  assert(hubSource.includes("listMyOfferings"), "hub loads created and joined offerings");
+  assert(!hubSource.includes("Join link"), "hub cards do not show a Join link");
+  assert(hubSource.includes("Progress"), "hub shows Progress for instructors");
+  assert(
+    hubSource.includes("Open activity") || hubSource.includes("teamSpacePath"),
+    "hub links matched learners to the team space"
+  );
+  assert(
+    hubSource.includes("hubStatusLabel") || hubSource.includes("Waiting"),
+    "hub shows waiting status for unmatched joiners"
+  );
 
   if (failures > 0) {
     console.error(`\noffering.selftest: ${failures} failure(s)`);

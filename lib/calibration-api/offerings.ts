@@ -11,7 +11,9 @@ import { queueStatusFor } from "./queue";
 import {
   createOffering as persistOffering,
   getOffering,
+  listActiveCheckInsForUser,
   listOfferingsForOperator,
+  listQueuedCheckIns,
 } from "@/lib/calibration-store/store";
 import type { Offering, OfferingInput } from "@/lib/calibration-store/types";
 
@@ -32,6 +34,10 @@ export type OfferingListItem = {
   id: string;
   title: string;
   createdAt: string;
+  isInstructor: boolean;
+  joined: boolean;
+  queueCount: number;
+  teamId: string | null;
 };
 
 export type GateView = {
@@ -144,22 +150,47 @@ export async function createOffering(
   return { ok: true, status: 200, body: { offering: publicOffering(offering) } };
 }
 
-/** Operator's own offerings only (design: GET list mine). */
+/** Offerings the caller created or actively joined. */
 export async function listMyOfferings(
   userId: string | null
 ): Promise<ApiResult<{ offerings: OfferingListItem[] }>> {
   if (!userId) return unauthorized();
-  const offerings = await listOfferingsForOperator(userId);
+  const [owned, checkIns] = await Promise.all([
+    listOfferingsForOperator(userId),
+    listActiveCheckInsForUser(userId),
+  ]);
+  const ownedIds = new Set(owned.map((offering) => offering.id));
+  const checkInByOffering = new Map(
+    checkIns.map((row) => [row.offeringId, row])
+  );
+  const extras = await Promise.all(
+    [...checkInByOffering.keys()]
+      .filter((offeringId) => !ownedIds.has(offeringId))
+      .map((offeringId) => getOffering(offeringId))
+  );
+  const offerings = [
+    ...owned,
+    ...extras.filter((offering): offering is Offering => offering !== null),
+  ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  const items: OfferingListItem[] = [];
+  for (const offering of offerings) {
+    const mine = checkInByOffering.get(offering.id) ?? null;
+    const queued = await listQueuedCheckIns(offering.id);
+    items.push({
+      id: offering.id,
+      title: offering.title,
+      createdAt: offering.createdAt,
+      isInstructor: offering.operatorUserId === userId,
+      joined: mine !== null,
+      queueCount: queued.length,
+      teamId: mine?.teamId ?? null,
+    });
+  }
   return {
     ok: true,
     status: 200,
-    body: {
-      offerings: offerings.map((offering) => ({
-        id: offering.id,
-        title: offering.title,
-        createdAt: offering.createdAt,
-      })),
-    },
+    body: { offerings: items },
   };
 }
 

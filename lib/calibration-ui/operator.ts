@@ -28,6 +28,18 @@ export type TeamProgressView = {
   autoFinalized: boolean;
 };
 
+export type OfferingSetupView = {
+  title: string;
+  sampleAppId: string;
+  sampleBotName: string;
+  sampleRubric: string;
+  deploymentBrief: string;
+  transcriptExcerpt: string;
+  aiProvider: string;
+  aiModel: string;
+  facilitatorKeySource: "bot" | "custom";
+};
+
 export type OperatorDashboardView = {
   offeringId: string;
   queueCount: number;
@@ -35,6 +47,7 @@ export type OperatorDashboardView = {
   stuckWaiters: StuckWaiterView[];
   teams: TeamProgressView[];
   labels: Record<string, string>;
+  setup: OfferingSetupView;
 };
 
 const DAY_MS = 86_400_000;
@@ -66,6 +79,17 @@ export function operateDashboardApiHref(offeringId: string): string {
 /** POST manual match { userIds }. */
 export function operateMatchApiHref(offeringId: string): string {
   return `/api/calibration/offerings/${offeringId}/operate/match`;
+}
+
+export function facilitatorKeyPatchBody(
+  source: "bot" | "custom",
+  apiKey?: string
+): { facilitatorKeySource: "bot" | "custom"; facilitatorApiKey?: string } {
+  if (source === "bot") return { facilitatorKeySource: "bot" };
+  return {
+    facilitatorKeySource: "custom",
+    facilitatorApiKey: apiKey?.trim() ?? "",
+  };
 }
 
 /** Read-only inspect page for one team (Task 7.2). */
@@ -450,6 +474,46 @@ function readStuckWaiter(value: unknown): StuckWaiterView | null {
   };
 }
 
+function emptySetup(): OfferingSetupView {
+  return {
+    title: "",
+    sampleAppId: "",
+    sampleBotName: "",
+    sampleRubric: "",
+    deploymentBrief: "",
+    transcriptExcerpt: "",
+    aiProvider: "",
+    aiModel: "",
+    facilitatorKeySource: "bot",
+  };
+}
+
+function readSetup(value: unknown): OfferingSetupView {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptySetup();
+  }
+  const record = value as Record<string, unknown>;
+  const source =
+    record.facilitatorKeySource === "custom" ? "custom" : "bot";
+  return {
+    title: typeof record.title === "string" ? record.title : "",
+    sampleAppId: typeof record.sampleAppId === "string" ? record.sampleAppId : "",
+    sampleBotName:
+      typeof record.sampleBotName === "string" ? record.sampleBotName : "",
+    sampleRubric:
+      typeof record.sampleRubric === "string" ? record.sampleRubric : "",
+    deploymentBrief:
+      typeof record.deploymentBrief === "string" ? record.deploymentBrief : "",
+    transcriptExcerpt:
+      typeof record.transcriptExcerpt === "string"
+        ? record.transcriptExcerpt
+        : "",
+    aiProvider: typeof record.aiProvider === "string" ? record.aiProvider : "",
+    aiModel: typeof record.aiModel === "string" ? record.aiModel : "",
+    facilitatorKeySource: source,
+  };
+}
+
 function readTeamProgress(value: unknown): TeamProgressView | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -527,6 +591,7 @@ export function parseDashboardResponse(
       stuckWaiters,
       teams,
       labels: readUserLabels(record.labels),
+      setup: readSetup(record.setup),
     },
   };
 }

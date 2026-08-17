@@ -687,6 +687,26 @@ async function getOfferingInFile(offeringId: string): Promise<Offering | null> {
   return data.offerings.find((o) => o.id === offeringId) ?? null;
 }
 
+async function updateOfferingFacilitatorKeyInFile(
+  offeringId: string,
+  facilitatorApiKey: string | null
+): Promise<Offering | null> {
+  const data = await readFileData();
+  const index = data.offerings.findIndex((row) => row.id === offeringId);
+  if (index === -1) return null;
+  const current = data.offerings[index]!;
+  const trimmed = facilitatorApiKey?.trim() || "";
+  const next: Offering = { ...current };
+  if (trimmed) {
+    next.facilitatorApiKey = trimmed;
+  } else {
+    delete next.facilitatorApiKey;
+  }
+  data.offerings[index] = next;
+  await writeFileData(data);
+  return next;
+}
+
 async function listOfferingsForOperatorInFile(
   operatorUserId: string
 ): Promise<Offering[]> {
@@ -743,6 +763,25 @@ async function getCheckInInFile(
         isActiveCheckInStatus(c.status)
     ) ?? null
   );
+}
+
+async function listActiveCheckInsForUserInFile(
+  userId: string
+): Promise<CheckIn[]> {
+  const data = await readFileData();
+  return data.checkIns
+    .filter(
+      (checkIn) =>
+        checkIn.userId === userId && isActiveCheckInStatus(checkIn.status)
+    )
+    .slice()
+    .sort((left, right) => {
+      const delta =
+        new Date(right.checkedInAt).getTime() -
+        new Date(left.checkedInAt).getTime();
+      if (delta !== 0) return delta;
+      return left.id.localeCompare(right.id);
+    });
 }
 
 async function listQueuedCheckInsInFile(offeringId?: string): Promise<CheckIn[]> {
@@ -1253,6 +1292,21 @@ async function getOfferingInPostgres(offeringId: string): Promise<Offering | nul
   return row ? rowToOffering(row) : null;
 }
 
+async function updateOfferingFacilitatorKeyInPostgres(
+  offeringId: string,
+  facilitatorApiKey: string | null
+): Promise<Offering | null> {
+  await ensurePostgresStore();
+  const trimmed = facilitatorApiKey?.trim() || "";
+  const stored = trimmed || null;
+  await sql`
+    UPDATE calibration_offerings
+    SET facilitator_api_key = ${stored}
+    WHERE id = ${offeringId}
+  `;
+  return getOfferingInPostgres(offeringId);
+}
+
 async function listOfferingsForOperatorInPostgres(
   operatorUserId: string
 ): Promise<Offering[]> {
@@ -1360,6 +1414,22 @@ async function listQueuedCheckInsInPostgres(
         WHERE status = ${"queued"}
         ORDER BY checked_in_at ASC, id ASC
       `;
+  return result.rows.map(rowToCheckIn);
+}
+
+async function listActiveCheckInsForUserInPostgres(
+  userId: string
+): Promise<CheckIn[]> {
+  await ensurePostgresStore();
+  const result = await sql<CheckInRow>`
+    SELECT
+      id, offering_id, user_id, status, checked_in_at,
+      last_ping_at, missed_pings, team_id
+    FROM calibration_checkins
+    WHERE user_id = ${userId}
+      AND status IN ('queued', 'matched')
+    ORDER BY checked_in_at DESC, id DESC
+  `;
   return result.rows.map(rowToCheckIn);
 }
 
@@ -1938,6 +2008,16 @@ export async function getOffering(offeringId: string): Promise<Offering | null> 
   return getOfferingInFile(offeringId);
 }
 
+export async function updateOfferingFacilitatorKey(
+  offeringId: string,
+  facilitatorApiKey: string | null
+): Promise<Offering | null> {
+  if (shouldUsePostgres()) {
+    return updateOfferingFacilitatorKeyInPostgres(offeringId, facilitatorApiKey);
+  }
+  return updateOfferingFacilitatorKeyInFile(offeringId, facilitatorApiKey);
+}
+
 export async function listOfferingsForOperator(
   operatorUserId: string
 ): Promise<Offering[]> {
@@ -1973,6 +2053,15 @@ export async function listQueuedCheckIns(offeringId?: string): Promise<CheckIn[]
     return listQueuedCheckInsInPostgres(offeringId);
   }
   return listQueuedCheckInsInFile(offeringId);
+}
+
+export async function listActiveCheckInsForUser(
+  userId: string
+): Promise<CheckIn[]> {
+  if (shouldUsePostgres()) {
+    return listActiveCheckInsForUserInPostgres(userId);
+  }
+  return listActiveCheckInsForUserInFile(userId);
 }
 
 export async function expireCheckIn(checkInId: string): Promise<void> {

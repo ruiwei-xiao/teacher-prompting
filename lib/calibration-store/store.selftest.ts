@@ -105,6 +105,7 @@ async function main(): Promise<void> {
     listAbsences,
     listAddenda,
     listAgreements,
+    listActiveCheckInsForUser,
     listQueuedCheckIns,
     recordAbsence,
     recordAgreement,
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
     saveDocSnapshot,
     saveTeamState,
     submitScores,
+    updateOfferingFacilitatorKey,
   } = await import("./store");
 
   try {
@@ -211,6 +213,18 @@ async function main(): Promise<void> {
       "sk-fac",
       "getOffering round-trips a custom facilitator key"
     );
+    const cleared = await updateOfferingFacilitatorKey(offering2.id, null);
+    assertEqual(
+      cleared?.facilitatorApiKey,
+      undefined,
+      "clearing the facilitator key removes the override"
+    );
+    const replaced = await updateOfferingFacilitatorKey(offering2.id, "  sk-new  ");
+    assertEqual(
+      replaced?.facilitatorApiKey,
+      "sk-new",
+      "updating the facilitator key stores the trimmed value"
+    );
 
     // --- check-in unique per (offering, learner) (Requirement 2.1) ---
     const checkInA = await checkIn(offering.id, userA);
@@ -245,6 +259,13 @@ async function main(): Promise<void> {
       checkInAOnOffering2.id !== checkInA.id,
       "same learner may check in to a different offering"
     );
+    const activeForA = await listActiveCheckInsForUser(userA);
+    assertEqual(activeForA.length, 2, "listActiveCheckInsForUser returns both offerings");
+    assert(
+      activeForA.every((row) => row.userId === userA),
+      "listActiveCheckInsForUser is scoped to the learner"
+    );
+
     assertEqual(
       (await listQueuedCheckIns(offering2.id)).map((c) => c.userId),
       [userA],

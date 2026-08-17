@@ -6,6 +6,7 @@ import fs from "fs/promises";
 import path from "path";
 import {
   canConfirmManualMatch,
+  facilitatorKeyPatchBody,
   formatWaitDuration,
   matchPostBody,
   operateDashboardApiHref,
@@ -213,7 +214,57 @@ async function main(): Promise<void> {
       false,
       "team row keeps auto-finalized"
     );
+    assertEqual(
+      dashboard.view.setup.title,
+      "",
+      "dashboard setup defaults when the API omits it"
+    );
+    assertEqual(
+      dashboard.view.setup.facilitatorKeySource,
+      "bot",
+      "dashboard key source defaults to bot"
+    );
   }
+
+  const withSetup = parseDashboardResponse(200, {
+    ...dashboardBody,
+    setup: {
+      title: "Week 3 lab",
+      sampleAppId: "app_1",
+      sampleBotName: "Tutor bot",
+      sampleRubric: "clarity",
+      deploymentBrief: "brief",
+      transcriptExcerpt: "Student: hi",
+      aiProvider: "openai",
+      aiModel: "gpt-4o-mini",
+      facilitatorKeySource: "custom",
+    },
+  });
+  assert(withSetup.ok === true, "200 dashboard with setup is ok");
+  if (withSetup.ok) {
+    assertEqual(withSetup.view.setup.title, "Week 3 lab", "dashboard keeps activity title");
+    assertEqual(
+      withSetup.view.setup.facilitatorKeySource,
+      "custom",
+      "dashboard keeps custom key source"
+    );
+    assertEqual(
+      withSetup.view.setup.sampleBotName,
+      "Tutor bot",
+      "dashboard keeps sample bot name"
+    );
+  }
+
+  assertEqual(
+    facilitatorKeyPatchBody("bot"),
+    { facilitatorKeySource: "bot" },
+    "bot patch body does not include a key"
+  );
+  assertEqual(
+    facilitatorKeyPatchBody("custom", "  sk-new  "),
+    { facilitatorKeySource: "custom", facilitatorApiKey: "sk-new" },
+    "custom patch body sends the trimmed key"
+  );
 
   const allWaitersBody = {
     offeringId: "off_1",
@@ -434,6 +485,37 @@ async function main(): Promise<void> {
   assert(
     !dashboardSource.includes("OperatorTeamView"),
     "OperatorDashboard does not build OperatorTeamView (7.2)"
+  );
+  assert(
+    dashboardSource.includes("Activity setup"),
+    "dashboard shows the activity setup card"
+  );
+  assert(
+    dashboardSource.includes("Sample rubric"),
+    "dashboard shows the sample rubric"
+  );
+  assert(
+    dashboardSource.includes("<details") &&
+      dashboardSource.includes("Transcript excerpt") &&
+      dashboardSource.includes("Deployment brief"),
+    "long setup fields are collapsible"
+  );
+  assert(
+    dashboardSource.includes("Save API key") &&
+      dashboardSource.includes("facilitatorKeyPatchBody") &&
+      (dashboardSource.includes('method: "PATCH"') ||
+        dashboardSource.includes("method: 'PATCH'")),
+    "dashboard can replace or revert the facilitator key"
+  );
+  assert(
+    dashboardSource.includes('type="password"') ||
+      dashboardSource.includes("type='password'"),
+    "key replacement uses a password field"
+  );
+  assert(
+    !dashboardSource.includes("setup.facilitatorApiKey") &&
+      !dashboardSource.includes("initial.setup.facilitatorApiKey"),
+    "dashboard never reads a raw facilitator API key from setup"
   );
 
   assert(pageSource.length > 0, "operate page exists");

@@ -133,9 +133,24 @@ export type OfferingListItem = {
   id: string;
   title: string;
   createdAt: string;
+  isInstructor: boolean;
+  joined: boolean;
+  queueCount: number;
+  teamId: string | null;
 };
 
-/** Parse GET /api/calibration/offerings (operator's own offerings). */
+/** One-line role/status for an Activities hub card. */
+export function hubStatusLabel(
+  item: Pick<OfferingListItem, "isInstructor" | "joined" | "teamId" | "queueCount">
+): string {
+  const parts: string[] = [];
+  if (item.isInstructor) parts.push("Instructor");
+  if (item.joined && item.teamId) parts.push("On a team");
+  else if (item.joined) parts.push(`Waiting · ${item.queueCount} of 3`);
+  return parts.join(" · ") || "Instructor";
+}
+
+/** Parse GET /api/calibration/offerings (created + joined). */
 export function parseOfferingListResponse(
   status: number,
   body: unknown
@@ -164,6 +179,18 @@ export function parseOfferingListResponse(
       id: rec.id.trim(),
       title: rec.title,
       createdAt: rec.createdAt,
+      isInstructor: rec.isInstructor === true,
+      joined: rec.joined === true,
+      queueCount:
+        typeof rec.queueCount === "number" &&
+        Number.isFinite(rec.queueCount) &&
+        rec.queueCount >= 0
+          ? Math.floor(rec.queueCount)
+          : 0,
+      teamId:
+        typeof rec.teamId === "string" && rec.teamId.trim()
+          ? rec.teamId.trim()
+          : null,
     });
   }
   return { ok: true, offerings };

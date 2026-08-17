@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { offeringGatePath, queueStatusLabel } from "@/lib/calibration-ui/gate";
 import {
   canConfirmManualMatch,
+  facilitatorKeyPatchBody,
   formatWaitDuration,
   matchPostBody,
   operateDashboardApiHref,
@@ -14,6 +15,53 @@ import {
   labelForUserId,
   type OperatorDashboardView,
 } from "@/lib/calibration-ui/operator";
+
+function setupPreview(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) return "Empty";
+  return compact.length > 96 ? `${compact.slice(0, 96).trimEnd()}…` : compact;
+}
+
+function SetupFold({
+  title,
+  body,
+}: {
+  title: string;
+  body: string;
+}) {
+  const text = body.trim();
+  return (
+    <details className="group rounded-xl border border-slate-200/90 bg-white/80 dark:border-zinc-700 dark:bg-zinc-800/60">
+      <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl px-3.5 py-3 marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 dark:focus-visible:ring-sky-700 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-slate-900 dark:text-zinc-100">
+            {title}
+          </span>
+          <span className="mt-0.5 block truncate text-sm text-slate-500 group-open:hidden dark:text-zinc-400">
+            {setupPreview(text)}
+          </span>
+        </span>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 20 20"
+          fill="none"
+          className="mt-0.5 h-5 w-5 shrink-0 text-slate-500 transition-transform duration-150 ease-out group-open:rotate-180 dark:text-zinc-400"
+        >
+          <path
+            d="M5.5 7.75 10 12.25l4.5-4.5"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </summary>
+      <pre className="border-t border-slate-200/90 px-3.5 py-3 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-800 dark:border-zinc-700 dark:text-zinc-200">
+        {text || "—"}
+      </pre>
+    </details>
+  );
+}
 
 export default function OperatorDashboard({
   offeringId,
@@ -26,10 +74,16 @@ export default function OperatorDashboard({
   const [teams, setTeams] = useState(initial.teams);
   const [queueCount, setQueueCount] = useState(initial.queueCount);
   const [labels, setLabels] = useState(initial.labels ?? {});
+  const [setup, setSetup] = useState(initial.setup);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [keyBusy, setKeyBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [keySource, setKeySource] = useState<"bot" | "custom">(
+    initial.setup.facilitatorKeySource
+  );
+  const [newApiKey, setNewApiKey] = useState("");
 
   const joinPath = offeringGatePath(offeringId);
   const [joinUrl, setJoinUrl] = useState(joinPath);
@@ -62,6 +116,9 @@ export default function OperatorDashboard({
     setTeams(parsed.view.teams);
     setQueueCount(parsed.view.queueCount);
     setLabels(parsed.view.labels);
+    setSetup(parsed.view.setup);
+    setKeySource(parsed.view.setup.facilitatorKeySource);
+    setNewApiKey("");
   }
 
   async function copyJoinLink() {
@@ -71,6 +128,40 @@ export default function OperatorDashboard({
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
       setError("Could not copy the join link");
+    }
+  }
+
+  const canSaveKey =
+    keySource === "bot"
+      ? setup.facilitatorKeySource === "custom"
+      : newApiKey.trim().length > 0;
+
+  async function handleSaveKey() {
+    setError("");
+    if (!canSaveKey) return;
+    setKeyBusy(true);
+    try {
+      const res = await fetch(operateDashboardApiHref(offeringId), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(facilitatorKeyPatchBody(keySource, newApiKey)),
+      });
+      const body = await res.json().catch(() => ({}));
+      const parsed = parseDashboardResponse(res.status, body);
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      setWaiters(parsed.view.waiters);
+      setTeams(parsed.view.teams);
+      setQueueCount(parsed.view.queueCount);
+      setLabels(parsed.view.labels);
+      setSetup(parsed.view.setup);
+      setKeySource(parsed.view.setup.facilitatorKeySource);
+      setNewApiKey("");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update API key");
+    } finally {
+      setKeyBusy(false);
     }
   }
 
@@ -107,9 +198,12 @@ export default function OperatorDashboard({
           Instructor
         </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-zinc-100">
-          Activity progress
+          {setup.title || "Activity progress"}
         </h1>
-        <p className="mt-3 text-sm text-slate-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm font-medium text-slate-700 dark:text-zinc-300">
+          Activity progress
+        </p>
+        <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
           Share the join link with learners, watch the matching queue, and
           follow every team&apos;s progress.
         </p>
@@ -142,6 +236,94 @@ export default function OperatorDashboard({
             ? "No teams have formed yet."
             : `${teams.length} team${teams.length === 1 ? "" : "s"} formed.`}
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-white/60 bg-white/70 p-5 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+          Activity setup
+        </h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+          What learners see, plus the facilitator model. The API key is never
+          shown.
+        </p>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              Sample bot
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800 dark:text-zinc-200">
+              {setup.sampleBotName || setup.sampleAppId || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              Facilitator
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800 dark:text-zinc-200">
+              {setup.aiProvider && setup.aiModel
+                ? `${setup.aiProvider} / ${setup.aiModel}`
+                : "—"}
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-4 space-y-2.5">
+          <SetupFold title="Sample rubric" body={setup.sampleRubric} />
+          <SetupFold title="Deployment brief" body={setup.deploymentBrief} />
+          <SetupFold title="Transcript excerpt" body={setup.transcriptExcerpt} />
+        </div>
+
+        <fieldset className="mt-6 space-y-3 border-t border-slate-200 pt-4 dark:border-zinc-700">
+          <legend className="text-sm font-medium text-slate-800 dark:text-zinc-200">
+            Facilitator API key
+          </legend>
+          <p className="text-sm text-slate-600 dark:text-zinc-400">
+            {setup.facilitatorKeySource === "custom"
+              ? "A custom key is saved. Enter a new one to replace it, or switch back to the sample bot key."
+              : "Using the sample bot’s API key."}
+          </p>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700 dark:text-zinc-300">
+            <input
+              type="radio"
+              name="progress-facilitator-key"
+              className="mt-1"
+              checked={keySource === "bot"}
+              onChange={() => setKeySource("bot")}
+            />
+            <span>Use the sample bot&apos;s API key</span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700 dark:text-zinc-300">
+            <input
+              type="radio"
+              name="progress-facilitator-key"
+              className="mt-1"
+              checked={keySource === "custom"}
+              onChange={() => setKeySource("custom")}
+            />
+            <span>Use a different API key</span>
+          </label>
+          {keySource === "custom" ? (
+            <input
+              type="password"
+              autoComplete="off"
+              value={newApiKey}
+              onChange={(e) => setNewApiKey(e.target.value)}
+              placeholder={
+                setup.facilitatorKeySource === "custom"
+                  ? "Enter a new key to replace the saved one"
+                  : "Provider API key for the facilitator model"
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-300 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:ring-emerald-700"
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleSaveKey()}
+            disabled={!canSaveKey || keyBusy}
+            className="pressable inline-flex h-10 items-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white shadow-sm hover-ok:bg-sky-800 disabled:opacity-50 dark:bg-sky-600 dark:hover-ok:bg-sky-500"
+          >
+            {keyBusy ? "Saving…" : "Save API key"}
+          </button>
+        </fieldset>
       </div>
 
       <div className="rounded-2xl border border-white/60 bg-white/70 p-5 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80">

@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 
   const { createOffering, getOfferingGate, getTeamAccess, listMyOfferings } =
     await import("./offerings");
-  const { formTeam, getOffering, listQueuedCheckIns } = await import(
+  const { checkIn, formTeam, getOffering, listQueuedCheckIns } = await import(
     "../calibration-store/store"
   );
   const { listWorkspacesForUser } = await import("../workspace-store/store");
@@ -172,6 +172,16 @@ async function main(): Promise<void> {
         offeringInput.title,
         "list item title"
       );
+      assertEqual(
+        mine.body.offerings[0]?.isInstructor,
+        true,
+        "creator is marked instructor"
+      );
+      assertEqual(
+        mine.body.offerings[0]?.joined,
+        false,
+        "creator is not joined until they check in"
+      );
     }
     const strangerList = await listMyOfferings("stranger_op");
     assert(strangerList.ok === true, "other operator list ok");
@@ -181,6 +191,56 @@ async function main(): Promise<void> {
         0,
         "list mine does not leak another operator's offerings"
       );
+    }
+
+    const hubCreated = await createOffering(operatorId, {
+      ...offeringInput,
+      title: "Hub join offering",
+    });
+    assert(hubCreated.ok === true, "create hub join offering ok");
+    const hubOffering =
+      hubCreated.ok && "offering" in hubCreated.body
+        ? hubCreated.body.offering
+        : null;
+    assert(hubOffering !== null, "hub join offering exists");
+    await checkIn(hubOffering!.id, learnerA);
+    const learnerList = await listMyOfferings(learnerA);
+    assertEqual(learnerList.status, 200, "joined learner list → 200");
+    assert(learnerList.ok === true, "joined learner list ok");
+    if (learnerList.ok) {
+      assertEqual(learnerList.body.offerings.length, 1, "learner sees the joined offering");
+      assertEqual(
+        learnerList.body.offerings[0]?.id,
+        hubOffering!.id,
+        "learner list item id"
+      );
+      assertEqual(
+        learnerList.body.offerings[0]?.isInstructor,
+        false,
+        "joined learner is not the instructor"
+      );
+      assertEqual(learnerList.body.offerings[0]?.joined, true, "learner is marked joined");
+      assertEqual(
+        learnerList.body.offerings[0]?.teamId,
+        null,
+        "waiting learner has no team yet"
+      );
+      assert(
+        (learnerList.body.offerings[0]?.queueCount ?? 0) >= 1,
+        "waiting learner sees the queue count"
+      );
+    }
+
+    await checkIn(hubOffering!.id, operatorId);
+    const instructorJoined = await listMyOfferings(operatorId);
+    assert(instructorJoined.ok === true, "instructor-joined list ok");
+    if (instructorJoined.ok) {
+      const own = instructorJoined.body.offerings.find(
+        (row) => row.id === hubOffering!.id
+      );
+      assert(own !== undefined, "instructor still sees their offering once");
+      assertEqual(own?.isInstructor, true, "instructor flag stays true after join");
+      assertEqual(own?.joined, true, "instructor who checked in is marked joined");
     }
 
     const createdWithKey = await createOffering(operatorId, {

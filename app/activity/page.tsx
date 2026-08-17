@@ -3,8 +3,11 @@ import { auth } from "@/auth";
 import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import { listMyOfferings } from "@/lib/calibration-api/offerings";
-import { offeringGatePath } from "@/lib/calibration-ui/gate";
-import { ACTIVITY_NEW_HREF } from "@/lib/calibration-ui/offering";
+import { teamSpacePath } from "@/lib/calibration-ui/gate";
+import {
+  ACTIVITY_NEW_HREF,
+  hubStatusLabel,
+} from "@/lib/calibration-ui/offering";
 import { operatePageHref } from "@/lib/calibration-ui/operator";
 
 export default async function CalibrationHubPage() {
@@ -44,8 +47,8 @@ export default async function CalibrationHubPage() {
                 Activities
               </h1>
               <p className="mt-2 max-w-2xl text-slate-600 dark:text-zinc-400">
-                Start a team activity, share the join link with learners, and
-                follow each team&apos;s progress.
+                Activities you created or joined. Learners start from the join
+                link; after that, they come back here.
               </p>
             </div>
             <Link
@@ -63,8 +66,7 @@ export default async function CalibrationHubPage() {
                   No activities yet
                 </p>
                 <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-                  Start a collaborative team activity from one of your published
-                  bots.
+                  Create one, or open the join link your instructor sent.
                 </p>
                 <Link
                   href={ACTIVITY_NEW_HREF}
@@ -86,19 +88,26 @@ export default async function CalibrationHubPage() {
                     <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                       Created {offering.createdAt.slice(0, 10)}
                     </p>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
+                      {hubStatusLabel(offering)}
+                    </p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Link
-                        href={offeringGatePath(offering.id)}
-                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-800 hover-ok:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover-ok:bg-zinc-700"
-                      >
-                        Join link
-                      </Link>
-                      <Link
-                        href={operatePageHref(offering.id)}
-                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-800 hover-ok:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover-ok:bg-zinc-700"
-                      >
-                        Progress
-                      </Link>
+                      {offering.isInstructor ? (
+                        <Link
+                          href={operatePageHref(offering.id)}
+                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-800 hover-ok:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover-ok:bg-zinc-700"
+                        >
+                          Progress
+                        </Link>
+                      ) : null}
+                      {offering.teamId ? (
+                        <Link
+                          href={teamSpacePath(offering.id, offering.teamId)}
+                          className="rounded-lg bg-sky-100 px-3 py-1.5 text-sm font-medium text-sky-800 hover-ok:bg-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:hover-ok:bg-sky-900/60"
+                        >
+                          Open activity
+                        </Link>
+                      ) : null}
                     </div>
                   </li>
                 ))}

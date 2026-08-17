@@ -125,12 +125,16 @@ async function main(): Promise<void> {
   const { postCheckIn } = await import("./queue");
   const { getSpace } = await import("./space");
   const { postScores } = await import("./scores");
-  const { getOperatorDashboard, inspectTeam, postManualMatch } = await import(
-    "./operator"
-  );
+  const {
+    getOperatorDashboard,
+    inspectTeam,
+    patchOperatorFacilitatorKey,
+    postManualMatch,
+  } = await import("./operator");
   const {
     checkIn,
     formTeam,
+    getOffering,
     getTeam,
     getTeamForMember,
     hasNotice,
@@ -243,7 +247,77 @@ async function main(): Promise<void> {
           "stuck waiter includes wait duration of at least 10 days (14.1)"
         );
       }
+      assertEqual(
+        dash.body.setup.title,
+        offeringInput.title,
+        "dashboard includes the activity title"
+      );
+      assertEqual(
+        dash.body.setup.sampleRubric,
+        offeringInput.sampleRubric,
+        "dashboard includes the sample rubric"
+      );
+      assertEqual(
+        dash.body.setup.facilitatorKeySource,
+        "bot",
+        "dashboard reports the sample-bot key source"
+      );
+      assert(
+        !JSON.stringify(dash.body).includes("sk-"),
+        "dashboard JSON does not leak an API key"
+      );
     }
+
+    const customKey = await patchOperatorFacilitatorKey(operatorId, offering!.id, {
+      facilitatorKeySource: "custom",
+      facilitatorApiKey: "  sk-progress  ",
+    });
+    assertEqual(customKey.status, 200, "operator PATCH facilitator key → 200");
+    assert(customKey.ok === true, "operator PATCH facilitator key ok");
+    if (customKey.ok) {
+      assertEqual(
+        customKey.body.setup.facilitatorKeySource,
+        "custom",
+        "PATCH custom key updates the source flag"
+      );
+      assert(
+        !JSON.stringify(customKey.body).includes("sk-progress"),
+        "PATCH response does not include the new API key"
+      );
+    }
+    assertEqual(
+      (await getOffering(offering!.id))?.facilitatorApiKey,
+      "sk-progress",
+      "custom key is stored on the offering"
+    );
+    const backToBot = await patchOperatorFacilitatorKey(operatorId, offering!.id, {
+      facilitatorKeySource: "bot",
+    });
+    assert(
+      backToBot.ok === true && backToBot.body.setup.facilitatorKeySource === "bot",
+      "PATCH bot source clears the override"
+    );
+    assertEqual(
+      (await getOffering(offering!.id))?.facilitatorApiKey,
+      undefined,
+      "bot source removes the stored override"
+    );
+    assertEqual(
+      (await patchOperatorFacilitatorKey(stuckA, offering!.id, {
+        facilitatorKeySource: "bot",
+      })).status,
+      403,
+      "queued learner PATCH operate → 403"
+    );
+    assertEqual(
+      (
+        await patchOperatorFacilitatorKey(operatorId, offering!.id, {
+          facilitatorKeySource: "custom",
+        })
+      ).status,
+      400,
+      "custom source without a key → 400"
+    );
 
     // Viewing the dashboard must not enqueue the operator or mutate the queue.
     assertEqual(
