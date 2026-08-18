@@ -52,7 +52,10 @@ import {
   type SharedDocRole,
   type SharedDocSnapshots,
 } from "@/lib/calibration-ui/docs";
-import { createSharedDocProvider } from "@/lib/calibration-ui/docs-provider";
+import {
+  createSharedDocProvider,
+  type RoomYjsHost,
+} from "@/lib/calibration-ui/docs-provider";
 
 function bootstrapEditorState(_editor: LexicalEditor): void {
   const root = $getRoot();
@@ -149,7 +152,8 @@ function CollaborativeDoc({
       // do not destroy the document or drop the websocket subscription.
       const host = getYjsProviderForRoom(room);
       yjsDocMap.set(id, host.getYDoc());
-      return createSharedDocProvider(id, yjsDocMap, host, room);
+      // Liveblocks awareness is JsonObject-based; RoomYjsHost expects Lexical UserState.
+      return createSharedDocProvider(id, yjsDocMap, host as RoomYjsHost, room);
     },
     [room]
   );

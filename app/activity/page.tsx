@@ -31,7 +31,7 @@ export default async function CalibrationHubPage() {
     );
   }
 
-  const listed = await listMyOfferings(session.user.id);
+  const listed = await listMyOfferings(session.user.id ?? null);
   const offerings = listed.ok ? listed.body.offerings : [];
 
   return (

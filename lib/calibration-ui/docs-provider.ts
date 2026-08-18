@@ -184,7 +184,10 @@ class DocScopedProvider implements Provider {
   }
 
   disconnect(): void {
-    this.awareness.setLocalState(null);
+    // Lexical types omit null; Yjs awareness uses null to clear this client.
+    (
+      this.awareness as { setLocalState: (state: UserState | null) => void }
+    ).setLocalState(null);
     this.detachHost();
     if (this.ownsAwareness && "destroy" in this.awareness) {
       (this.awareness as DocScopedAwareness).destroy();
