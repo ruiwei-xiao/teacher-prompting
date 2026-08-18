@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { labelForUserId } from "@/lib/auth/user-label";
 import {
   SCORE_MAX,
   SCORE_MIN,
@@ -26,7 +27,13 @@ function criterionLabel(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-function memberLabel(userId: string, viewerUserId: string): string {
+function memberLabel(
+  userId: string,
+  viewerUserId: string,
+  role: SpaceView["role"],
+  labels: Record<string, string>
+): string {
+  if (role === "operator") return labelForUserId(userId, labels);
   return userId === viewerUserId ? "You" : "Teammate";
 }
 
@@ -197,7 +204,7 @@ export default function ScoreSheet({
                 key={userId}
                 className="text-sm text-slate-600 dark:text-zinc-400"
               >
-                {memberLabel(userId, viewerUserId)} submitted ✓
+                {memberLabel(userId, viewerUserId, space.role, space.labels)} submitted ✓
               </li>
             ))}
           </ul>
@@ -211,7 +218,12 @@ export default function ScoreSheet({
                 <th className="py-2 pr-3 font-medium">Criterion</th>
                 {view.matrix.map((row) => (
                   <th key={row.userId} className="py-2 px-2 font-medium">
-                    {memberLabel(row.userId, viewerUserId)}
+                    {memberLabel(
+                      row.userId,
+                      viewerUserId,
+                      space.role,
+                      space.labels
+                    )}
                   </th>
                 ))}
               </tr>

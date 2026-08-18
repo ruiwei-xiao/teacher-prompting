@@ -21,6 +21,7 @@ import ScoreSheet from "./ScoreSheet";
 import SharedDocEditor from "./SharedDocEditor";
 import SpaceChrome from "./SpaceChrome";
 import type { ArtifactsView } from "@/lib/calibration-ui/artifacts";
+import { labelForUserId } from "@/lib/auth/user-label";
 import { type DeliverableSnapshot } from "@/lib/calibration-ui/deliverable";
 import type { SharedDocSnapshots } from "@/lib/calibration-ui/docs";
 import {
@@ -36,6 +37,12 @@ import {
 
 type Overlay = "none" | "artifacts" | "scores" | "deliverable";
 type Pane = "chat" | "docs" | "bot";
+
+export type SpaceAbsence = {
+  userId: string;
+  stepKey: string;
+  markedAt: string;
+};
 
 function RailButton({
   label,
@@ -181,6 +188,9 @@ export default function SpaceLayout({
   deliverable,
   snapshots,
   sampleBot,
+  backHref = "/activity",
+  backAriaLabel = "Back to activities",
+  absences = [],
 }: {
   teamId: string;
   viewerUserId: string;
@@ -195,6 +205,9 @@ export default function SpaceLayout({
     appName: string;
     modelLabel: string;
   };
+  backHref?: string;
+  backAriaLabel?: string;
+  absences?: SpaceAbsence[];
 }) {
   const [space, setSpace] = useState<SpaceView>(initialSpace);
   const [chatOpen, setChatOpen] = useState(true);
@@ -206,7 +219,10 @@ export default function SpaceLayout({
   const splitRef = useRef<HTMLDivElement>(null);
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [mounted, setMounted] = useState(false);
-  const roleLabel = currentRoundRoleLabel(space, viewerUserId);
+  const roleLabel =
+    space.role === "operator"
+      ? "a viewer"
+      : currentRoundRoleLabel(space, viewerUserId);
   const deliverableLocked = space.locked || space.phase === "finalized";
   const scoreAttention =
     space.role === "member" &&
@@ -342,6 +358,8 @@ export default function SpaceLayout({
       title={title}
       phaseLabel={phaseBannerLabel(space)}
       roleLabel={roleLabel}
+      backHref={backHref}
+      backAriaLabel={backAriaLabel}
     >
       <aside className="flex h-full w-16 shrink-0 flex-col items-center border-r border-slate-200 bg-slate-50 px-1.5 py-4 dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex flex-col gap-1.5">
@@ -389,7 +407,11 @@ export default function SpaceLayout({
             }
             label="Scores"
             shortLabel="Score"
-            hint="Score the sample against the shared rubric"
+            hint={
+              space.role === "operator"
+                ? "View scores, including values still hidden from members"
+                : "Score the sample against the shared rubric"
+            }
             icon={<ClipboardList {...lucideMd} />}
           />
           {deliverableLocked ? (
@@ -513,6 +535,11 @@ export default function SpaceLayout({
       {mounted && overlay === "scores"
         ? createPortal(
             <OverlayFrame title="Scores" onClose={() => setOverlay("none")}>
+              {space.role === "operator" && !space.revealedAt ? (
+                <p className="mb-3 text-sm text-slate-600 dark:text-zinc-400">
+                  Held scores — members cannot see these values yet.
+                </p>
+              ) : null}
               <ScoreSheet
                 teamId={teamId}
                 viewerUserId={viewerUserId}
@@ -520,6 +547,27 @@ export default function SpaceLayout({
                 criterionKeys={criterionKeys}
                 onSpace={onSpace}
               />
+              {space.role === "operator" ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/80">
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-zinc-200">
+                    Absences
+                  </h3>
+                  {absences.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
+                      No absence marks.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1 text-sm text-slate-700 dark:text-zinc-300">
+                      {absences.map((row) => (
+                        <li key={`${row.userId}:${row.stepKey}:${row.markedAt}`}>
+                          {labelForUserId(row.userId, space.labels)} ·{" "}
+                          {row.stepKey} · {row.markedAt}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
             </OverlayFrame>,
             document.body
           )

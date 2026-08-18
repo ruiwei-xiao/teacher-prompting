@@ -6,16 +6,19 @@
  */
 import fs from "fs/promises";
 import path from "path";
-import {
-  buildScoreSheetView,
-  preRevealLeaksTeammateValues,
-  type ScoreSpace,
-} from "./scores";
+import { visibleRubricText } from "./deliverable";
+import { canPushDocSnapshot } from "./docs";
 import {
   buildInspectorView,
   parseInspect,
   type InspectorInspect,
 } from "./operator";
+import {
+  buildScoreSheetView,
+  preRevealLeaksTeammateValues,
+  type ScoreSpace,
+} from "./scores";
+import { canCompose } from "./space";
 
 let failures = 0;
 
@@ -110,6 +113,7 @@ const heldInspectBody = {
     finalRubric: null,
     autoFinalized: false,
     finalizedAt: null,
+    flaggedCriteria: [],
     addenda: [],
   },
 };
@@ -214,6 +218,11 @@ async function main(): Promise<void> {
     view.finalDeliverable !== undefined,
     "inspector view keeps the final deliverable slot"
   );
+  assertEqual(
+    visibleRubricText(view.finalDeliverable.finalRubric, view.rubricSnapshot),
+    view.rubricSnapshot,
+    "null finalRubric falls back to the shared rubric snapshot"
+  );
   assertEqual(view.canPostMessage, false, "inspector cannot post messages (14.6)");
   assertEqual(view.canEditDocs, false, "inspector cannot edit docs (14.6)");
   assertEqual(view.canResetClocks, false, "inspector cannot reset clocks (14.6)");
@@ -241,11 +250,15 @@ async function main(): Promise<void> {
   assertEqual(memberView.canSubmit, false, "submitted member has no submit");
   assertEqual(memberView.canEnter, false, "submitted member cannot re-enter");
 
-  // --- Source: dedicated inspector, no learner composers (14.6) ---
+  // --- Source: same team-space layout, write gates stay closed (14.6) ---
   const helpersPath = path.join(process.cwd(), "lib/calibration-ui/operator.ts");
   const viewPath = path.join(
     process.cwd(),
     "components/calibration/OperatorTeamView.tsx"
+  );
+  const layoutPath = path.join(
+    process.cwd(),
+    "components/calibration/SpaceLayout.tsx"
   );
   const pagePath = path.join(
     process.cwd(),
@@ -254,6 +267,7 @@ async function main(): Promise<void> {
 
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const viewSource = await fs.readFile(viewPath, "utf8").catch(() => "");
+  const layoutSource = await fs.readFile(layoutPath, "utf8").catch(() => "");
   const pageSource = await fs.readFile(pagePath, "utf8").catch(() => "");
 
   assert(helpersSource.length > 0, "lib/calibration-ui/operator.ts exists");
@@ -278,28 +292,21 @@ async function main(): Promise<void> {
     "OperatorTeamView component exists"
   );
   assert(
-    !viewSource.includes("GroupChatPanel"),
-    "inspector does not reuse GroupChatPanel (composer)"
+    viewSource.includes("SpaceLayout"),
+    "inspector reuses the member team-space layout"
   );
   assert(
-    !viewSource.includes("ScoreSheet"),
-    "inspector does not reuse ScoreSheet (submit)"
+    viewSource.includes("operatePageHref") ||
+      viewSource.includes("Back to progress"),
+    "inspector back link returns to progress"
   );
   assert(
-    !viewSource.includes("SharedDocEditor"),
-    "inspector does not reuse SharedDocEditor (write)"
+    viewSource.includes("absences"),
+    "inspector passes absence marks into the space"
   );
   assert(
-    !viewSource.includes("<textarea") && !viewSource.includes("textarea"),
-    "inspector has no textarea for chat/docs/scores"
-  );
-  assert(
-    !viewSource.includes("<input") && !viewSource.includes("input "),
-    "inspector has no input for chat/docs/scores"
-  );
-  assert(
-    !viewSource.toLowerCase().includes("contenteditable"),
-    "inspector has no contenteditable"
+    !viewSource.includes("<textarea") && !viewSource.includes("<input"),
+    "OperatorTeamView itself has no composers"
   );
   assert(
     !viewSource.toLowerCase().includes("advance"),
@@ -311,36 +318,9 @@ async function main(): Promise<void> {
     "inspector has no reset-clock affordance"
   );
   assert(
-    !viewSource.includes("method: \"POST\"") &&
+    !viewSource.includes('method: "POST"') &&
       !viewSource.includes("method: 'POST'"),
-    "inspector does not POST messages, docs, or scores"
-  );
-  assert(
-    viewSource.toLowerCase().includes("chat") ||
-      viewSource.includes("messages"),
-    "inspector renders chat"
-  );
-  assert(
-    viewSource.toLowerCase().includes("rubric"),
-    "inspector renders the shared rubric snapshot"
-  );
-  assert(
-    viewSource.toLowerCase().includes("notes"),
-    "inspector renders the shared notes snapshot"
-  );
-  assert(
-    viewSource.toLowerCase().includes("score") ||
-      viewSource.includes("held"),
-    "inspector renders scores (held or revealed)"
-  );
-  assert(
-    viewSource.toLowerCase().includes("absence"),
-    "inspector renders absence marks"
-  );
-  assert(
-    viewSource.toLowerCase().includes("deliverable") ||
-      viewSource.toLowerCase().includes("final rubric"),
-    "inspector renders the final deliverable"
+    "OperatorTeamView does not POST messages, docs, or scores"
   );
   assert(
     !viewSource.includes("calibration-engine") &&
@@ -349,12 +329,34 @@ async function main(): Promise<void> {
     "OperatorTeamView does not import engine/store/api"
   );
 
+  assert(
+    !canCompose({ role: "operator" }),
+    "operator cannot compose group chat (14.6)"
+  );
+  assert(
+    !canPushDocSnapshot({ locked: false, role: "operator" }),
+    "operator cannot push document snapshots (14.6)"
+  );
+  assert(
+    layoutSource.includes("Absences") &&
+      layoutSource.includes('role === "operator"'),
+    "SpaceLayout shows absences on the operator score overlay"
+  );
+  assert(
+    layoutSource.includes("Held scores") ||
+      layoutSource.includes("held scores"),
+    "SpaceLayout labels held scores for the operator"
+  );
+
   assert(pageSource.length > 0, "inspect page exists");
   assert(
     pageSource.includes("OperatorTeamView"),
     "inspect page renders OperatorTeamView"
   );
-  assert(pageSource.includes("AppShell"), "inspect page uses AppShell chrome");
+  assert(
+    !pageSource.includes("AppShell"),
+    "inspect page uses the full-height space chrome instead of AppShell"
+  );
   assert(
     pageSource.includes("SignInPanel"),
     "inspect page sends unauthenticated visitors to sign-in"
@@ -362,6 +364,10 @@ async function main(): Promise<void> {
   assert(
     pageSource.includes("inspectTeam"),
     "inspect page loads inspectTeam on the server"
+  );
+  assert(
+    pageSource.includes("visibleRubricText"),
+    "inspect page uses finalRubric ?? rubric snapshot as the visible group artifact"
   );
   assert(
     pageSource.includes("403") ||
@@ -373,7 +379,7 @@ async function main(): Promise<void> {
     !pageSource.includes("GroupChatPanel") &&
       !pageSource.includes("ScoreSheet") &&
       !pageSource.includes("SharedDocEditor"),
-    "inspect page does not mount learner composers"
+    "inspect page does not mount composers directly"
   );
 
   if (failures > 0) {

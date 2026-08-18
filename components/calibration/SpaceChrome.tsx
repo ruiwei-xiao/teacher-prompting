@@ -7,11 +7,15 @@ export default function SpaceChrome({
   title,
   phaseLabel,
   roleLabel,
+  backHref = "/activity",
+  backAriaLabel = "Back to activities",
   children,
 }: {
   title: string;
   phaseLabel: string;
   roleLabel: string | null;
+  backHref?: string;
+  backAriaLabel?: string;
   children: ReactNode;
 }) {
   return (
@@ -20,9 +24,9 @@ export default function SpaceChrome({
         <div className="flex h-full items-center justify-between gap-3 px-3 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <a
-              href="/activity"
+              href={backHref}
               className="shrink-0 rounded-lg p-2 text-slate-900 transition-[transform,background-color] duration-150 ease-out hover:bg-slate-100 active:scale-[0.97] dark:text-zinc-100 dark:hover:bg-zinc-800"
-              aria-label="Back to activities"
+              aria-label={backAriaLabel}
             >
               <ChevronLeft {...lucideMd} />
             </a>

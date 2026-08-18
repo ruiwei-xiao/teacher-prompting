@@ -82,6 +82,7 @@ export type FinalDeliverableView = {
   finalRubric: string | null;
   autoFinalized: boolean;
   finalizedAt: string | null;
+  flaggedCriteria: string[];
   addenda: AddendumRecord[];
 };
 
@@ -347,6 +348,7 @@ export async function inspectTeam(
         finalRubric: caller.team.finalRubric,
         autoFinalized: caller.team.autoFinalized,
         finalizedAt: caller.team.finalizedAt,
+        flaggedCriteria: [...caller.team.state.flaggedCriteria],
         addenda,
       },
       labels,

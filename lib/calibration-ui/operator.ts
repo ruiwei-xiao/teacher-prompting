@@ -139,6 +139,7 @@ export type InspectorDeliverable = {
   finalRubric: string | null;
   autoFinalized: boolean;
   finalizedAt: string | null;
+  flaggedCriteria: string[];
   addenda: InspectorAddendum[];
 };
 
@@ -286,10 +287,19 @@ function readInspectorDeliverable(value: unknown): InspectorDeliverable | null {
     if (!addendum) return null;
     addenda.push(addendum);
   }
+  const flaggedCriteria: string[] = [];
+  if (Array.isArray(record.flaggedCriteria)) {
+    for (const entry of record.flaggedCriteria) {
+      if (typeof entry === "string" && entry.trim()) {
+        flaggedCriteria.push(entry.trim());
+      }
+    }
+  }
   return {
     finalRubric: record.finalRubric,
     autoFinalized: record.autoFinalized,
     finalizedAt: record.finalizedAt,
+    flaggedCriteria,
     addenda,
   };
 }
@@ -418,6 +428,7 @@ export function buildInspectorView(inspect: InspectorInspect): InspectorView {
       finalRubric: inspect.finalDeliverable.finalRubric,
       autoFinalized: inspect.finalDeliverable.autoFinalized,
       finalizedAt: inspect.finalDeliverable.finalizedAt,
+      flaggedCriteria: [...inspect.finalDeliverable.flaggedCriteria],
       addenda: inspect.finalDeliverable.addenda.map((row) => ({ ...row })),
     },
     canPostMessage: false,

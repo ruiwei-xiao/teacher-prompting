@@ -464,6 +464,15 @@ async function main(): Promise<void> {
       teamPageSource.includes("snapshotText"),
     "team page uses finalRubric ?? rubric snapshot as the visible group artifact"
   );
+  const inspectPagePath = path.join(
+    process.cwd(),
+    "app/activity/[offeringId]/operate/team/[teamId]/page.tsx"
+  );
+  const inspectPageSource = await fs.readFile(inspectPagePath, "utf8").catch(() => "");
+  assert(
+    inspectPageSource.includes("visibleRubricText"),
+    "inspect page uses finalRubric ?? rubric snapshot as the visible group artifact"
+  );
   assert(
     !teamPageSource.includes("FinalDeliverable"),
     "team page does not import FinalDeliverable; SpaceLayout composes it"
