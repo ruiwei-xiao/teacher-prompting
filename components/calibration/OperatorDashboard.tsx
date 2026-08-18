@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { lucideMd } from "./lucide";
 import { offeringGatePath, queueStatusLabel } from "@/lib/calibration-ui/gate";
 import {
   canConfirmManualMatch,
@@ -41,20 +43,10 @@ function SetupFold({
             {setupPreview(text)}
           </span>
         </span>
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 20 20"
-          fill="none"
+        <ChevronDown
+          {...lucideMd}
           className="mt-0.5 h-5 w-5 shrink-0 text-slate-500 transition-transform duration-150 ease-out group-open:rotate-180 dark:text-zinc-400"
-        >
-          <path
-            d="M5.5 7.75 10 12.25l4.5-4.5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        />
       </summary>
       <pre className="border-t border-slate-200/90 px-3.5 py-3 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-800 dark:border-zinc-700 dark:text-zinc-200">
         {text || "—"}

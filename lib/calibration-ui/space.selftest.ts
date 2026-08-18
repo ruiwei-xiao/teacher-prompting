@@ -6,10 +6,12 @@ import fs from "fs/promises";
 import path from "path";
 import {
   SPACE_POLL_MS,
+  SPACE_VISIBLE_POLL_MS,
   applyPostedMessage,
   canCompose,
   currentRoundRoleLabel,
   isFacilitatorMessage,
+  isReturnVisitRecap,
   messagePostBody,
   messagesApiHref,
   parsePostedMessageResponse,
@@ -68,11 +70,18 @@ const critiqueSpace = {
   submittedBy: [],
   revealedAt: null,
   matrix: [],
+  labels: {},
+  avatars: {},
 };
 
 async function main(): Promise<void> {
   // --- Poll interval is 10s (3.3 — no co-presence; sessions converge by polling) ---
   assertEqual(SPACE_POLL_MS, 10_000, "poll interval is 10000");
+  assertEqual(
+    SPACE_VISIBLE_POLL_MS,
+    3_000,
+    "visible-tab poll is 3000 so new chat arrives without a reload"
+  );
 
   assertEqual(
     spaceApiHref("team_9"),
@@ -161,6 +170,19 @@ async function main(): Promise<void> {
     2,
     "first-visit recap still surfaces accumulated messages"
   );
+  assertEqual(
+    isReturnVisitRecap(critiqueSpace),
+    true,
+    "return visit with new messages shows the recap banner"
+  );
+  assertEqual(
+    isReturnVisitRecap({
+      ...critiqueSpace,
+      recap: { since: null, messages: [facilitatorMessage] },
+    }),
+    false,
+    "first visit does not show the full-width recap banner"
+  );
 
   // --- Operator is read-only (14.6); members can compose ---
   assertEqual(canCompose(critiqueSpace), true, "member can use the chat composer");
@@ -238,6 +260,11 @@ async function main(): Promise<void> {
     "SpaceLayout uses the 10s poll interval"
   );
   assert(
+    layoutSource.includes("SPACE_VISIBLE_POLL_MS") ||
+      layoutSource.includes("visibilitychange"),
+    "SpaceLayout polls faster while the tab is visible"
+  );
+  assert(
     layoutSource.includes("spaceApiHref") ||
       layoutSource.includes("/api/calibration/teams/"),
     "SpaceLayout polls GET /api/calibration/teams/[teamId]"
@@ -256,11 +283,20 @@ async function main(): Promise<void> {
     layoutSource.toLowerCase().includes("recap") ||
       layoutSource.includes("recapMessages") ||
       layoutSource.includes("Since you last"),
-    "SpaceLayout surfaces recap-since-last-visit"
+    "SpaceLayout treats group chat as the recap-since-last-visit"
   );
   assert(
     layoutSource.includes("GroupChatPanel"),
     "SpaceLayout composes GroupChatPanel"
+  );
+  assert(
+    layoutSource.includes("ActivityBotPane"),
+    "SpaceLayout embeds the sample bot in the editor-style pane"
+  );
+  assert(
+    layoutSource.includes("Shared documents") ||
+      layoutSource.includes("SharedDocEditor"),
+    "SpaceLayout has a shared-documents region"
   );
   assert(
     layoutSource.includes("ArtifactsPanel"),
@@ -274,10 +310,14 @@ async function main(): Promise<void> {
     /shared|rubric|notes|document/i.test(layoutSource),
     "SpaceLayout has a shared-documents region"
   );
-  assert(
-    layoutSource.includes("SharedDocEditor"),
-    "SpaceLayout composes SharedDocEditor"
-  );
+    assert(
+      layoutSource.includes("SharedDocEditor"),
+      "SpaceLayout composes SharedDocEditor"
+    );
+    assert(
+      layoutSource.includes("ReadyBar"),
+      "SpaceLayout composes ReadyBar on the docs pane"
+    );
   assert(
     !/!deliverableLocked\s*&&\s*\(?\s*<SharedDocEditor/.test(layoutSource),
     "SpaceLayout still mounts SharedDocEditor when locked"
@@ -299,14 +339,30 @@ async function main(): Promise<void> {
     "composer is a plain textarea"
   );
   assert(
+    chatSource.includes("Enter") && chatSource.includes("Shift"),
+    "group chat sends on Enter and inserts a line on Shift+Enter"
+  );
+  assert(
+    chatSource.includes("isComposing"),
+    "group chat does not send while IME is composing"
+  );
+  assert(
     !chatSource.toLowerCase().includes("liveblocks") &&
       !chatSource.toLowerCase().includes("yjs") &&
       !chatSource.toLowerCase().includes("cursor"),
     "GroupChatPanel has no Liveblocks/Yjs/collaborative cursors"
   );
   assert(
-    chatSource.includes("messagesApiHref") || chatSource.includes("/messages"),
-    "composer posts to the messages endpoint"
+    chatSource.includes("onOpenScores") ||
+      chatSource.includes("Open Score") ||
+      chatSource.includes("OPEN_SCORE_LABEL"),
+    "group chat can open Score from a facilitator prompt"
+  );
+  assert(
+    chatSource.includes("onOpenDeliverable") ||
+      chatSource.includes("Open Final") ||
+      chatSource.includes("OPEN_FINAL_LABEL"),
+    "group chat can open Final from a facilitator prompt"
   );
   assert(
     chatSource.includes("messagePostBody") ||
@@ -333,7 +389,11 @@ async function main(): Promise<void> {
   );
 
   assert(teamPageSource.includes("SpaceLayout"), "team page renders SpaceLayout");
-  assert(teamPageSource.includes("AppShell"), "team page uses AppShell");
+  assert(
+    teamPageSource.includes("SpaceLayout") &&
+      !teamPageSource.includes("AppShell"),
+    "team page uses the full-height space chrome instead of AppShell"
+  );
   assert(
     teamPageSource.includes("SignInPanel"),
     "team page sends unauthenticated visitors to sign-in"

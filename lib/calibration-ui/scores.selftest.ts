@@ -8,6 +8,7 @@ import { parseSpaceResponse } from "./space";
 import {
   SCORE_MAX,
   SCORE_MIN,
+  OPEN_SCORE_LABEL,
   buildScoreSheetView,
   flaggedCriterionKeys,
   isRevealed,
@@ -15,6 +16,7 @@ import {
   preRevealLeaksTeammateValues,
   scorePostBody,
   scoresApiHref,
+  shouldOfferScoreSheet,
   submittedCheckmarks,
   visibleOwnScores,
   type ScoreSpace,
@@ -368,6 +370,66 @@ async function main(): Promise<void> {
     );
   }
 
+  assert(
+    shouldOfferScoreSheet({
+      authorKind: "facilitator",
+      body: "Please score the attached artifact against the team's rubric.",
+    }),
+    "legacy score_prompt still offers Open Score"
+  );
+  assert(
+    shouldOfferScoreSheet({
+      authorKind: "facilitator",
+      body: "Open Score with the button below this message, or from Score in the left sidebar.",
+    }),
+    "new score_prompt offers Open Score"
+  );
+  assert(
+    shouldOfferScoreSheet({
+      authorKind: "facilitator",
+      body: "Scores are now revealed to the team.",
+    }),
+    "reveal announcement offers Open Score"
+  );
+  {
+    const targeted = {
+      authorKind: "facilitator" as const,
+      body: "Miina Koyama, what in the artifact led to your score on clarity?",
+    };
+    const rewrite = {
+      authorKind: "facilitator" as const,
+      body: "Please rewrite criteria that produced disagreement and confirm the final rubric together.",
+    };
+    const thread = [targeted, rewrite];
+    assert(
+      shouldOfferScoreSheet(targeted, thread),
+      "legacy discussion thread offers Open Score on the first targeted prompt"
+    );
+    assert(
+      !shouldOfferScoreSheet(rewrite, thread),
+      "later discussion prompts do not repeat Open Score when a fallback already exists"
+    );
+    const withReveal = [
+      {
+        authorKind: "facilitator" as const,
+        body: "Scores are now revealed to the team.",
+      },
+      targeted,
+    ];
+    assert(
+      !shouldOfferScoreSheet(targeted, withReveal),
+      "targeted prompts do not repeat Open Score after a reveal announcement"
+    );
+  }
+  assert(
+    !shouldOfferScoreSheet({
+      authorKind: "learner",
+      body: "Please score the attached artifact against the team's rubric.",
+    }),
+    "learner messages do not offer Open Score"
+  );
+  assertEqual(OPEN_SCORE_LABEL, "Open Score", "score CTA label is Open Score");
+
   // --- Source: ScoreSheet composed into SpaceLayout; no Liveblocks/Yjs ---
   const helpersPath = path.join(process.cwd(), "lib/calibration-ui/scores.ts");
   const sheetPath = path.join(
@@ -378,6 +440,10 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/calibration/SpaceLayout.tsx"
   );
+  const chatPath = path.join(
+    process.cwd(),
+    "components/calibration/GroupChatPanel.tsx"
+  );
   const teamPagePath = path.join(
     process.cwd(),
     "app/activity/[offeringId]/team/[teamId]/page.tsx"
@@ -386,6 +452,7 @@ async function main(): Promise<void> {
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const sheetSource = await fs.readFile(sheetPath, "utf8").catch(() => "");
   const layoutSource = await fs.readFile(layoutPath, "utf8").catch(() => "");
+  const chatSource = await fs.readFile(chatPath, "utf8").catch(() => "");
   const teamPageSource = await fs.readFile(teamPagePath, "utf8").catch(() => "");
 
   assert(helpersSource.length > 0, "lib/calibration-ui/scores.ts exists");
@@ -449,6 +516,20 @@ async function main(): Promise<void> {
   assert(
     layoutSource.includes("ScoreSheet"),
     "ScoreSheet is composed into SpaceLayout"
+  );
+  assert(
+    layoutSource.includes("onOpenScores") &&
+      (chatSource.includes("OPEN_SCORE_LABEL") ||
+        chatSource.includes("Open Score")),
+    "facilitator score prompts can open the Score sheet from chat"
+  );
+  assert(
+    chatSource.includes("shouldOfferScoreSheet(message, space.messages)"),
+    "group chat uses the thread when deciding the Score CTA"
+  );
+  assert(
+    layoutSource.includes("revealedAt") && layoutSource.includes("discussion"),
+    "Score rail can draw attention after reveal"
   );
   assert(
     !layoutSource.includes("Private scoring and the revealed matrix will appear here."),

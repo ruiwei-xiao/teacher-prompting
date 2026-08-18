@@ -287,3 +287,41 @@ export function parseScorePostResponse(
   }
   return { ok: false, error: "Invalid score response" };
 }
+
+function isScoreSheetPrompt(body: string): boolean {
+  return (
+    /score the attached artifact/i.test(body) ||
+    /open score/i.test(body) ||
+    /scores are now revealed/i.test(body)
+  );
+}
+
+function isLegacyRevealPointer(body: string): boolean {
+  return (
+    /what in the artifact led to your score/i.test(body) ||
+    /rewrite criteria that produced disagreement/i.test(body)
+  );
+}
+
+export function shouldOfferScoreSheet(
+  message: {
+    authorKind?: string;
+    body: string;
+  },
+  thread: Array<{ authorKind?: string; body: string }> = []
+): boolean {
+  if (message.authorKind !== "facilitator") return false;
+  if (isScoreSheetPrompt(message.body)) return true;
+  if (thread.some((row) => /scores are now revealed/i.test(row.body))) {
+    return false;
+  }
+  const fallbackIndex = thread.findIndex(
+    (row) =>
+      row.authorKind === "facilitator" && isLegacyRevealPointer(row.body)
+  );
+  if (fallbackIndex < 0) return false;
+  const messageIndex = thread.indexOf(message);
+  return messageIndex === fallbackIndex;
+}
+
+export const OPEN_SCORE_LABEL = "Open Score";

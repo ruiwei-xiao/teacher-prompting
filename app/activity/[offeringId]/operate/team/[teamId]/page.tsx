@@ -3,6 +3,7 @@ import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import OperatorTeamView from "@/components/calibration/OperatorTeamView";
 import { inspectTeam } from "@/lib/calibration-api/operator";
+import { personOverlayFromUser } from "@/lib/auth/resolve-labels";
 import {
   buildInspectorView,
   operatorInspectHref,
@@ -36,7 +37,9 @@ export default async function OperatorTeamInspectPage({
     );
   }
 
-  const result = await inspectTeam(session.user.id ?? null, teamId);
+  const result = await inspectTeam(session.user.id ?? null, teamId, {
+    identity: personOverlayFromUser(session.user),
+  });
   if (!result.ok) {
     const denied = result.status === 403 || result.status === 401;
     return (

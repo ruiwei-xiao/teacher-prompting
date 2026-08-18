@@ -117,6 +117,11 @@ async function main(): Promise<void> {
     "room id prefixes any team id"
   );
   assertEqual(
+    liveblocksRoomId("team_9", "rubric"),
+    "calibration:team_9:rubric",
+    "each shared doc gets its own Liveblocks room"
+  );
+  assertEqual(
     LIVEBLOCKS_AUTH_ENDPOINT,
     "/api/calibration/liveblocks-auth",
     "auth endpoint is the existing Liveblocks token route"
@@ -225,8 +230,24 @@ async function main(): Promise<void> {
   );
   assertEqual(
     isLiveblocksOutage({ status: "disconnected" }),
+    false,
+    "disconnected status is not a permanent outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({
+      errorType: "ROOM_CONNECTION_ERROR",
+      errorCode: -1,
+    }),
+    false,
+    "ROOM_CONNECTION_ERROR -1 is a retried auth hiccup, not an outage"
+  );
+  assertEqual(
+    isLiveblocksOutage({
+      errorType: "ROOM_CONNECTION_ERROR",
+      errorCode: 4001,
+    }),
     true,
-    "disconnected status is an outage"
+    "ROOM_CONNECTION_ERROR 4001 (no room access) is an outage"
   );
   assertEqual(
     isLiveblocksOutage({ status: "connected" }),
@@ -235,8 +256,8 @@ async function main(): Promise<void> {
   );
   assertEqual(
     isLiveblocksOutage({ lostConnection: "lost" }),
-    true,
-    "lost-connection 'lost' is an outage"
+    false,
+    "lost-connection 'lost' is reconnecting, not a permanent outage"
   );
   assertEqual(
     isLiveblocksOutage({ lostConnection: "failed" }),

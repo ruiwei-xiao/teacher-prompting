@@ -118,8 +118,8 @@ async function main(): Promise<void> {
   process.env.CALIBRATION_NOTICES_LOG = path.join(tempDir, "notices.log");
 
   const { createOffering } = await import("./offerings");
-  const { getSpace } = await import("./space");
-  const { postAddendum, postAgreement, postScores } = await import("./scores");
+  const { getSpace, postDocSnapshot } = await import("./space");
+  const { deleteAgreement, postAddendum, postAgreement, postScores } = await import("./scores");
   const { formTeam, saveDocSnapshot, saveTeamState } = await import(
     "../calibration-store/store"
   );
@@ -388,6 +388,18 @@ async function main(): Promise<void> {
     );
     assertEqual(
       (
+        await deleteAgreement(
+          operatorId,
+          mergeTeam.id,
+          { subject: "merge_complete" },
+          { now }
+        )
+      ).status,
+      403,
+      "operator DELETE agreement → 403"
+    );
+    assertEqual(
+      (
         await postAgreement(
           memberA,
           mergeTeam.id,
@@ -421,6 +433,72 @@ async function main(): Promise<void> {
     assert(
       mergeOk.ok === true && mergeOk.body.phase === "merge",
       "one merge_complete agreement stays in merge"
+    );
+    assert(
+      mergeOk.ok === true &&
+        mergeOk.body.readyUserIds.includes("user_merge_a"),
+      "space lists the member who pressed Ready"
+    );
+
+    const withdrawn = await deleteAgreement(
+      "user_merge_a",
+      mergeTeam.id,
+      { subject: "merge_complete" },
+      { now }
+    );
+    assertEqual(withdrawn.status, 200, "withdraw Ready in merge → 200");
+    assert(
+      withdrawn.ok === true &&
+        withdrawn.body.phase === "merge" &&
+        !withdrawn.body.readyUserIds.includes("user_merge_a"),
+      "withdrawn Ready is no longer listed"
+    );
+
+    const reReady = await postAgreement(
+      "user_merge_a",
+      mergeTeam.id,
+      { subject: "merge_complete" },
+      { now }
+    );
+    assert(
+      reReady.ok === true && reReady.body.readyUserIds.includes("user_merge_a"),
+      "Ready can be marked again after undo"
+    );
+
+    const sameSnap = await postDocSnapshot(
+      "user_merge_a",
+      mergeTeam.id,
+      "rubric",
+      { text: "clarity: keep" },
+      { now }
+    );
+    assertEqual(sameSnap.status, 200, "first rubric snapshot → 200");
+    const afterFirstSnap = await getSpace("user_merge_a", mergeTeam.id, { now });
+    assert(
+      afterFirstSnap.ok === true &&
+        !afterFirstSnap.body.readyUserIds.includes("user_merge_a"),
+      "a new rubric snapshot clears Ready marks"
+    );
+
+    await postAgreement(
+      "user_merge_a",
+      mergeTeam.id,
+      { subject: "merge_complete" },
+      { now }
+    );
+    const unchangedSnap = await postDocSnapshot(
+      "user_merge_a",
+      mergeTeam.id,
+      "rubric",
+      { text: "clarity: keep" },
+      { now }
+    );
+    assertEqual(unchangedSnap.status, 200, "unchanged rubric snapshot → 200");
+    const afterUnchanged = await getSpace("user_merge_a", mergeTeam.id, { now });
+    assert(
+      afterUnchanged.ok === true &&
+        afterUnchanged.body.readyUserIds.includes("user_merge_a"),
+      "an unchanged rubric snapshot leaves Ready marks"
     );
 
     const consensusTeam = await formTeam(offering!.id, [
@@ -464,6 +542,18 @@ async function main(): Promise<void> {
       consensusOk.ok === true && consensusOk.body.phase === "consensus",
       "one final_consensus agreement stays in consensus"
     );
+    const consensusWithdraw = await deleteAgreement(
+      "user_cons_a",
+      consensusTeam.id,
+      { subject: "final_consensus" },
+      { now }
+    );
+    assertEqual(consensusWithdraw.status, 200, "withdraw Ready in consensus → 200");
+    assert(
+      consensusWithdraw.ok === true &&
+        !consensusWithdraw.body.readyUserIds.includes("user_cons_a"),
+      "consensus Ready can be undone before lock"
+    );
 
     const lockedTeam = await formTeam(offering!.id, [
       "user_lock_a",
@@ -504,6 +594,20 @@ async function main(): Promise<void> {
         addendumOk.body.body === "Personal note after lock" &&
         addendumOk.body.userId === "user_lock_a",
       "addendum returns the personal note (10.6)"
+    );
+    const addendumEdit = await postAddendum(
+      "user_lock_a",
+      lockedTeam.id,
+      { body: "Edited personal note" },
+      { now }
+    );
+    assertEqual(addendumEdit.status, 200, "addendum edit after lock → 200");
+    assert(
+      addendumOk.ok === true &&
+        addendumEdit.ok === true &&
+        addendumEdit.body.id === addendumOk.body.id &&
+        addendumEdit.body.body === "Edited personal note",
+      "a second POST from the same member updates the same addendum"
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

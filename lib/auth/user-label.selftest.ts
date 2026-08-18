@@ -2,7 +2,7 @@
  * Self-test: person display labels.
  * Run: npx tsx lib/auth/user-label.selftest.ts
  */
-import { labelForUserId, readUserLabels, userDisplayLabel } from "./user-label";
+import { applyPersonLabels, labelForUserId, readUserLabels, userDisplayLabel } from "./user-label";
 
 let failures = 0;
 
@@ -61,6 +61,14 @@ function main(): void {
     "readUserLabels keeps non-empty string labels"
   );
   assertEqual(readUserLabels(null), {}, "readUserLabels ignores null");
+  assertEqual(
+    applyPersonLabels(
+      "Welcome 9d721652-22da-4434-8422-093796b7939a and Ada.",
+      { "9d721652-22da-4434-8422-093796b7939a": "Teammate" }
+    ),
+    "Welcome Teammate and Ada.",
+    "applyPersonLabels replaces stored ids in facilitator copy"
+  );
 
   if (failures > 0) {
     console.error(`\nuser-label.selftest: ${failures} failure(s)`);

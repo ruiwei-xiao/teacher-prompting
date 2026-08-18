@@ -726,7 +726,13 @@ export function applyLearnerEvent(
   }
 
   if (event.kind === "agreement") {
-    return applyAgreement(state, event.userId, event.subject, now);
+    return applyAgreement(
+      state,
+      event.userId,
+      event.subject,
+      now,
+      event.withdrawn === true
+    );
   }
 
   if (event.kind === "scoresSubmitted") {
@@ -734,7 +740,10 @@ export function applyLearnerEvent(
   }
 
   if (event.kind === "message" || event.kind === "docSnapshot") {
-    const withClocks = resetActorAndGroupClocks(state, event.userId, now);
+    let withClocks = resetActorAndGroupClocks(state, event.userId, now);
+    if (event.kind === "docSnapshot") {
+      withClocks = clearStaleReadyMarks(withClocks, event);
+    }
     if (state.phase === "merge") {
       return { state: recordContribution(withClocks, event.userId), effects: [] };
     }
@@ -825,8 +834,12 @@ function applyAgreement(
   state: TeamStateRecord,
   userId: string,
   subject: AgreementSubject,
-  now: Date
+  now: Date,
+  withdrawn = false
 ): EngineResult {
+  if (withdrawn) {
+    return applyWithdrawAgreement(state, userId, subject);
+  }
   if (subject === "final_consensus") {
     return applyFinalConsensus(state, userId);
   }
@@ -846,6 +859,46 @@ function applyAgreement(
     return enterScoring(next, now, []);
   }
   return { state: next, effects: [] };
+}
+
+function applyWithdrawAgreement(
+  state: TeamStateRecord,
+  userId: string,
+  subject: AgreementSubject
+): EngineResult {
+  if (subject === "merge_complete" && state.phase !== "merge") {
+    return { state, effects: [] };
+  }
+  if (subject === "final_consensus" && state.phase !== "consensus") {
+    return { state, effects: [] };
+  }
+  if (!state.agreementSets[subject].includes(userId)) {
+    return { state, effects: [] };
+  }
+  const next = cloneState(state);
+  next.agreementSets[subject] = next.agreementSets[subject].filter(
+    (memberId) => memberId !== userId
+  );
+  return { state: next, effects: [] };
+}
+
+function clearStaleReadyMarks(
+  state: TeamStateRecord,
+  event: Extract<LearnerEvent, { kind: "docSnapshot" }>
+): TeamStateRecord {
+  if (event.docKind !== "rubric" || event.revised !== true) {
+    return state;
+  }
+  if (state.phase !== "merge" && state.phase !== "consensus") {
+    return state;
+  }
+  const next = cloneState(state);
+  if (state.phase === "merge") {
+    next.agreementSets.merge_complete = [];
+  } else {
+    next.agreementSets.final_consensus = [];
+  }
+  return next;
 }
 
 function shouldReveal(state: TeamStateRecord): boolean {
@@ -1039,10 +1092,18 @@ function lockTeam(
 ): EngineResult {
   const next = cloneState(state);
   next.phase = "finalized";
+  next.flaggedCriteria = [...unresolved];
   const effects: EngineEffect[] = [];
   if (auto) {
     effects.push(postFacilitator("llm", "auto_synthesize", { unresolved }));
   }
+  effects.push(
+    postFacilitator("scripted", "finalize", {
+      auto,
+      unresolved,
+      memberUserIds: next.memberUserIds,
+    })
+  );
   effects.push({ kind: "lockDeliverable", auto, unresolved });
   return { state: next, effects };
 }
@@ -1246,8 +1307,8 @@ export function computeSpread(revealed: RevealedScores): CriterionSpread[] {
 }
 
 /**
- * Apply revealed spreads: flag ≥2 criteria, post targeted prompts, and skip
- * discussion when none (9.3, 9.7, 10.1).
+ * Apply revealed spreads: announce the reveal, flag ≥2 criteria, post
+ * targeted prompts, and skip discussion when none (8.4, 9.3, 9.7, 10.1).
  */
 export function applySpread(
   state: TeamStateRecord,
@@ -1256,13 +1317,20 @@ export function applySpread(
   if (state.phase !== "scoring") {
     return { state, effects: [] };
   }
+  const announcement = postFacilitator("scripted", "reveal_announcement", {
+    memberUserIds: state.memberUserIds,
+  });
   const flaggedCriteria = computeSpread(revealed)
     .filter((row) => row.flagged)
     .map((row) => row.criterionKey);
   if (flaggedCriteria.length === 0) {
     const next = cloneState(state);
     next.flaggedCriteria = [];
-    return enterConsensus(next, new Date(revealed.revealedAt), []);
+    return enterConsensus(next, new Date(revealed.revealedAt), [announcement]);
   }
-  return enterDiscussion(state, revealed, flaggedCriteria);
+  const discussion = enterDiscussion(state, revealed, flaggedCriteria);
+  return {
+    state: discussion.state,
+    effects: [announcement, ...discussion.effects],
+  };
 }

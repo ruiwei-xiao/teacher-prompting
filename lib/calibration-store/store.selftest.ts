@@ -109,6 +109,7 @@ async function main(): Promise<void> {
     listQueuedCheckIns,
     recordAbsence,
     recordAgreement,
+    removeAgreement,
     hasNotice,
     recordNotice,
     revealScores,
@@ -693,6 +694,20 @@ async function main(): Promise<void> {
       3,
       "same user may agree a different subject"
     );
+    await removeAgreement(scoreTeam.id, userE, "merge_complete");
+    assertEqual(
+      (await listAgreements(scoreTeam.id)).filter((a) => a.subject === "merge_complete")
+        .length,
+      1,
+      "removeAgreement deletes one subject without touching the other"
+    );
+    await recordAgreement(scoreTeam.id, userE, "merge_complete");
+    assertEqual(
+      (await listAgreements(scoreTeam.id)).filter((a) => a.subject === "merge_complete")
+        .length,
+      2,
+      "a withdrawn agreement can be recorded again"
+    );
 
     // --- absences (keyed by team/user/step) ---
     await recordAbsence(scoreTeam.id, userG, "scoring");
@@ -754,6 +769,14 @@ async function main(): Promise<void> {
     assertEqual(addenda.length, 1, "addendum persists after lock");
     assertEqual(addenda[0]?.userId, userA, "addendum stores the author");
     assertEqual(addenda[0]?.body, "Personal note after lock", "addendum stores the body");
+    const firstId = addenda[0]?.id;
+    await addAddendum(team.id, userA, "Edited personal note");
+    const afterEdit = await listAddenda(team.id);
+    assertEqual(afterEdit.length, 1, "a second write from the same member stays one addendum");
+    assertEqual(afterEdit[0]?.id, firstId, "edit keeps the same addendum id");
+    assertEqual(afterEdit[0]?.body, "Edited personal note", "edit replaces the body");
+    await addAddendum(team.id, userB, "Bob's note");
+    assertEqual((await listAddenda(team.id)).length, 2, "a second member still gets their own addendum");
 
     const persisted = JSON.parse(await fs.readFile(dataFile, "utf-8")) as {
       scores?: unknown[];

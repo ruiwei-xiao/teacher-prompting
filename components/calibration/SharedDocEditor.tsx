@@ -1,5 +1,6 @@
 "use client";
 
+import { CollaborationContext } from "@lexical/react/LexicalCollaborationContext";
 import { CollaborationPlugin } from "@lexical/react/LexicalCollaborationPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -28,6 +29,7 @@ import {
   Component,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -130,16 +132,24 @@ function CollaborativeDoc({
   const { username, cursorColor } = cursorIdentity(
     userInfo as { name?: string; color?: string } | null
   );
+  const cursorsContainerRef = useRef<HTMLDivElement>(null);
+  const collaboration = useRef({
+    clientID: 0,
+    color: cursorColor,
+    isCollabActive: false,
+    name: username,
+    yjsDocMap: new Map<string, Y.Doc>(),
+  }).current;
+  collaboration.color = cursorColor;
+  collaboration.name = username;
 
   const providerFactory = useCallback(
     (id: string, yjsDocMap: Map<string, Y.Doc>): Provider => {
-      // Room-level host stays shared for sync; each CollaborationPlugin
-      // receives a dedicated provider/doc/awareness so disconnect() and
-      // cursors cannot tear down or overwrite the sibling document.
-      const roomProvider = getYjsProviderForRoom(room, {
-        autoloadSubdocs: true,
-      });
-      return createSharedDocProvider(id, yjsDocMap, roomProvider, room);
+      // Reuse the room's Liveblocks Yjs provider so Strict Mode remounts
+      // do not destroy the document or drop the websocket subscription.
+      const host = getYjsProviderForRoom(room);
+      yjsDocMap.set(id, host.getYDoc());
+      return createSharedDocProvider(id, yjsDocMap, host, room);
     },
     [room]
   );
@@ -148,21 +158,18 @@ function CollaborativeDoc({
   const placeholder = sharedDocPlaceholder(docKey);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white dark:border-zinc-700 dark:bg-zinc-950/40">
-      <h3 className="border-b border-slate-200 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-zinc-700 dark:text-zinc-400">
-        {title}
-      </h3>
+    <CollaborationContext.Provider value={collaboration}>
       <LexicalComposer initialConfig={editorConfig(docKey)}>
-        <div className="relative">
+        <div ref={cursorsContainerRef} className="relative min-h-full">
           <RichTextPlugin
             contentEditable={
               <ContentEditable
                 aria-label={title}
-                className="min-h-[12rem] px-3 py-2 text-sm leading-6 text-slate-900 outline-none dark:text-zinc-100"
+                className="min-h-[32rem] text-[15px] leading-7 text-slate-900 outline-none dark:text-zinc-100"
               />
             }
             placeholder={
-              <p className="pointer-events-none absolute inset-x-3 top-2 text-sm text-slate-400 dark:text-zinc-500">
+              <p className="pointer-events-none absolute inset-x-0 top-0 text-[15px] leading-7 text-slate-400 dark:text-zinc-500">
                 {placeholder}
               </p>
             }
@@ -174,6 +181,7 @@ function CollaborativeDoc({
             shouldBootstrap
             username={username}
             cursorColor={cursorColor}
+            cursorsContainerRef={cursorsContainerRef}
             initialEditorState={bootstrapEditorState}
           />
           <SnapshotPushPlugin
@@ -183,55 +191,105 @@ function CollaborativeDoc({
           />
         </div>
       </LexicalComposer>
-    </div>
+    </CollaborationContext.Provider>
   );
 }
 
 function SharedDocsBody({
   teamId,
   canPush,
+  onDown,
 }: {
   teamId: string;
   canPush: boolean;
+  onDown: () => void;
 }) {
+  const [activeKey, setActiveKey] = useState<SharedDocKey>("rubric");
   return (
-    <div className="flex flex-col gap-4">
-      {DOC_YJS_KEYS.map((docKey) => (
-        <CollaborativeDoc
-          key={docKey}
-          docKey={docKey}
-          teamId={teamId}
-          canPush={canPush}
-        />
-      ))}
+    <div className="flex h-full min-h-0 flex-col bg-[#f8f9fa] dark:bg-zinc-950">
+      <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+        {DOC_YJS_KEYS.map((docKey) => {
+          const active = docKey === activeKey;
+          return (
+            <button
+              key={docKey}
+              type="button"
+              onClick={() => setActiveKey(docKey)}
+              className={[
+                "rounded-lg px-3 py-1.5 text-sm font-medium",
+                active
+                  ? "bg-sky-50 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+              ].join(" ")}
+            >
+              {sharedDocTitle(docKey)}
+            </button>
+          );
+        })}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div className="mx-auto min-h-full max-w-3xl rounded-sm bg-white px-4 py-4 shadow-[0_1px_3px_rgba(60,64,67,0.15)] dark:bg-zinc-900 dark:shadow-none">
+          <RoomProvider
+            key={activeKey}
+            id={liveblocksRoomId(teamId, activeKey)}
+            initialPresence={{}}
+          >
+            <ClientSideSuspense
+              fallback={
+                <p className="text-sm text-slate-500 dark:text-zinc-400">
+                  Loading shared documents…
+                </p>
+              }
+            >
+              <ConnectionWatcher onDown={onDown} />
+              <CollaborativeDoc
+                docKey={activeKey}
+                teamId={teamId}
+                canPush={canPush}
+              />
+            </ClientSideSuspense>
+          </RoomProvider>
+        </div>
+      </div>
     </div>
   );
 }
 
 function ReadOnlySnapshotDocs({ snapshots }: { snapshots: SharedDocSnapshots }) {
+  const [activeKey, setActiveKey] = useState<SharedDocKey>("rubric");
+  const title = sharedDocTitle(activeKey);
+  const text = snapshots[activeKey];
   return (
-    <div className="flex flex-col gap-4">
-      {DOC_YJS_KEYS.map((docKey) => {
-        const title = sharedDocTitle(docKey);
-        const text = snapshots[docKey];
-        return (
-          <div
-            key={docKey}
-            className="rounded-xl border border-slate-200 bg-white dark:border-zinc-700 dark:bg-zinc-950/40"
-          >
-            <h3 className="border-b border-slate-200 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-zinc-700 dark:text-zinc-400">
-              {title}
-            </h3>
-            <div
-              aria-label={title}
-              aria-readonly="true"
-              className="min-h-[12rem] whitespace-pre-wrap px-3 py-2 text-sm leading-6 text-slate-900 dark:text-zinc-100"
+    <div className="flex h-full min-h-0 flex-col bg-[#f8f9fa] dark:bg-zinc-950">
+      <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+        {DOC_YJS_KEYS.map((docKey) => {
+          const active = docKey === activeKey;
+          return (
+            <button
+              key={docKey}
+              type="button"
+              onClick={() => setActiveKey(docKey)}
+              className={[
+                "rounded-lg px-3 py-1.5 text-sm font-medium",
+                active
+                  ? "bg-sky-50 text-sky-800 dark:bg-sky-950/60 dark:text-sky-200"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+              ].join(" ")}
             >
-              {text || "No snapshot saved yet."}
-            </div>
-          </div>
-        );
-      })}
+              {sharedDocTitle(docKey)}
+            </button>
+          );
+        })}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div
+          aria-label={title}
+          aria-readonly="true"
+          className="mx-auto min-h-full max-w-3xl whitespace-pre-wrap rounded-sm bg-white px-4 py-4 text-[15px] leading-7 text-slate-900 shadow-[0_1px_3px_rgba(60,64,67,0.15)] dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-none"
+        >
+          {text || "No snapshot saved yet."}
+        </div>
+      </div>
     </div>
   );
 }
@@ -245,8 +303,19 @@ function ConnectionWatcher({ onDown }: { onDown: () => void }) {
     }
   });
 
-  useErrorListener(() => {
-    onDown();
+  useErrorListener((error) => {
+    console.error("Liveblocks room error:", error);
+    const context = (
+      error as { context?: { type?: string; code?: number } }
+    ).context;
+    if (
+      isLiveblocksOutage({
+        errorType: context?.type,
+        errorCode: context?.code,
+      })
+    ) {
+      onDown();
+    }
   });
 
   useEffect(() => {
@@ -259,21 +328,40 @@ function ConnectionWatcher({ onDown }: { onDown: () => void }) {
 }
 
 class LiveblocksErrorBoundary extends Component<
-  { onDown: () => void; children: ReactNode },
-  { hasError: boolean }
+  { children: ReactNode },
+  { hasError: boolean; message: string }
 > {
-  state = { hasError: false };
+  state = { hasError: false, message: "" };
 
-  static getDerivedStateFromError(): { hasError: boolean } {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): { hasError: boolean; message: string } {
+    return { hasError: true, message: error.message || "Editor failed to start" };
   }
 
-  componentDidCatch(): void {
-    this.props.onDown();
+  componentDidCatch(error: Error): void {
+    console.error("Shared document editor error:", error);
   }
 
   render(): ReactNode {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) {
+      return (
+        <div className="px-4 py-6">
+          <p className="text-sm text-slate-700 dark:text-zinc-200">
+            The shared document editor hit an error. Liveblocks auth succeeded;
+            retrying the editor.
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+            {this.state.message}
+          </p>
+          <button
+            type="button"
+            className="mt-3 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white"
+            onClick={() => this.setState({ hasError: false, message: "" })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
     return this.props.children;
   }
 }
@@ -290,48 +378,50 @@ export default function SharedDocEditor({
   snapshots?: SharedDocSnapshots;
 }) {
   const [liveblocksDown, setLiveblocksDown] = useState(false);
+  const [editorNonce, setEditorNonce] = useState(0);
   const readOnly =
     shouldShowReadOnly({ locked, liveblocksDown }) || role === "operator";
   const canPush = canPushDocSnapshot({ locked, role }) && !liveblocksDown;
 
+  function retryLiveblocks(): void {
+    setLiveblocksDown(false);
+    setEditorNonce((nonce) => nonce + 1);
+  }
+
   return (
     <section
       aria-label="Shared documents"
-      className="rounded-2xl border border-white/60 bg-white/70 px-4 py-5 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80"
+      className="flex h-full min-h-0 flex-col bg-white dark:bg-zinc-950"
     >
-      <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-200">
-        Shared documents
-      </h2>
-      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-        Edits and named cursors appear for teammates who have these documents
-        open. No reload needed.
-      </p>
       {liveblocksDown && (
         <p
           role="status"
-          className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
         >
-          {LIVEBLOCKS_OUTAGE_BANNER}
+          {LIVEBLOCKS_OUTAGE_BANNER}{" "}
+          <button
+            type="button"
+            className="font-medium underline underline-offset-2"
+            onClick={retryLiveblocks}
+          >
+            Retry
+          </button>
         </p>
       )}
-      <div className="mt-4">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {readOnly ? (
           <ReadOnlySnapshotDocs snapshots={snapshots} />
         ) : (
-          <LiveblocksErrorBoundary onDown={() => setLiveblocksDown(true)}>
-            <LiveblocksProvider authEndpoint={LIVEBLOCKS_AUTH_ENDPOINT}>
-              <RoomProvider id={liveblocksRoomId(teamId)} initialPresence={{}}>
-                <ConnectionWatcher onDown={() => setLiveblocksDown(true)} />
-                <ClientSideSuspense
-                  fallback={
-                    <p className="text-sm text-slate-500 dark:text-zinc-400">
-                      Loading shared documents…
-                    </p>
-                  }
-                >
-                  <SharedDocsBody teamId={teamId} canPush={canPush} />
-                </ClientSideSuspense>
-              </RoomProvider>
+          <LiveblocksErrorBoundary key={editorNonce}>
+            <LiveblocksProvider
+              authEndpoint={LIVEBLOCKS_AUTH_ENDPOINT}
+              lostConnectionTimeout={8000}
+            >
+              <SharedDocsBody
+                teamId={teamId}
+                canPush={canPush}
+                onDown={() => setLiveblocksDown(true)}
+              />
             </LiveblocksProvider>
           </LiveblocksErrorBoundary>
         )}

@@ -40,7 +40,7 @@ type IssuedToken = {
   userId: string;
   room: string;
   access: "write" | "read";
-  userInfo: { name?: string; color?: string };
+  userInfo: { name?: string; color?: string; avatar?: string };
 };
 
 async function main(): Promise<void> {
@@ -70,7 +70,11 @@ async function main(): Promise<void> {
     const learnerB = "user_b";
     const learnerC = "user_c";
     const stranger = "user_stranger";
-    const identity = { name: "Ada Lovelace", color: "#c45c26" };
+    const identity = {
+      name: "Ada Lovelace",
+      color: "#c45c26",
+      avatar: "https://lh3.googleusercontent.com/a/ada",
+    };
 
     const created = await createOffering(operatorId, offeringInput);
     assert(created.ok === true, "create offering ok");
@@ -122,6 +126,11 @@ async function main(): Promise<void> {
       issued[0]?.userInfo?.name,
       identity.name,
       "member write token uses session name"
+    );
+    assertEqual(
+      issued[0]?.userInfo?.avatar,
+      identity.avatar,
+      "member write token uses the Google account image"
     );
     if (memberWrite.ok) {
       assertEqual(memberWrite.body.token, "test-token", "member write returns token body");
@@ -188,6 +197,20 @@ async function main(): Promise<void> {
       "read",
       "operator gets read even if the team is unlocked"
     );
+
+    const rubricRoom = `calibration:${unlockedTeam.id}:rubric`;
+    const memberRubric = await issueLiveblocksToken(
+      learnerA,
+      { room: rubricRoom },
+      { authorize, identity }
+    );
+    assertEqual(memberRubric.status, 200, "member of unlocked team can auth a doc room");
+    assertEqual(
+      issued[3]?.room,
+      rubricRoom,
+      "doc-room token is scoped to calibration:{teamId}:rubric"
+    );
+    assertEqual(issued[3]?.access, "write", "unlocked member gets write on the doc room");
 
     // --- wrong room format → 400 or 403, no token ---
     const beforeBadRoom = issued.length;

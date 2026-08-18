@@ -1824,6 +1824,67 @@ function main(): void {
     assertEqual(result.state.phase, "merge", "two merge_complete agreements stay in merge");
     result = applyLearnerEvent(
       result.state,
+      { kind: "agreement", userId: "u-alice", subject: "merge_complete", withdrawn: true },
+      NOW
+    );
+    assertEqual(result.state.phase, "merge", "withdrawing Ready stays in merge");
+    assertEqual(
+      result.state.agreementSets.merge_complete.includes("u-alice"),
+      false,
+      "withdrawn Ready is removed before scoring starts"
+    );
+    assertEqual(
+      result.state.agreementSets.merge_complete.includes("u-bob"),
+      true,
+      "withdrawing one Ready leaves the others"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-alice", subject: "merge_complete" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "docSnapshot", userId: "u-bob", docKind: "notes", revised: true },
+      NOW
+    );
+    assertEqual(
+      result.state.agreementSets.merge_complete.slice().sort(),
+      ["u-alice", "u-bob"],
+      "notes edits do not clear Ready marks"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "docSnapshot", userId: "u-bob", docKind: "rubric" },
+      NOW
+    );
+    assertEqual(
+      result.state.agreementSets.merge_complete.slice().sort(),
+      ["u-alice", "u-bob"],
+      "an unchanged rubric snapshot does not clear Ready marks"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "docSnapshot", userId: "u-bob", docKind: "rubric", revised: true },
+      NOW
+    );
+    assertEqual(
+      result.state.agreementSets.merge_complete,
+      [],
+      "a revised rubric snapshot clears Ready marks"
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-alice", subject: "merge_complete" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-bob", subject: "merge_complete" },
+      NOW
+    );
+    result = applyLearnerEvent(
+      result.state,
       { kind: "agreement", userId: "u-cara", subject: "merge_complete" },
       NOW
     );
@@ -1844,6 +1905,17 @@ function main(): void {
       result.state.agreementSets.merge_complete.slice().sort(),
       [...TEAM_MEMBERS].sort(),
       "all three merge_complete agreements are recorded"
+    );
+    const tooLate = applyLearnerEvent(
+      result.state,
+      { kind: "agreement", userId: "u-alice", subject: "merge_complete", withdrawn: true },
+      NOW
+    );
+    assertEqual(tooLate.state.phase, "scoring", "withdraw after scoring does not roll back");
+    assertEqual(
+      tooLate.state.agreementSets.merge_complete.slice().sort(),
+      [...TEAM_MEMBERS].sort(),
+      "Ready cannot be withdrawn after scoring starts"
     );
   }
 
@@ -2097,6 +2169,12 @@ function main(): void {
     assertEqual(result.state.phase, "discussion", "flagged spread enters discussion (9.3)");
     assertEqual(result.state.flaggedCriteria, ["clarity"], "clarity is the flagged criterion");
 
+    assertEqual(
+      facilitatorKeys(result.effects)[0],
+      "reveal_announcement",
+      "spread posts reveal_announcement before discussion prompts"
+    );
+
     const targeted = ofEngineKind(result.effects, "postFacilitator").filter(
       (effect) => effect.message.key === "targeted_prompt"
     );
@@ -2235,10 +2313,19 @@ function main(): void {
     const locks = ofEngineKind(result.effects, "lockDeliverable");
     assertEqual(locks.length, 1, "14-day discussion silence emits one lockDeliverable");
     assertEqual(locks[0]?.auto, true, "group-timeout lock is auto (9.6, 10.3)");
+    assert(
+      facilitatorKeys(result.effects).includes("finalize"),
+      "auto-lock posts a finalize notice"
+    );
     assertEqual(
       locks[0]?.unresolved,
       ["clarity"],
       "auto-finalize labels unresolved flagged criteria (9.6, 10.3)"
+    );
+    assertEqual(
+      result.state.flaggedCriteria,
+      ["clarity"],
+      "auto-lock persists only the unresolved criteria on state"
     );
 
     const replayed = evaluateTeam(result.state, silenceAt);
@@ -2323,6 +2410,11 @@ function main(): void {
   {
     const result = enterConsensusNoFlags(NOW);
     assertEqual(result.state.phase, "consensus", "no flags skip discussion (9.7, 10.1)");
+    assertEqual(
+      facilitatorKeys(result.effects)[0],
+      "reveal_announcement",
+      "no-flag spread still posts reveal_announcement before rewrite"
+    );
     assert(
       facilitatorKeys(result.effects).includes("rewrite_prompt"),
       "skip-discussion consensus still posts a rewrite prompt (10.1)"
@@ -2371,6 +2463,45 @@ function main(): void {
     assertEqual(locks.length, 1, "explicit consensus emits one lockDeliverable");
     assertEqual(locks[0]?.auto, false, "explicit agreement lock is not auto (10.2)");
     assertEqual(locks[0]?.unresolved, [], "explicit agreement has no unresolved labels");
+    assert(
+      facilitatorKeys(result.effects).includes("finalize"),
+      "explicit lock posts a finalize notice"
+    );
+    assertEqual(
+      result.state.flaggedCriteria,
+      [],
+      "explicit lock clears scoring flags so they are not shown as unresolved"
+    );
+  }
+
+  // --- 10.2: explicit lock after a flagged discussion also drops unresolved chips ---
+  {
+    const discussed = enterDiscussionWithFlags(NOW);
+    let result = applyLearnerEvent(
+      discussed.state,
+      { kind: "message", userId: "u-alice", body: "the prompt never states a goal" },
+      NOW
+    );
+    assertEqual(result.state.phase, "consensus", "precondition: flagged discussion reached consensus");
+    assertEqual(result.state.flaggedCriteria, ["clarity"], "scoring flags remain until lock");
+    for (const userId of TEAM_MEMBERS) {
+      result = applyLearnerEvent(
+        result.state,
+        { kind: "agreement", userId, subject: "final_consensus" },
+        NOW
+      );
+    }
+    assertEqual(result.state.phase, "finalized", "Ready after discussion still locks");
+    assertEqual(
+      ofEngineKind(result.effects, "lockDeliverable")[0]?.unresolved,
+      [],
+      "explicit lock after discussion has no unresolved labels"
+    );
+    assertEqual(
+      result.state.flaggedCriteria,
+      [],
+      "explicit lock after discussion does not keep scoring flags"
+    );
   }
 
   // --- 10.3: consensus 14-day silence auto-synthesizes and locks ---

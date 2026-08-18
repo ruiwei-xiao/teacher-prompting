@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import {
   applyThemePreference,
   getStoredTheme,
@@ -21,59 +22,11 @@ const LABELS: Record<ThemePreference, string> = {
   dark: "Dark",
 };
 
-function SunGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
-  );
-}
-
-function MoonGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-/** Monitor + sun: follow system / auto appearance */
-function SystemGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <path d="M8 21h8M12 17v4" />
-    </svg>
-  );
-}
+const THEME_ICON = {
+  className: "h-[18px] w-[18px] shrink-0",
+  strokeWidth: 2,
+  "aria-hidden": true,
+} as const;
 
 /**
  * Universal nav icon: cycles System → Light → Dark.
@@ -117,9 +70,9 @@ export default function ThemeToggle({ className = "" }: { className?: string }) 
         className,
       ].join(" ")}
     >
-      {pref === "light" && <SunGlyph className="h-[18px] w-[18px]" />}
-      {pref === "dark" && <MoonGlyph className="h-[18px] w-[18px]" />}
-      {pref === "system" && <SystemGlyph className="h-[18px] w-[18px]" />}
+      {pref === "light" && <Sun {...THEME_ICON} />}
+      {pref === "dark" && <Moon {...THEME_ICON} />}
+      {pref === "system" && <Monitor {...THEME_ICON} />}
     </button>
   );
 }

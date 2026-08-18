@@ -4,7 +4,12 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { acceptPendingEmailInvitesOnSignIn } from "@/lib/auth/accept-pending-email-invites";
-import { createUser, getUserByEmail, upsertOAuthUser } from "@/lib/auth/user-store";
+import {
+  createUser,
+  getUserByEmail,
+  rememberDisplayProfile,
+  upsertOAuthUser,
+} from "@/lib/auth/user-store";
 
 const providers = [];
 
@@ -88,6 +93,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user?.email) {
         token.email = user.email;
       }
+      if (typeof user?.name === "string" && user.name.trim()) {
+        token.name = user.name.trim();
+      }
+      if (typeof user?.image === "string" && user.image.trim()) {
+        token.picture = user.image.trim();
+      }
 
       if (!token.userId && token.email) {
         const storedUser = await getUserByEmail(String(token.email));
@@ -108,11 +119,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       }
 
+      if (user && token.userId) {
+        try {
+          await rememberDisplayProfile({
+            userId: String(token.userId),
+            name: typeof token.name === "string" ? token.name : undefined,
+            image: typeof token.picture === "string" ? token.picture : undefined,
+          });
+        } catch (error) {
+          console.error("Failed to remember display profile:", error);
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
       if (session.user && token.userId) {
         session.user.id = String(token.userId);
+      }
+      if (session.user && typeof token.name === "string") {
+        session.user.name = token.name;
+      }
+      if (session.user && typeof token.picture === "string") {
+        session.user.image = token.picture;
       }
 
       return session;

@@ -5,7 +5,13 @@
  *
  * Session is resolved by route wrappers; these accept userId for testability.
  */
-import { resolveUserLabels } from "@/lib/auth/resolve-labels";
+import {
+  personOverlayFromUser,
+  rememberSessionPerson,
+  resolveUserLabels,
+  resolveUserPeople,
+  type PersonOverlay,
+} from "@/lib/auth/resolve-labels";
 import { resolveCaller } from "./access";
 import { resolveFacilitatorApiKey } from "./facilitator-key";
 import type { ApiResult } from "./offerings";
@@ -44,6 +50,7 @@ import {
   saveDocSnapshot,
   saveTeamState,
   updateLastSeen,
+  clearAgreementsForSubject,
 } from "@/lib/calibration-store/store";
 import type {
   CheckIn,
@@ -71,6 +78,7 @@ export type ExecuteEffectsDeps = {
 
 export type SpaceDeps = ExecuteEffectsDeps & {
   now?: Date;
+  identity?: PersonOverlay;
 };
 
 export type DocMeta = {
@@ -99,6 +107,10 @@ export type SpaceState = {
   revealedAt: string | null;
   matrix: MemberScores[];
   locked: boolean;
+  memberUserIds: string[];
+  readyUserIds: string[];
+  labels: Record<string, string>;
+  avatars: Record<string, string>;
 };
 
 export type PostedMessage = {
@@ -466,7 +478,8 @@ function recapSince(messages: Message[], lastSeenAt: string | null): SpaceRecap 
 async function serializeSpace(
   teamId: string,
   role: "member" | "operator",
-  userId: string
+  userId: string,
+  identity?: PersonOverlay
 ): Promise<SpaceState | null> {
   const team = await getTeam(teamId);
   if (!team) return null;
@@ -494,6 +507,24 @@ async function serializeSpace(
     submittedBy = operatorView?.members.map((row) => row.userId) ?? [];
     matrix = operatorView?.members ?? [];
   }
+  const memberIds = team.members.map((entry) => entry.userId);
+  const authorIds = messages
+    .map((message) => message.authorUserId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const overlay = personOverlayFromUser(identity);
+  if (overlay) {
+    await rememberSessionPerson(userId, overlay).catch((error) => {
+      logPresentationFailure("remember person", error);
+    });
+  }
+  const people = await resolveUserPeople(
+    [
+      ...memberIds,
+      ...authorIds,
+      ...(roles ? [roles.presenterUserId, ...roles.criticUserIds] : []),
+    ],
+    overlay ? { [userId]: overlay } : undefined
+  );
   return {
     role,
     phase: team.state.phase,
@@ -509,6 +540,15 @@ async function serializeSpace(
     revealedAt: team.scoresRevealedAt,
     matrix,
     locked: team.finalizedAt !== null || team.state.phase === "finalized",
+    memberUserIds: [...team.state.memberUserIds],
+    readyUserIds:
+      team.state.phase === "merge"
+        ? [...team.state.agreementSets.merge_complete]
+        : team.state.phase === "consensus"
+          ? [...team.state.agreementSets.final_consensus]
+          : [],
+    labels: people.labels,
+    avatars: people.avatars,
   };
 }
 
@@ -522,7 +562,7 @@ async function evaluateAndSerialize(
   const now = clock(deps);
   const evaluated = evaluateTeam(team.state, now);
   await executeEffects(team.id, evaluated.state, evaluated.effects, now, deps);
-  const space = await serializeSpace(team.id, role, userId);
+  const space = await serializeSpace(team.id, role, userId, deps?.identity);
   if (role === "member") {
     await updateLastSeen(team.id, userId, now);
   }
@@ -552,7 +592,7 @@ export async function getSpace(
   // Requirement 14.6: operator viewing must not reset clocks or advance phases.
   const space =
     caller.role === "operator"
-      ? await serializeSpace(team.id, "operator", userId)
+      ? await serializeSpace(team.id, "operator", userId, deps?.identity)
       : await evaluateAndSerialize(team, "member", userId, deps);
   if (!space) {
     return notFound("Team not found");
@@ -618,7 +658,7 @@ export async function postMessage(
     now
   );
   await executeEffects(teamId, applied.state, applied.effects, now, deps);
-  const space = await serializeSpace(teamId, "member", userId);
+  const space = await serializeSpace(teamId, "member", userId, deps?.identity);
   if (!space) {
     return notFound("Team not found");
   }
@@ -648,6 +688,10 @@ export async function postDocSnapshot(
     return badRequest(parsed.error);
   }
   const now = clock(deps);
+  const currentView = await getTeamForMember(teamId, userId);
+  const previous =
+    currentView?.docs.find((doc) => doc.docKind === docKind)?.snapshotText ?? "";
+  const revised = docKind === "rubric" && previous !== parsed;
   try {
     await saveDocSnapshot(teamId, docKind, parsed, userId);
   } catch (error) {
@@ -659,10 +703,19 @@ export async function postDocSnapshot(
   }
   const applied = applyLearnerEvent(
     caller.team.state,
-    { kind: "docSnapshot", userId, docKind },
+    { kind: "docSnapshot", userId, docKind, revised },
     now
   );
   await executeEffects(teamId, applied.state, applied.effects, now, deps);
+  const readySubject =
+    caller.team.state.phase === "merge"
+      ? "merge_complete"
+      : caller.team.state.phase === "consensus"
+        ? "final_consensus"
+        : null;
+  if (revised && readySubject) {
+    await clearAgreementsForSubject(teamId, readySubject);
+  }
   const view = await getTeamForMember(teamId, userId);
   const savedAt =
     view?.docs.find((doc) => doc.docKind === docKind)?.updatedAt ??

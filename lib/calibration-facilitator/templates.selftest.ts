@@ -106,6 +106,34 @@ function main(): void {
     "critic prompt asks for agree or disagree plus reasoning (6.3)"
   );
 
+  const openRubric = FacilitatorService.renderScripted("open_rubric", FULL_CTX);
+  assert(
+    /Ready/.test(openRubric) && /Shared documents/i.test(openRubric),
+    "open_rubric tells the team to press Ready under Shared documents"
+  );
+
+  const rewrite = FacilitatorService.renderScripted("rewrite_prompt", FULL_CTX);
+  assert(
+    /Ready/.test(rewrite) && /Shared documents/i.test(rewrite),
+    "rewrite_prompt tells the team to press Ready under Shared documents"
+  );
+
+  const scorePrompt = FacilitatorService.renderScripted("score_prompt", FULL_CTX);
+  assert(
+    /Open Score/i.test(scorePrompt) && /left sidebar/i.test(scorePrompt),
+    "score_prompt points to the button below and Score in the left sidebar"
+  );
+  assert(
+    /private/i.test(scorePrompt),
+    "score_prompt still says submissions stay private (8.2, 8.3)"
+  );
+
+  const reveal = FacilitatorService.renderScripted("reveal_announcement", FULL_CTX);
+  assert(
+    /Open Score/i.test(reveal) && /left sidebar/i.test(reveal),
+    "reveal announcement points to Open Score and the left sidebar"
+  );
+
   const plantedScores: TemplateContext = {
     userId: "u-alice",
     displayNames: { "u-alice": "Alice" },
@@ -127,6 +155,16 @@ function main(): void {
     "merge_auto_finalize labels the rubric incomplete (4.5, 7.7, 11.2)"
   );
 
+  const finalizeExplicit = FacilitatorService.renderScripted("finalize", {
+    auto: false,
+  });
+  assert(
+    /Thank you/i.test(finalizeExplicit) &&
+      /Open Final/i.test(finalizeExplicit) &&
+      /left sidebar/i.test(finalizeExplicit),
+    "explicit finalize thanks the team and points to Open Final"
+  );
+
   const finalizeAuto = FacilitatorService.renderScripted("finalize", {
     auto: true,
     incomplete: true,
@@ -137,6 +175,10 @@ function main(): void {
   assert(
     finalizeAuto.includes("clarity") && finalizeAuto.includes("evidence"),
     "finalize auto names unresolved criteria"
+  );
+  assert(
+    /Open Final/i.test(finalizeAuto) && /left sidebar/i.test(finalizeAuto),
+    "auto finalize also points to Open Final"
   );
 
   const synthesize = FacilitatorService.renderScripted("auto_synthesize", {

@@ -39,9 +39,11 @@ export const ENGINE_SCRIPTED_KEYS = [
   "open_rubric",
   "score_prompt",
   "score_ack",
+  "reveal_announcement",
   "merge_auto_finalize",
   "rewrite_prompt",
   "targeted_prompt",
+  "finalize",
 ] as const satisfies readonly ScriptedKind[];
 
 export type TemplateContext = Record<string, unknown>;
@@ -142,16 +144,16 @@ const TEMPLATES: Record<ScriptedKind, (ctx: TemplateContext) => string> = {
     `Facilitator recap: a critique from ${nameOf(ctx.presenterUserId ?? ctx.userId, ctx)} has been recorded for the team.`,
 
   open_rubric: () =>
-    `The shared rubric is now open. Please synthesize 3 to 4 criteria, each with a one-line rationale.`,
+    `The shared rubric is now open. Please synthesize 3 to 4 criteria, each with a one-line rationale. When you agree the rubric is ready, press Ready under Shared documents.`,
 
   score_ack: (ctx) =>
     `${nameOf(ctx.userId, ctx)} submitted their scores. The values stay private until every present member has submitted.`,
 
   reveal_announcement: () =>
-    `Scores are now revealed to the team. Review the matrix together; we will discuss any large gaps.`,
+    `Scores are now revealed to the team. Open Score with the button below this message, or from Score in the left sidebar, to review the matrix. We will discuss any large gaps.`,
 
   score_prompt: () =>
-    `Please score the attached artifact against the team's rubric. Submissions stay private until every present member has submitted.`,
+    `Please score the attached artifact against the team's rubric. Open Score with the button below this message, or from Score in the left sidebar. Submissions stay private until every present member has submitted.`,
 
   targeted_prompt: (ctx) =>
     `${nameOf(ctx.scorerUserId, ctx)}, what in the artifact led to your score on ${criterionLabel(ctx)}?`,
@@ -162,7 +164,7 @@ const TEMPLATES: Record<ScriptedKind, (ctx: TemplateContext) => string> = {
       flagged.length > 0
         ? ` Focus on ${listItems(flagged)}.`
         : "";
-    return `Please rewrite criteria that produced disagreement and confirm the final rubric together.${flaggedClause}`;
+    return `Please rewrite criteria that produced disagreement and confirm the final rubric together.${flaggedClause} When you agree it is final, press Ready under Shared documents.`;
   },
 
   nudge: (ctx) =>
@@ -192,8 +194,10 @@ const TEMPLATES: Record<ScriptedKind, (ctx: TemplateContext) => string> = {
   },
 
   finalize: (ctx) => {
+    const open =
+      "Open Final with the button below this message, or from Final in the left sidebar.";
     if (ctx.auto !== true) {
-      return `The team has locked the final rubric as the group deliverable.`;
+      return `The team has locked the final rubric. Thank you — this activity is complete. ${open} A personal addendum there stays yours and does not change the group rubric.`;
     }
     const parts = ["This activity is auto-finalized."];
     if (ctx.incomplete === true) {
@@ -205,6 +209,7 @@ const TEMPLATES: Record<ScriptedKind, (ctx: TemplateContext) => string> = {
         `Unresolved criteria are labeled unresolved: ${listItems(unresolved)}.`
       );
     }
+    parts.push(open);
     return parts.join(" ");
   },
 };

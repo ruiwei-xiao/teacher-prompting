@@ -10,6 +10,9 @@ export type RoomYjsHost = {
   loadSubdoc(guid: string): boolean;
   connect(): void;
   disconnect(): void;
+  destroy?: () => void;
+  synced?: boolean;
+  awareness?: ProviderAwareness;
   on(type: string, cb: (...args: unknown[]) => void): void;
   off(type: string, cb: (...args: unknown[]) => void): void;
 };
@@ -139,7 +142,8 @@ class DocScopedAwareness implements ProviderAwareness {
 }
 
 class DocScopedProvider implements Provider {
-  readonly awareness: DocScopedAwareness;
+  readonly awareness: ProviderAwareness;
+  private readonly ownsAwareness: boolean;
   private readonly listeners = new Map<
     string,
     Set<(...args: unknown[]) => void>
@@ -152,7 +156,16 @@ class DocScopedProvider implements Provider {
     docId: string,
     room: AwarenessRoom
   ) {
-    this.awareness = new DocScopedAwareness(room, doc, docId);
+    if (roomProvider.awareness) {
+      // Liveblocks encodes Yjs awareness itself. Writing cursor
+      // RelativePositions into presence is not JSON and Liveblocks
+      // rejects it with "Invalid message format".
+      this.awareness = roomProvider.awareness;
+      this.ownsAwareness = false;
+    } else {
+      this.awareness = new DocScopedAwareness(room, doc, docId);
+      this.ownsAwareness = true;
+    }
     const forward = (type: string) => {
       const handler = (...args: unknown[]) => this.emit(type, args);
       this.roomProvider.on(type, handler);
@@ -173,8 +186,13 @@ class DocScopedProvider implements Provider {
   disconnect(): void {
     this.awareness.setLocalState(null);
     this.detachHost();
-    this.awareness.destroy();
+    if (this.ownsAwareness && "destroy" in this.awareness) {
+      (this.awareness as DocScopedAwareness).destroy();
+    }
     this.listeners.clear();
+    // Never destroy/disconnect the Liveblocks host. CollaborationPlugin
+    // calls disconnect() on Strict Mode remount; destroying the host
+    // unsubscribes Yjs and leaves a dead local document.
   }
 
   on(type: "sync", cb: (isSynced: boolean) => void): void;
@@ -188,6 +206,10 @@ class DocScopedProvider implements Provider {
     const bucket = this.listeners.get(type) ?? new Set();
     bucket.add(cb as (...args: unknown[]) => void);
     this.listeners.set(type, bucket);
+    // Liveblocks may already be synced before Lexical subscribes.
+    if (type === "sync" && this.roomProvider.synced) {
+      (cb as (isSynced: boolean) => void)(true);
+    }
   }
 
   off(type: "sync", cb: (isSynced: boolean) => void): void;
@@ -214,18 +236,13 @@ class DocScopedProvider implements Provider {
 
 function ensureDedicatedDoc(
   id: string,
-  yjsDocMap: Map<string, Y.Doc>,
-  roomProvider: RoomYjsHost
+  yjsDocMap: Map<string, Y.Doc>
 ): Y.Doc {
-  const rootDoc = roomProvider.getYDoc();
-  const docs = rootDoc.getMap<Y.Doc>("docs");
-  let doc = yjsDocMap.get(id) ?? docs.get(id);
+  let doc = yjsDocMap.get(id);
   if (!doc) {
     doc = new Y.Doc({ guid: id });
-    docs.set(id, doc);
+    yjsDocMap.set(id, doc);
   }
-  yjsDocMap.set(id, doc);
-  roomProvider.loadSubdoc(id);
   return doc;
 }
 
@@ -239,6 +256,6 @@ export function createSharedDocProvider(
   roomProvider: RoomYjsHost,
   room: AwarenessRoom
 ): Provider {
-  const doc = ensureDedicatedDoc(id, yjsDocMap, roomProvider);
+  const doc = ensureDedicatedDoc(id, yjsDocMap);
   return new DocScopedProvider(roomProvider, doc, id, room);
 }

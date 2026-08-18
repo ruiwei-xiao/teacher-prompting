@@ -3,12 +3,16 @@
  * Polling, recap, role labels, and chat post body.
  * Does not import the calibration engine, store, or API modules.
  */
+import { applyPersonLabels, readUserLabels } from "@/lib/auth/user-label";
 
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
 export type ParseResult<T> = ParseOk<T> | ParseErr;
 
 export const SPACE_POLL_MS = 10_000;
+
+/** Faster poll while the tab is visible so teammates' chat arrives without a reload. */
+export const SPACE_VISIBLE_POLL_MS = 3_000;
 
 export type SpaceMessage = {
   id: string;
@@ -48,6 +52,10 @@ export type SpaceView = {
   submittedBy: string[];
   revealedAt: string | null;
   matrix: SpaceMatrixRow[];
+  memberUserIds: string[];
+  readyUserIds: string[];
+  labels: Record<string, string>;
+  avatars: Record<string, string>;
 };
 
 export type RoundRoleLabel = "Presenter" | "Critic";
@@ -101,20 +109,39 @@ export function isFacilitatorMessage(
   return message.authorKind === "facilitator";
 }
 
+export function labeledMessageBody(
+  body: string,
+  labels: Record<string, string>
+): string {
+  return applyPersonLabels(body, labels);
+}
+
 export function recapMessages(space: Pick<SpaceView, "recap">): SpaceMessage[] {
   return space.recap.messages;
+}
+
+/** Kickoff already lives in group chat; only surface missed messages on return. */
+export function isReturnVisitRecap(space: Pick<SpaceView, "recap">): boolean {
+  return Boolean(space.recap.since) && space.recap.messages.length > 0;
 }
 
 export function canCompose(space: Pick<SpaceView, "role">): boolean {
   return space.role === "member";
 }
 
+const PHASE_BANNER: Record<string, string> = {
+  critique: "Critique",
+  merge: "Shared rubric",
+  scoring: "Private scoring",
+  discussion: "Discuss scores",
+  consensus: "Confirm final rubric",
+  finalized: "Final rubric",
+};
+
 export function phaseBannerLabel(
   space: Pick<SpaceView, "phase" | "round">
 ): string {
-  const name = space.phase
-    ? space.phase.charAt(0).toUpperCase() + space.phase.slice(1)
-    : "Team space";
+  const name = PHASE_BANNER[space.phase] ?? (space.phase || "Team space");
   if (space.phase === "critique" && Number.isFinite(space.round) && space.round > 0) {
     return `${name} · Round ${space.round}`;
   }
@@ -236,7 +263,9 @@ function readSpaceView(body: unknown): SpaceView | null {
   const submittedBy = readSubmittedBy(record.submittedBy);
   const revealedAt = readRevealedAt(record.revealedAt);
   const matrix = readMatrix(record.matrix);
-  if (!recapList || !messages || !ownScores || !submittedBy || revealedAt === undefined || !matrix) {
+  const memberUserIds = readSubmittedBy(record.memberUserIds);
+  const readyUserIds = readSubmittedBy(record.readyUserIds);
+  if (!recapList || !messages || !ownScores || !submittedBy || revealedAt === undefined || !matrix || !memberUserIds || !readyUserIds) {
     return null;
   }
   return {
@@ -253,6 +282,10 @@ function readSpaceView(body: unknown): SpaceView | null {
     submittedBy,
     revealedAt,
     matrix,
+    memberUserIds,
+    readyUserIds,
+    labels: readUserLabels(record.labels),
+    avatars: readUserLabels(record.avatars),
   };
 }
 

@@ -9,8 +9,8 @@ import { applyLearnerEvent } from "@/lib/calibration-engine/engine";
 import {
   addAddendum,
   getTeamForMember,
-  listAddenda,
   recordAgreement,
+  removeAgreement,
   submitScores,
 } from "@/lib/calibration-store/store";
 import type {
@@ -258,6 +258,44 @@ export async function postAgreement(
   return getSpace(userId, teamId, deps);
 }
 
+export async function deleteAgreement(
+  userId: string | null,
+  teamId: string,
+  body: unknown,
+  deps?: SpaceDeps
+): Promise<ApiResult<SpaceState>> {
+  if (!userId) return unauthorized();
+  const caller = await resolveCaller(userId, { teamId });
+  if (caller.role === "not_found") {
+    return notFound("Team not found");
+  }
+  if (caller.role !== "member") {
+    return forbidden();
+  }
+
+  const subject = readAgreementSubject(body);
+  if (typeof subject !== "string") {
+    return badRequest(subject.error);
+  }
+
+  const expected = expectedPhaseFor(subject);
+  if (caller.team.state.phase !== expected) {
+    return conflict(
+      `${subject} cannot be withdrawn after ${expected} has ended (current phase: ${caller.team.state.phase})`
+    );
+  }
+
+  const now = clock(deps);
+  await removeAgreement(teamId, userId, subject);
+  const applied = applyLearnerEvent(
+    caller.team.state,
+    { kind: "agreement", userId, subject, withdrawn: true },
+    now
+  );
+  await executeEffects(teamId, applied.state, applied.effects, now, deps);
+  return getSpace(userId, teamId, deps);
+}
+
 export async function postAddendum(
   userId: string | null,
   teamId: string,
@@ -279,7 +317,8 @@ export async function postAddendum(
   }
 
   try {
-    await addAddendum(teamId, userId, parsed);
+    const saved = await addAddendum(teamId, userId, parsed);
+    return { ok: true, status: 200, body: saved };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (reason.includes("locked") || reason.includes("addendum")) {
@@ -287,15 +326,4 @@ export async function postAddendum(
     }
     throw error;
   }
-
-  const addenda = await listAddenda(teamId);
-  const created =
-    addenda
-      .filter((row) => row.userId === userId && row.body === parsed)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-      .at(-1) ?? null;
-  if (!created) {
-    return notFound("Addendum not found");
-  }
-  return { ok: true, status: 200, body: created };
 }

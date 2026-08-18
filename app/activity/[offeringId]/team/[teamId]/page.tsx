@@ -1,8 +1,9 @@
 import { auth } from "@/auth";
-import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import SpaceLayout from "@/components/calibration/SpaceLayout";
+import { getModelLabel } from "@/lib/app-store/model-selection";
 import { getAppById } from "@/lib/app-store/store";
+import { personOverlayFromUser } from "@/lib/auth/resolve-labels";
 import { rubricCriterionKeys } from "@/lib/calibration-api/scores";
 import { getSpace } from "@/lib/calibration-api/space";
 import {
@@ -42,21 +43,27 @@ export default async function TeamSpacePage({
     );
   }
 
-  const result = await getSpace(session.user.id ?? null, teamId);
+  const result = await getSpace(session.user.id ?? null, teamId, {
+    identity: personOverlayFromUser(session.user),
+  });
   if (!result.ok) {
     return (
-      <AppShell>
-        <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
-          <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-zinc-100">
-              {result.status === 403 ? "Access denied" : "Team not found"}
-            </h1>
-            <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
-              {result.body.error}
-            </p>
-          </div>
-        </main>
-      </AppShell>
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 px-4 py-10 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
+        <div className="max-w-lg">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-zinc-100">
+            {result.status === 403 ? "Access denied" : "Team not found"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
+            {result.body.error}
+          </p>
+          <a
+            href="/activity"
+            className="mt-4 inline-block text-sm font-medium text-sky-700 hover:underline dark:text-sky-400"
+          >
+            Back to activities
+          </a>
+        </div>
+      </main>
     );
   }
 
@@ -83,23 +90,27 @@ export default async function TeamSpacePage({
   const criterionKeys = rubricCriterionKeys(rubricText);
 
   return (
-    <AppShell>
-      <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
-        <SpaceLayout
-          teamId={teamId}
-          viewerUserId={session.user.id ?? ""}
-          initialSpace={result.body}
-          artifacts={artifacts}
-          criterionKeys={criterionKeys}
-          snapshots={docSnapshots}
-          deliverable={{
-            autoFinalized: team?.autoFinalized ?? false,
-            rubricText,
-            flaggedCriteria: team?.state.flaggedCriteria ?? [],
-            addenda,
-          }}
-        />
-      </main>
-    </AppShell>
+    <SpaceLayout
+      teamId={teamId}
+      viewerUserId={session.user.id ?? ""}
+      title={offering?.title ?? "Activity"}
+      initialSpace={result.body}
+      artifacts={artifacts}
+      criterionKeys={criterionKeys}
+      snapshots={docSnapshots}
+      sampleBot={{
+        appId: sampleApp?.id ?? offering?.sampleAppId ?? "",
+        appName: sampleApp?.name?.trim() || "Sample bot",
+        modelLabel: sampleApp
+          ? getModelLabel(sampleApp.provider, sampleApp.model)
+          : "",
+      }}
+      deliverable={{
+        autoFinalized: team?.autoFinalized ?? false,
+        rubricText,
+        flaggedCriteria: team?.state.flaggedCriteria ?? [],
+        addenda,
+      }}
+    />
   );
 }

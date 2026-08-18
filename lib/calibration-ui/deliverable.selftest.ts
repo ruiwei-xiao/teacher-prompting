@@ -6,12 +6,17 @@ import fs from "fs/promises";
 import path from "path";
 import {
   addendaApiHref,
+  addendumAuthorLabel,
   addendumPostBody,
-  appendPostedAddendum,
+  oneAddendumPerUser,
+  ownAddendum,
+  upsertPostedAddendum,
   beforeLockAddendumRejected,
   buildDeliverableView,
   canPostAddendum,
   isDeliverableLocked,
+  OPEN_FINAL_LABEL,
+  shouldOfferDeliverable,
   unresolvedLabels,
   visibleRubricText,
 } from "./deliverable";
@@ -177,6 +182,50 @@ async function main(): Promise<void> {
   assertEqual(afterLock.offersRollback, false, "locked view has no replay / undo-lock control");
   assertEqual(afterLock.addenda, [addendumAlice], "existing addenda render after lock");
 
+  const agreedLock = buildDeliverableView({
+    locked: true,
+    autoFinalized: false,
+    rubricText: "Agreed rubric",
+    flaggedCriteria: ["clarity", "openness", "fairness"],
+    addenda: [],
+    role: "member",
+  });
+  assertEqual(
+    agreedLock.unresolvedLabels,
+    [],
+    "explicit consensus does not show scoring flags as unresolved"
+  );
+
+  assertEqual(OPEN_FINAL_LABEL, "Open Final", "deliverable CTA label is Open Final");
+  assert(
+    shouldOfferDeliverable({
+      authorKind: "facilitator",
+      body: "The team has locked the final rubric. Thank you — this activity is complete.",
+    }),
+    "legacy finalize copy still offers Open Final"
+  );
+  assert(
+    shouldOfferDeliverable({
+      authorKind: "facilitator",
+      body: "Open Final with the button below this message, or from Final in the left sidebar.",
+    }),
+    "new finalize copy offers Open Final"
+  );
+  assert(
+    shouldOfferDeliverable({
+      authorKind: "facilitator",
+      body: "This activity is auto-finalized.",
+    }),
+    "auto-finalize copy offers Open Final"
+  );
+  assert(
+    !shouldOfferDeliverable({
+      authorKind: "learner",
+      body: "The team has locked the final rubric.",
+    }),
+    "learner messages do not offer Open Final"
+  );
+
   const operatorLock = buildDeliverableView({
     locked: true,
     autoFinalized: false,
@@ -200,13 +249,47 @@ async function main(): Promise<void> {
     "canPostAddendum is true for members after lock"
   );
 
-  // --- Posting an addendum appends without changing the group rubric (10.6) ---
-  const posted = appendPostedAddendum(afterLock, addendumBob);
+  assertEqual(
+    addendumAuthorLabel(addendumAlice, "u-alice"),
+    "You",
+    "own addendum is labeled You"
+  );
+  assertEqual(
+    addendumAuthorLabel(addendumBob, "u-alice", { "u-bob": "Bob Chen" }),
+    "Bob Chen",
+    "teammate addendum uses the person label"
+  );
+  assertEqual(
+    ownAddendum([addendumAlice, addendumBob], "u-alice")?.id,
+    "ad_1",
+    "ownAddendum finds the viewer's note"
+  );
+  assertEqual(
+    oneAddendumPerUser([
+      addendumAlice,
+      { ...addendumAlice, id: "ad_1b", body: "newer", createdAt: "2026-08-22T14:00:00.000Z" },
+    ]).map((row) => row.body),
+    ["newer"],
+    "one addendum per person keeps the latest"
+  );
+
+  // --- Posting an addendum upserts without changing the group rubric (10.6) ---
+  const posted = upsertPostedAddendum(afterLock, addendumBob);
   assertEqual(
     posted.addenda.map((row) => row.id),
     ["ad_1", "ad_2"],
-    "posted addendum appends to the addenda list"
+    "another member's addendum is added beside the first"
   );
+  const edited = upsertPostedAddendum(posted, {
+    ...addendumAlice,
+    body: "Edited note on evidence.",
+  });
+  assertEqual(
+    edited.addenda.filter((row) => row.userId === "u-alice").map((row) => row.body),
+    ["Edited note on evidence."],
+    "a second post from the same member replaces their addendum"
+  );
+  assertEqual(edited.addenda.length, 2, "edit does not add a second row for the same member");
   assertEqual(
     posted.rubricText,
     afterLock.rubricText,
@@ -225,6 +308,10 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/calibration/SpaceLayout.tsx"
   );
+  const chatPath = path.join(
+    process.cwd(),
+    "components/calibration/GroupChatPanel.tsx"
+  );
   const teamPagePath = path.join(
     process.cwd(),
     "app/activity/[offeringId]/team/[teamId]/page.tsx"
@@ -233,6 +320,7 @@ async function main(): Promise<void> {
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const panelSource = await fs.readFile(panelPath, "utf8").catch(() => "");
   const layoutSource = await fs.readFile(layoutPath, "utf8").catch(() => "");
+  const chatSource = await fs.readFile(chatPath, "utf8").catch(() => "");
   const teamPageSource = await fs.readFile(teamPagePath, "utf8").catch(() => "");
 
   assert(helpersSource.length > 0, "lib/calibration-ui/deliverable.ts exists");
@@ -283,6 +371,20 @@ async function main(): Promise<void> {
     "member addendum composer is a plain textarea"
   );
   assert(
+    panelSource.includes("addendumAuthorLabel") &&
+      layoutSource.includes("labels={space.labels}"),
+    "addenda show person names from space labels"
+  );
+  assert(
+    !panelSource.includes("Teammate"),
+    "member addenda do not hide authors as Teammate"
+  );
+  assert(
+    panelSource.includes("Edit your addendum") &&
+      panelSource.includes("Save addendum"),
+    "a member can edit their single addendum"
+  );
+  assert(
     /canPostAddendum/.test(panelSource) || /showComposer/.test(panelSource),
     "composer is gated by canPostAddendum / showComposer"
   );
@@ -310,6 +412,21 @@ async function main(): Promise<void> {
   assert(
     layoutSource.includes("FinalDeliverable"),
     "FinalDeliverable is composed into SpaceLayout"
+  );
+  assert(
+    layoutSource.includes('"deliverable"') &&
+      layoutSource.includes("overlay === \"deliverable\""),
+    "locked deliverable opens as an overlay, not a banner over the panes"
+  );
+  assert(
+    layoutSource.includes("onOpenDeliverable") &&
+      (chatSource.includes("OPEN_FINAL_LABEL") ||
+        chatSource.includes("Open Final")),
+    "facilitator finalize prompts can open the deliverable from chat"
+  );
+  assert(
+    !layoutSource.includes("shrink-0 overflow-y-auto border-b"),
+    "FinalDeliverable is not a shrink-0 banner above group chat"
   );
   assert(
     layoutSource.includes("locked") && layoutSource.includes("finalized"),

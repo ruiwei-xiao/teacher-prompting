@@ -25,6 +25,7 @@
         "bcryptjs": "^3.0.3",
         "katex": "^0.16.45",
         "lexical": "^0.35.0",
+        "lucide-react": "^1.31.0",
         "next": "^16.1.6",
         "next-auth": "^5.0.0-beta.30",
         "pdf-parse": "^2.4.5",

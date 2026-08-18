@@ -18,6 +18,7 @@ export type LiveblocksAccess = "write" | "read";
 export type LiveblocksUserInfo = {
   name: string;
   color: string;
+  avatar?: string;
 };
 
 export type AuthorizeLiveblocksRequest = {
@@ -38,6 +39,7 @@ export type AuthorizeLiveblocksFn = (
 export type SessionIdentity = {
   name?: string | null;
   color?: string | null;
+  avatar?: string | null;
 };
 
 export type IssueLiveblocksTokenDeps = {
@@ -69,9 +71,12 @@ export function parseCalibrationRoom(room: unknown): string | null {
   if (typeof room !== "string") return null;
   const trimmed = room.trim();
   if (!trimmed.startsWith(ROOM_PREFIX)) return null;
-  const teamId = trimmed.slice(ROOM_PREFIX.length);
-  if (!teamId || teamId.includes("/") || teamId.includes(":")) return null;
-  return teamId;
+  let rest = trimmed.slice(ROOM_PREFIX.length);
+  if (rest.endsWith(":rubric") || rest.endsWith(":notes")) {
+    rest = rest.slice(0, rest.lastIndexOf(":"));
+  }
+  if (!rest || rest.includes("/") || rest.includes(":")) return null;
+  return rest;
 }
 
 function colorFromUserId(userId: string): string {
@@ -88,7 +93,8 @@ function userInfoFromIdentity(
 ): LiveblocksUserInfo {
   const name = identity?.name?.trim() || userId;
   const color = identity?.color?.trim() || colorFromUserId(userId);
-  return { name, color };
+  const avatar = identity?.avatar?.trim();
+  return avatar ? { name, color, avatar } : { name, color };
 }
 
 function readRoom(body: unknown): string | { error: string } {
@@ -96,11 +102,10 @@ function readRoom(body: unknown): string | { error: string } {
     return { error: "Invalid room" };
   }
   const room = (body as Record<string, unknown>).room;
-  const teamId = parseCalibrationRoom(room);
-  if (!teamId) {
+  if (typeof room !== "string" || !parseCalibrationRoom(room)) {
     return { error: "Invalid room" };
   }
-  return `${ROOM_PREFIX}${teamId}`;
+  return room.trim();
 }
 
 function readToken(body: unknown): string | null {
@@ -139,6 +144,10 @@ async function defaultAuthorize(
   return session.authorize();
 }
 
+export type IssuedLiveblocksToken = ApiResult<LiveblocksTokenBody> & {
+  rawAuthorizeBody?: string;
+};
+
 /**
  * Issue a room-scoped Liveblocks access token for the signed-in caller.
  * Write tokens stop at lock (Requirement 10.4). Operators always get read
@@ -148,7 +157,7 @@ export async function issueLiveblocksToken(
   userId: string | null,
   body: unknown,
   deps?: IssueLiveblocksTokenDeps
-): Promise<ApiResult<LiveblocksTokenBody>> {
+): Promise<IssuedLiveblocksToken> {
   if (!userId) return unauthorized();
 
   const room = readRoom(body);
@@ -198,5 +207,9 @@ export async function issueLiveblocksToken(
       body: { error: "Liveblocks authorize failed" },
     };
   }
-  return { ok: true, status: 200, body: { token } };
+  const rawAuthorizeBody =
+    typeof issued.body === "string"
+      ? issued.body
+      : JSON.stringify({ token });
+  return { ok: true, status: 200, body: { token }, rawAuthorizeBody };
 }

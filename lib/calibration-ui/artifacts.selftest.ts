@@ -138,11 +138,16 @@ async function main(): Promise<void> {
     process.cwd(),
     "app/activity/[offeringId]/team/[teamId]/page.tsx"
   );
+  const botPanePath = path.join(
+    process.cwd(),
+    "components/calibration/ActivityBotPane.tsx"
+  );
 
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
   const panelSource = await fs.readFile(panelPath, "utf8").catch(() => "");
   const layoutSource = await fs.readFile(layoutPath, "utf8").catch(() => "");
   const teamPageSource = await fs.readFile(teamPagePath, "utf8").catch(() => "");
+  const botPaneSource = await fs.readFile(botPanePath, "utf8").catch(() => "");
 
   assert(helpersSource.length > 0, "lib/calibration-ui/artifacts.ts exists");
   assert(
@@ -204,17 +209,33 @@ async function main(): Promise<void> {
     "ArtifactsPanel renders the transcript excerpt"
   );
   assert(
-    /try chat/i.test(panelSource),
-    "ArtifactsPanel offers a Try chat control"
+    !/try chat/i.test(panelSource) && !panelSource.includes("tryChatHref"),
+    "ArtifactsPanel does not duplicate Try chat; that lives in the Try pane"
   );
   assert(
-    panelSource.includes("tryChatHref") || panelSource.includes("/chat/"),
-    "Try chat links to the published /chat route"
+    !panelSource.includes("<a"),
+    "ArtifactsPanel has no outbound try-chat link"
   );
   assert(
-    panelSource.includes("<a") &&
-      (panelSource.includes("target=") || panelSource.includes("href=")),
-    "Try chat is an anchor to the published chat"
+    botPaneSource.includes("sampleChatApiHref") ||
+      botPaneSource.includes("sample-chat"),
+    "Try pane chats with the sample bot via the team sample-chat route (12.3)"
+  );
+  assert(
+    !botPaneSource.includes("/api/chat"),
+    "Try pane does not use the published /api/chat gate"
+  );
+  assert(
+    /try the sample bot/i.test(botPaneSource),
+    "Try pane is labeled Try the sample bot"
+  );
+  assert(
+    !/try your bot/i.test(botPaneSource),
+    "Try pane is not labeled Try your bot"
+  );
+  assert(
+    layoutSource.includes("ActivityBotPane"),
+    "SpaceLayout composes the Try pane"
   );
 
   // --- Source: composed into the SpaceLayout Artifacts slot (1.3) ---

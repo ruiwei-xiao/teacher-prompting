@@ -22,8 +22,16 @@ type UserRow = {
   updated_at: string | Date;
 };
 
+export type DisplayProfile = {
+  userId: string;
+  name?: string;
+  image?: string;
+  updatedAt?: string;
+};
+
 const DATA_DIR = path.join(process.cwd(), ".data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const PROFILES_FILE = path.join(DATA_DIR, "user-profiles.json");
 
 let postgresReadyPromise: Promise<void> | null = null;
 
@@ -78,6 +86,14 @@ async function ensurePostgresStore() {
           password_hash TEXT,
           image TEXT,
           created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS user_display_profiles (
+          user_id TEXT PRIMARY KEY,
+          name TEXT,
+          image TEXT,
           updated_at TIMESTAMPTZ NOT NULL
         )
       `;
@@ -321,4 +337,145 @@ export async function upsertOAuthUser(input: {
   }
 
   return upsertOAuthUserInFile({ ...input, email });
+}
+
+async function readProfilesFromFile(): Promise<DisplayProfile[]> {
+  await ensureFileStore();
+  try {
+    const raw = await fs.readFile(PROFILES_FILE, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (row): row is DisplayProfile =>
+        Boolean(row) &&
+        typeof row === "object" &&
+        typeof (row as DisplayProfile).userId === "string" &&
+        (row as DisplayProfile).userId.trim().length > 0
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeProfilesToFile(profiles: DisplayProfile[]) {
+  await ensureFileStore();
+  await fs.writeFile(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf-8");
+}
+
+async function rememberDisplayProfileInPostgres(input: {
+  userId: string;
+  name?: string;
+  image?: string;
+}) {
+  await ensurePostgresStore();
+  const existing = await sql<{
+    user_id: string;
+    name: string | null;
+    image: string | null;
+  }>`
+    SELECT user_id, name, image
+    FROM user_display_profiles
+    WHERE user_id = ${input.userId}
+    LIMIT 1
+  `;
+  const row = existing.rows[0];
+  const name = input.name ?? row?.name ?? null;
+  const image = input.image ?? row?.image ?? null;
+  if (row && row.name === name && row.image === image) return;
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO user_display_profiles (user_id, name, image, updated_at)
+    VALUES (${input.userId}, ${name}, ${image}, ${now})
+    ON CONFLICT (user_id) DO UPDATE SET
+      name = EXCLUDED.name,
+      image = EXCLUDED.image,
+      updated_at = EXCLUDED.updated_at
+  `;
+}
+
+async function getDisplayProfilesFromPostgres(
+  ids: string[]
+): Promise<Map<string, DisplayProfile>> {
+  await ensurePostgresStore();
+  const found = new Map<string, DisplayProfile>();
+  await Promise.all(
+    ids.map(async (userId) => {
+      const result = await sql<{
+        user_id: string;
+        name: string | null;
+        image: string | null;
+      }>`
+        SELECT user_id, name, image
+        FROM user_display_profiles
+        WHERE user_id = ${userId}
+        LIMIT 1
+      `;
+      const row = result.rows[0];
+      if (!row) return;
+      found.set(userId, {
+        userId,
+        name: row.name || undefined,
+        image: row.image || undefined,
+      });
+    })
+  );
+  return found;
+}
+
+/**
+ * Persist the live session name/avatar so group chat can show the same
+ * identity Liveblocks already gets from the current Auth.js session.
+ */
+export async function rememberDisplayProfile(input: {
+  userId: string;
+  name?: string | null;
+  image?: string | null;
+}): Promise<void> {
+  const userId = input.userId.trim();
+  const name = input.name?.trim() || undefined;
+  const image = input.image?.trim() || undefined;
+  if (!userId || (!name && !image)) return;
+
+  if (shouldUsePostgres()) {
+    await rememberDisplayProfileInPostgres({ userId, name, image });
+    return;
+  }
+
+  const profiles = await readProfilesFromFile();
+  const idx = profiles.findIndex((row) => row.userId === userId);
+  const next: DisplayProfile = {
+    userId,
+    name: name ?? profiles[idx]?.name,
+    image: image ?? profiles[idx]?.image,
+    updatedAt: new Date().toISOString(),
+  };
+  if (
+    idx >= 0 &&
+    profiles[idx]?.name === next.name &&
+    profiles[idx]?.image === next.image
+  ) {
+    return;
+  }
+  if (idx === -1) profiles.push(next);
+  else profiles[idx] = next;
+  await writeProfilesToFile(profiles);
+}
+
+export async function getDisplayProfiles(
+  ids: string[]
+): Promise<Map<string, DisplayProfile>> {
+  const unique = [
+    ...new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0)),
+  ];
+  if (unique.length === 0) return new Map();
+  if (shouldUsePostgres()) {
+    return getDisplayProfilesFromPostgres(unique);
+  }
+  const profiles = await readProfilesFromFile();
+  const found = new Map<string, DisplayProfile>();
+  for (const userId of unique) {
+    const row = profiles.find((profile) => profile.userId === userId);
+    if (row) found.set(userId, row);
+  }
+  return found;
 }

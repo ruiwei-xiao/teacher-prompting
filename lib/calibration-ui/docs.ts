@@ -34,8 +34,11 @@ export type CursorIdentity = {
 const FALLBACK_CURSOR_COLOR = "#0ea5e9";
 const FALLBACK_CURSOR_NAME = "Member";
 
-export function liveblocksRoomId(teamId: string): string {
-  return `calibration:${teamId}`;
+export function liveblocksRoomId(
+  teamId: string,
+  docKey?: SharedDocKey
+): string {
+  return docKey ? `calibration:${teamId}:${docKey}` : `calibration:${teamId}`;
 }
 
 /**
@@ -94,10 +97,18 @@ export function shouldShowReadOnly(input: {
 export function isLiveblocksOutage(input: {
   status?: string | null;
   lostConnection?: string | null;
+  errorType?: string | null;
+  errorCode?: number | null;
 }): boolean {
-  if (input.status === "disconnected") return true;
-  if (input.lostConnection === "lost" || input.lostConnection === "failed") {
+  // "lost" = still reconnecting. "disconnected" also happens during
+  // handshake / Strict Mode remounts. Neither is a terminal outage.
+  if (input.lostConnection === "failed") {
     return true;
+  }
+  if (input.errorType === "ROOM_CONNECTION_ERROR") {
+    // -1 is a retried auth hiccup. 4001 means the minted token cannot
+    // enter this room, which is a real permission failure.
+    return input.errorCode === 4001;
   }
   return false;
 }

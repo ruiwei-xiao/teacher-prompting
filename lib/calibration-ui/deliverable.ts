@@ -3,6 +3,7 @@
  * Locked rubric, unresolved labels, and personal addenda.
  * Does not import the calibration engine, store, or API modules.
  */
+import { labelForUserId } from "@/lib/auth/user-label";
 
 export const BEFORE_LOCK_ADDENDUM_MESSAGE =
   "addendum is only allowed after the group artifact is locked";
@@ -44,6 +45,40 @@ export function addendumPostBody(text: string): { body: string } {
   return { body: text.trim() };
 }
 
+export function oneAddendumPerUser(
+  addenda: DeliverableAddendum[]
+): DeliverableAddendum[] {
+  const latest = new Map<string, DeliverableAddendum>();
+  for (const row of addenda) {
+    const current = latest.get(row.userId);
+    if (!current || row.createdAt >= current.createdAt) {
+      latest.set(row.userId, row);
+    }
+  }
+  return [...latest.values()].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+  );
+}
+
+export function ownAddendum(
+  addenda: DeliverableAddendum[],
+  viewerUserId: string
+): DeliverableAddendum | null {
+  return (
+    oneAddendumPerUser(addenda).find((row) => row.userId === viewerUserId) ??
+    null
+  );
+}
+
+export function addendumAuthorLabel(
+  row: Pick<DeliverableAddendum, "userId">,
+  viewerUserId: string,
+  labels: Record<string, string> = {}
+): string {
+  if (row.userId === viewerUserId) return "You";
+  return labelForUserId(row.userId, labels);
+}
+
 export function canPostAddendum(input: {
   locked: boolean;
   role: DeliverableRole;
@@ -76,6 +111,20 @@ export function isDeliverableLocked(space: {
   phase: string;
 }): boolean {
   return space.locked || space.phase === "finalized";
+}
+
+export const OPEN_FINAL_LABEL = "Open Final";
+
+export function shouldOfferDeliverable(message: {
+  authorKind?: string;
+  body: string;
+}): boolean {
+  if (message.authorKind !== "facilitator") return false;
+  return (
+    /open final/i.test(message.body) ||
+    /locked the final rubric/i.test(message.body) ||
+    /this activity is auto-finalized/i.test(message.body)
+  );
 }
 
 export function beforeLockAddendumRejected(
@@ -114,9 +163,11 @@ export function buildDeliverableView(input: {
   return {
     visible: true,
     rubricText: input.rubricText,
-    unresolvedLabels: unresolvedLabels(input.flaggedCriteria),
+    unresolvedLabels: input.autoFinalized
+      ? unresolvedLabels(input.flaggedCriteria)
+      : [],
     autoFinalized: input.autoFinalized,
-    addenda: input.addenda.map((row) => ({ ...row })),
+    addenda: oneAddendumPerUser(input.addenda).map((row) => ({ ...row })),
     showComposer: canPost,
     canPostAddendum: canPost,
     canEditGroupRubric: false,
@@ -124,8 +175,8 @@ export function buildDeliverableView(input: {
   };
 }
 
-/** Append a posted addendum without mutating the locked group rubric. */
-export function appendPostedAddendum(
+/** Insert or replace that member's addendum without mutating the locked rubric. */
+export function upsertPostedAddendum(
   current: DeliverableView,
   posted: DeliverableAddendum
 ): DeliverableView {
@@ -134,7 +185,11 @@ export function appendPostedAddendum(
     rubricText: current.rubricText,
     unresolvedLabels: [...current.unresolvedLabels],
     autoFinalized: current.autoFinalized,
-    addenda: [...current.addenda, { ...posted }],
+    addenda: oneAddendumPerUser(
+      current.addenda
+        .filter((row) => row.userId !== posted.userId)
+        .concat({ ...posted })
+    ),
   };
 }
 

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { personOverlayFromUser } from "@/lib/auth/resolve-labels";
-import { postMessage } from "@/lib/calibration-api/space";
+import { postSampleChat } from "@/lib/calibration-api/sample-chat";
 
 export async function POST(
   req: NextRequest,
@@ -12,12 +11,11 @@ export async function POST(
     const session = await auth();
     const userId = session?.user?.id ?? null;
     const body = await req.json();
-    const result = await postMessage(userId, teamId, body, {
-      identity: personOverlayFromUser(session?.user),
-    });
+    const result = await postSampleChat(userId, teamId, body);
     return NextResponse.json(result.body, { status: result.status });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Failed to post message";
+    const message =
+      e instanceof Error ? e.message : "Failed to send message";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -21,6 +21,20 @@ export function labelForUserId(
   return mapped || userId;
 }
 
+export function applyPersonLabels(
+  text: string,
+  labels: Record<string, string>
+): string {
+  const entries = Object.entries(labels)
+    .filter(([id, label]) => id.trim() && label.trim() && id !== label)
+    .sort((left, right) => right[0].length - left[0].length);
+  let next = text;
+  for (const [id, label] of entries) {
+    next = next.split(id).join(label);
+  }
+  return next;
+}
+
 export function readUserLabels(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};

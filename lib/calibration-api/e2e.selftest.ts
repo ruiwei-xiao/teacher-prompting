@@ -505,6 +505,25 @@ async function main(): Promise<void> {
       ),
       "addendum is persisted"
     );
+    const addendumEdit = await postAddendum(
+      learnerA,
+      teamId!,
+      { body: "Edited personal note after lock." },
+      { now }
+    );
+    assertEqual(addendumEdit.status, 200, "addendum edit after lock → 200");
+    assert(
+      addendum.ok === true &&
+        addendumEdit.ok === true &&
+        addendumEdit.body.id === addendum.body.id &&
+        addendumEdit.body.body.includes("Edited personal note"),
+      "a second POST from the same learner updates the same addendum"
+    );
+    assertEqual(
+      (await listAddenda(teamId!)).filter((row) => row.userId === learnerA).length,
+      1,
+      "the learner still has exactly one addendum"
+    );
     const viewAfterAddendum = await getTeamForMember(teamId!, learnerA);
     assertEqual(
       rubricTextFromView(viewAfterAddendum),
@@ -554,11 +573,25 @@ async function main(): Promise<void> {
     const artifactsHelper = await readSource("lib/calibration-ui/artifacts.ts");
     const chatPanel = await readSource("components/calibration/GroupChatPanel.tsx");
     const scoreSheet = await readSource("components/calibration/ScoreSheet.tsx");
+    const readyBar = await readSource("components/calibration/ReadyBar.tsx");
     const teamPage = await readSource("app/activity/[offeringId]/team/[teamId]/page.tsx");
+    const botPane = await readSource("components/calibration/ActivityBotPane.tsx");
 
     assert(
-      artifactsPanel.includes("tryChatHref") && artifactsPanel.includes("<a"),
-      "ArtifactsPanel try-chat is an anchor using tryChatHref (12.3)"
+      !artifactsPanel.includes("tryChatHref") && !/try chat/i.test(artifactsPanel),
+      "ArtifactsPanel does not duplicate Try chat (12.3 lives in the Try pane)"
+    );
+    assert(
+      botPane.includes("sampleChatApiHref") || botPane.includes("sample-chat"),
+      "Try pane chats with the sample bot without a prompt override (12.3)"
+    );
+    assert(
+      !botPane.includes("/api/chat"),
+      "Try pane does not use the published /api/chat gate (12.3)"
+    );
+    assert(
+      /try the sample bot/i.test(botPane),
+      "Try pane is labeled Try the sample bot"
     );
     assert(
       !artifactsPanel.includes("/app/") &&
@@ -586,8 +619,8 @@ async function main(): Promise<void> {
       "try-chat has no prompt-override query (12.3)"
     );
     assert(
-      !/promptOverride|systemPrompt=|overridePrompt/i.test(artifactsPanel),
-      "ArtifactsPanel try-chat does not apply a prompt override (12.3)"
+      !/promptOverride|systemPrompt=|overridePrompt/i.test(artifactsPanel + botPane),
+      "sample-bot try-chat does not apply a prompt override (12.3)"
     );
     assert(
       !teamPage.includes("/app/") && !teamPage.toLowerCase().includes("editor"),
@@ -631,6 +664,19 @@ async function main(): Promise<void> {
     assert(
       !LIVEBLOCKS_MARKERS.test(artifactsPanel),
       "ArtifactsPanel has no Liveblocks (7.5)"
+    );
+    assert(
+      readyBar.includes("agreementsApiHref") || readyBar.includes("/agreements"),
+      "ReadyBar posts merge/consensus agreement through the agreements endpoint"
+    );
+    assert(
+      readyBar.includes("DELETE") &&
+        (readyBar.includes("undoReadyLabel") || /Undo Ready/.test(readyBar)),
+      "ReadyBar can undo Ready before the phase advances"
+    );
+    assert(
+      !LIVEBLOCKS_MARKERS.test(readyBar),
+      "ReadyBar has no Liveblocks (7.5)"
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

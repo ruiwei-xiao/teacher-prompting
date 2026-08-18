@@ -107,6 +107,16 @@ async function main(): Promise<void> {
     if (memberSpace.ok) {
       assertEqual(memberSpace.body.phase, "critique", "member space phase is critique");
       assertEqual(memberSpace.body.role, "member", "member space role is member");
+      assertEqual(
+        memberSpace.body.memberUserIds.slice().sort(),
+        [presenter, criticB, criticC].slice().sort(),
+        "member space includes the team roster"
+      );
+      assertEqual(
+        memberSpace.body.readyUserIds,
+        [],
+        "critique has no Ready marks"
+      );
       const kickoff = memberSpace.body.messages.filter(
         (message) =>
           message.authorKind === "facilitator" &&

@@ -367,9 +367,14 @@ export type EngineEffect =
 
 export type LearnerEvent =
   | { kind: "message"; userId: string; body: string }
-  | { kind: "docSnapshot"; userId: string; docKind: DocKind }
+  | { kind: "docSnapshot"; userId: string; docKind: DocKind; revised?: boolean }
   | { kind: "scoresSubmitted"; userId: string }
-  | { kind: "agreement"; userId: string; subject: AgreementSubject }
+  | {
+      kind: "agreement";
+      userId: string;
+      subject: AgreementSubject;
+      withdrawn?: boolean;
+    }
   | { kind: "memberReturned"; userId: string };
 
 export type QueueEffect =

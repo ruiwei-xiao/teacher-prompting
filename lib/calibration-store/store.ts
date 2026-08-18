@@ -1154,6 +1154,35 @@ async function recordAgreementInFile(
   await writeFileData(data);
 }
 
+async function removeAgreementInFile(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  const data = await readFileData();
+  requireStoredTeam(data, teamId);
+  requireMember(data, teamId, userId);
+  data.agreements = data.agreements.filter(
+    (row) =>
+      !(row.teamId === teamId && row.userId === userId && row.subject === subject)
+  );
+  await writeFileData(data);
+}
+
+async function clearAgreementsForSubjectInFile(
+  teamId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  const data = await readFileData();
+  requireStoredTeam(data, teamId);
+  data.agreements = data.agreements.filter(
+    (row) => !(row.teamId === teamId && row.subject === subject)
+  );
+  await writeFileData(data);
+}
+
 async function recordAbsenceInFile(
   teamId: string,
   userId: string,
@@ -1196,25 +1225,54 @@ async function hasNoticeInFile(dedupeKey: string): Promise<boolean> {
   return data.notices.some((row) => row.dedupeKey === dedupeKey);
 }
 
+function keepLatestAddendumPerUser(rows: AddendumRecord[]): AddendumRecord[] {
+  const latest = new Map<string, AddendumRecord>();
+  for (const row of rows) {
+    const current = latest.get(row.userId);
+    if (!current || row.createdAt >= current.createdAt) {
+      latest.set(row.userId, row);
+    }
+  }
+  return [...latest.values()].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+  );
+}
+
 async function addAddendumInFile(
   teamId: string,
   userId: string,
   body: string
-): Promise<void> {
+): Promise<AddendumRecord> {
   const data = await readFileData();
   const { record } = requireStoredTeam(data, teamId);
   requireMember(data, teamId, userId);
   if (!isTeamLocked(record)) {
     throw new Error("addendum is only allowed after the group artifact is locked");
   }
-  data.addenda.push({
+  const mine = data.addenda.filter(
+    (row) => row.teamId === teamId && row.userId === userId
+  );
+  if (mine.length > 0) {
+    const keep = [...mine].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt)
+    )[0]!;
+    keep.body = body;
+    data.addenda = data.addenda.filter(
+      (row) => row.teamId !== teamId || row.userId !== userId || row.id === keep.id
+    );
+    await writeFileData(data);
+    return { ...keep };
+  }
+  const created: AddendumRecord = {
     id: crypto.randomUUID(),
     teamId,
     userId,
     body,
     createdAt: new Date().toISOString(),
-  });
+  };
+  data.addenda.push(created);
   await writeFileData(data);
+  return created;
 }
 
 async function listAgreementsInFile(teamId: string): Promise<AgreementRecord[]> {
@@ -1229,7 +1287,9 @@ async function listAbsencesInFile(teamId: string): Promise<AbsenceRecord[]> {
 
 async function listAddendaInFile(teamId: string): Promise<AddendumRecord[]> {
   const data = await readFileData();
-  return data.addenda.filter((row) => row.teamId === teamId);
+  return keepLatestAddendumPerUser(
+    data.addenda.filter((row) => row.teamId === teamId)
+  );
 }
 
 // --- Postgres implementations ---
@@ -1871,6 +1931,40 @@ async function recordAgreementInPostgres(
   `;
 }
 
+async function removeAgreementInPostgres(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  await assertMemberInPostgres(teamId, userId);
+  await sql`
+    DELETE FROM calibration_agreements
+    WHERE team_id = ${teamId} AND user_id = ${userId} AND subject = ${subject}
+  `;
+}
+
+async function clearAgreementsForSubjectInPostgres(
+  teamId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  assertAgreementSubject(subject);
+  await ensurePostgresStore();
+  const current = await loadStoredTeamInPostgres(teamId);
+  if (!current) {
+    throw new Error("Team not found.");
+  }
+  await sql`
+    DELETE FROM calibration_agreements
+    WHERE team_id = ${teamId} AND subject = ${subject}
+  `;
+}
+
 async function recordAbsenceInPostgres(
   teamId: string,
   userId: string,
@@ -1931,7 +2025,7 @@ async function addAddendumInPostgres(
   teamId: string,
   userId: string,
   body: string
-): Promise<void> {
+): Promise<AddendumRecord> {
   await ensurePostgresStore();
   const current = await loadStoredTeamInPostgres(teamId);
   if (!current) {
@@ -1940,6 +2034,26 @@ async function addAddendumInPostgres(
   await assertMemberInPostgres(teamId, userId);
   if (!isTeamLocked(current)) {
     throw new Error("addendum is only allowed after the group artifact is locked");
+  }
+  const existing = await sql<AddendumRow>`
+    SELECT id, team_id, user_id, body, created_at
+    FROM calibration_addenda
+    WHERE team_id = ${teamId} AND user_id = ${userId}
+    ORDER BY created_at ASC
+  `;
+  if (existing.rows.length > 0) {
+    const keep = rowToAddendum(existing.rows[0]!);
+    keep.body = body;
+    await sql`
+      UPDATE calibration_addenda
+      SET body = ${body}
+      WHERE id = ${keep.id}
+    `;
+    await sql`
+      DELETE FROM calibration_addenda
+      WHERE team_id = ${teamId} AND user_id = ${userId} AND id <> ${keep.id}
+    `;
+    return keep;
   }
   const record: AddendumRecord = {
     id: crypto.randomUUID(),
@@ -1954,6 +2068,7 @@ async function addAddendumInPostgres(
       ${record.id}, ${record.teamId}, ${record.userId}, ${record.body}, ${record.createdAt}
     )
   `;
+  return record;
 }
 
 async function listAgreementsInPostgres(teamId: string): Promise<AgreementRecord[]> {
@@ -1986,7 +2101,7 @@ async function listAddendaInPostgres(teamId: string): Promise<AddendumRecord[]> 
     WHERE team_id = ${teamId}
     ORDER BY created_at ASC
   `;
-  return result.rows.map(rowToAddendum);
+  return keepLatestAddendumPerUser(result.rows.map(rowToAddendum));
 }
 
 // --- Public façade ---
@@ -2219,6 +2334,27 @@ export async function recordAgreement(
   return recordAgreementInFile(teamId, userId, subject);
 }
 
+export async function removeAgreement(
+  teamId: string,
+  userId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return removeAgreementInPostgres(teamId, userId, subject);
+  }
+  return removeAgreementInFile(teamId, userId, subject);
+}
+
+export async function clearAgreementsForSubject(
+  teamId: string,
+  subject: AgreementSubject
+): Promise<void> {
+  if (shouldUsePostgres()) {
+    return clearAgreementsForSubjectInPostgres(teamId, subject);
+  }
+  return clearAgreementsForSubjectInFile(teamId, subject);
+}
+
 export async function recordAbsence(
   teamId: string,
   userId: string,
@@ -2248,7 +2384,7 @@ export async function addAddendum(
   teamId: string,
   userId: string,
   body: string
-): Promise<void> {
+): Promise<AddendumRecord> {
   if (shouldUsePostgres()) {
     return addAddendumInPostgres(teamId, userId, body);
   }

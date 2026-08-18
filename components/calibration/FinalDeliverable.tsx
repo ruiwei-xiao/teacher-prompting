@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   addendaApiHref,
+  addendumAuthorLabel,
   addendumPostBody,
-  appendPostedAddendum,
   buildDeliverableView,
+  ownAddendum,
   parseAddendumPostResponse,
+  upsertPostedAddendum,
   type DeliverableAddendum,
   type DeliverableRole,
 } from "@/lib/calibration-ui/deliverable";
@@ -25,6 +27,7 @@ export default function FinalDeliverable({
   rubricText,
   flaggedCriteria,
   initialAddenda,
+  labels = {},
 }: {
   teamId: string;
   viewerUserId: string;
@@ -34,9 +37,12 @@ export default function FinalDeliverable({
   rubricText: string;
   flaggedCriteria: string[];
   initialAddenda: DeliverableAddendum[];
+  labels?: Record<string, string>;
 }) {
   const [addenda, setAddenda] = useState<DeliverableAddendum[]>(initialAddenda);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(
+    () => ownAddendum(initialAddenda, viewerUserId)?.body ?? ""
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -52,6 +58,7 @@ export default function FinalDeliverable({
       }),
     [locked, autoFinalized, rubricText, flaggedCriteria, addenda, role]
   );
+  const mine = ownAddendum(view.addenda, viewerUserId);
 
   if (!view.visible) return null;
 
@@ -74,33 +81,25 @@ export default function FinalDeliverable({
       const parsed = parseAddendumPostResponse(res.status, body);
       if (!parsed.ok) throw new Error(parsed.error);
       setAddenda((current) =>
-        appendPostedAddendum(
+        upsertPostedAddendum(
           { ...view, addenda: current, rubricText: view.rubricText },
           parsed.addendum
         ).addenda
       );
-      setDraft("");
+      setDraft(parsed.addendum.body);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to post addendum");
+      setError(e instanceof Error ? e.message : "Failed to save addendum");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section
-      aria-label="Final deliverable"
-      className="rounded-2xl border border-amber-200/80 bg-amber-50/80 px-5 py-5 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/30"
-    >
+    <section aria-label="Final deliverable">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">
-            Final deliverable
-          </h2>
-          <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">
-            The group rubric is locked. Personal addenda do not change it.
-          </p>
-        </div>
+        <p className="text-sm text-slate-600 dark:text-zinc-300">
+          The group rubric is locked. Each person can keep one personal note.
+        </p>
         {view.autoFinalized && (
           <p className="rounded-full bg-amber-200/80 px-3 py-1 text-xs font-medium text-amber-950 dark:bg-amber-900/70 dark:text-amber-100">
             Auto-finalized
@@ -108,8 +107,8 @@ export default function FinalDeliverable({
         )}
       </div>
 
-      <article className="mt-4 rounded-xl border border-amber-200/70 bg-white/80 px-4 py-3 dark:border-amber-900/40 dark:bg-zinc-950/50">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">
+      <article className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950/50">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-400">
           Locked rubric
         </h3>
         <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-slate-800 dark:text-zinc-100">
@@ -119,7 +118,7 @@ export default function FinalDeliverable({
 
       {view.unresolvedLabels.length > 0 && (
         <div className="mt-4">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-400">
             Unresolved criteria
           </h3>
           <ul className="mt-2 flex flex-wrap gap-2">
@@ -136,11 +135,11 @@ export default function FinalDeliverable({
       )}
 
       <div className="mt-4">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-400">
           Personal addenda
         </h3>
         {view.addenda.length === 0 ? (
-          <p className="mt-2 text-sm text-amber-900/80 dark:text-amber-200/80">
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
             No personal addenda yet.
           </p>
         ) : (
@@ -148,10 +147,10 @@ export default function FinalDeliverable({
             {view.addenda.map((row) => (
               <li
                 key={row.id}
-                className="rounded-xl border border-amber-200/60 bg-white/70 px-3 py-2 text-sm text-slate-800 dark:border-amber-900/40 dark:bg-zinc-950/40 dark:text-zinc-100"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-100"
               >
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {row.userId === viewerUserId ? "You" : "Teammate"}
+                  {addendumAuthorLabel(row, viewerUserId, labels)}
                 </p>
                 <p className="mt-1 whitespace-pre-wrap">{row.body}</p>
               </li>
@@ -169,11 +168,11 @@ export default function FinalDeliverable({
           }}
         >
           <label className="block">
-            <span className="text-sm font-medium text-amber-950 dark:text-amber-100">
-              Add a personal addendum
+            <span className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+              {mine ? "Edit your addendum" : "Add a personal addendum"}
             </span>
             <textarea
-              className="mt-1 block min-h-24 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-amber-900/60 dark:bg-zinc-950 dark:text-zinc-100"
+              className="mt-1 block min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Your note stays personal. The locked group rubric does not change."
@@ -182,9 +181,9 @@ export default function FinalDeliverable({
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-amber-800 px-3 py-2 text-sm font-medium text-white active:scale-[0.97] disabled:opacity-50 dark:bg-amber-700"
+            className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white transition-[transform,background-color] duration-150 ease-out hover:bg-sky-700 active:scale-[0.97] disabled:opacity-50 dark:bg-sky-500"
           >
-            {busy ? "Posting…" : "Post addendum"}
+            {busy ? "Saving…" : mine ? "Save addendum" : "Post addendum"}
           </button>
         </form>
       )}

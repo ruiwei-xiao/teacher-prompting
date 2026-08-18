@@ -318,8 +318,9 @@ async function main(): Promise<void> {
     "team space page exists so a matched redirect has a destination"
   );
   assert(
-    teamPageSource.includes("AppShell"),
-    "team landing uses AppShell chrome"
+    teamPageSource.includes("SpaceLayout") &&
+      !teamPageSource.includes("AppShell"),
+    "team landing uses the full-height space chrome"
   );
   assert(
     teamPageSource.includes("SignInPanel"),
