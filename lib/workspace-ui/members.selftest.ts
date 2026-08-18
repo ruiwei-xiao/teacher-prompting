@@ -223,6 +223,15 @@ async function main(): Promise<void> {
   );
 
   assertEqual(
+    memberDisplayLabel({
+      userId: "uuid-1",
+      name: "Ada Lovelace",
+      email: "teacher@school.edu",
+    }),
+    "Ada Lovelace",
+    "display prefers name"
+  );
+  assertEqual(
     memberDisplayLabel({ userId: "uuid-1", email: "teacher@school.edu" }),
     "teacher@school.edu",
     "display prefers email"

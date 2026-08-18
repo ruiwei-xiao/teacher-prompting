@@ -1,0 +1,207 @@
+# Implementation Plan
+
+- [x] 1. Foundation: domain model, persistence, and external dependencies
+- [x] 1.1 Define the calibration domain types and fixed activity constants
+  - Phase set, team state record, engine event/effect unions, notice kinds, document kinds, agreement subjects
+  - Fixed constants in one place: critique 48h, merge nudge 3d, scoring 7d, discussion 7d, group silence 14d, queue ping 6d, expiry after 2 missed pings, operator stuck-listing 10d, score scale integer 1–5
+  - Done when: the types module compiles and every later module imports deadlines/scale from it only
+  - _Requirements: 4.1, 8.7_
+- [x] 1.2 Implement calibration persistence for offerings, queue, teams, chat, and documents
+  - Postgres tables with lazy creation + JSON-file fallback, following the existing store façade pattern
+  - Offerings with artifacts + facilitator AI config; check-ins unique per (offering, learner); teams with serializable state record; members; messages with learner/facilitator author kinds; doc snapshots rejecting writes after lock
+  - Done when: entities round-trip on the JSON fallback backend
+  - _Requirements: 1.1, 2.1, 3.1, 10.4, 11.1_
+- [x] 1.3 Implement score privacy, gated reveal, agreements, absences, notices log, and store selftest
+  - Score rows accept integers 1–5 only; generic reads never return another member's values while unrevealed; reveal is a single team-level transaction
+  - Agreement, absence (keyed by team/user/step), addendum records; notice log with unique dedupe key
+  - Done when: store selftest passes, including a case proving a pre-reveal read for member B contains no member A score values
+  - _Requirements: 8.2, 8.7, 10.6, 13.1, 15.3_
+- [x] 1.4 (P) Install realtime and email dependencies and document environment conventions
+  - Add Liveblocks packages, yjs, @lexical/yjs, resend to package.json
+  - Document env var names (LIVEBLOCKS_SECRET_KEY, RESEND_API_KEY, CALIBRATION_EMAIL_FROM, CRON_SECRET) per steering conventions
+  - Done when: install and production build succeed with the new dependencies
+  - _Requirements: 7.2, 13.1_
+  - _Boundary: package.json, env docs_
+
+- [x] 2. Core: deterministic activity engine (sole authority for phase advancement)
+- [x] 2.1 Implement queue rules: quorum, re-confirmation pings, expiry, stuck listing
+  - Pure evaluation over check-ins: form team of exactly 3 course-wide; 6-day ping effect; expire + notify after 2 missed pings; surface 10-day waiters for the operator; no solo/pair fallback path
+  - Done when: given synthetic check-in sets and clock times, evaluation returns the exact expected effects
+  - _Requirements: 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.7_
+- [x] 2.2 Implement kickoff and rotating critique rounds
+  - Team formation effects: recap post + formation notices; open round 1 immediately (kickoff non-response falls to the round clock)
+  - Rotation: 3 rounds, one Presenter + two Critics, presenter announcement and critic prompts as effects, revoice effect on round completion, rotation completes only after each member presented once, skipped turn counts as absent
+  - Done when: rotation produces expected presenter/critic assignments and effects across all three rounds, including a round with a skipped turn
+  - _Requirements: 5.2, 5.3, 6.1, 6.2, 6.3, 6.4, 6.5, 15.2_
+- [x] 2.3 Implement the dual-clock, absence, and rejoin rules applied across phases
+  - Per-person and group clocks as independent fields, never merged; learner activity resets the group clock and only the actor's own step clock
+  - Per-person expiry marks absence for the current step only and continues with remaining members (critique 48h as the first consumer); absent members rejoin at the team's current point without replaying completed work
+  - Done when: clock rules produce expected states/effects for on-time, absent, and returning members
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.6, 6.6, 6.7_
+- [x] 2.4 Implement merge and blind-scoring rules: nudges, auto-finalize, gated reveal, spread
+  - Merge phase: open shared rubric prompt effect, 3-day no-contribution nudge, 14-day group silence auto-finalizes rubric flagged incomplete
+  - Scoring: submission acknowledged without values; reveal fires when every present member submitted or after 7-day absence with at least one submission; two submitters are sufficient
+  - Spread per criterion = max − min; flag criteria at ≥2; no flags skips discussion
+  - Done when: reveal-condition and spread cases (3 scorers, 2 scorers, timeout) return expected effects
+  - _Requirements: 4.5, 7.1, 7.6, 7.7, 8.1, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.7_
+- [x] 2.5 Implement discussion, consensus, lock, and auto-synthesis triggers
+  - Targeted-prompt effects naming a scorer per flagged criterion; 7-day per-person absence per exchange; 14-day group silence auto-finalizes with unresolved labels
+  - Consensus: rewrite prompt effect, lock on explicit agreement from all present members, auto-synthesize + lock effect on group timeout; late return before lock joins current phase, no rollback; post-lock edits rejected
+  - Done when: lock fires only on all-present agreement or group timeout, and evaluate is idempotent (re-running produces no new effects)
+  - _Requirements: 9.3, 9.5, 9.6, 10.1, 10.2, 10.3, 10.5, 11.5_
+- [x] 2.6 Write the engine selftest matrix
+  - One case per acceptance rule from Requirements 2, 4, 6–10 (quorum, pings, rotation, absences, clock independence, nudges, auto-finalize per phase, reveal conditions, spread, agreement lock)
+  - Idempotency case: double evaluation with the same clock yields no new effects
+  - Done when: `npx tsx` engine selftest passes with every rule case green
+  - _Requirements: 2.2, 4.1, 6.5, 8.4, 9.1, 10.2, 11.5_
+
+- [x] 3. Core: facilitator presentation and email notices
+- [x] 3.1 (P) Build the scripted facilitator message catalog
+  - Templates for kickoff recap, presenter announcement, critic prompt, rotation notice, submission acknowledgment, reveal announcement, targeted disagreement ask, nudges, finalization (incl. auto-finalized labeling)
+  - Done when: each scripted kind renders deterministic text from a template context
+  - _Requirements: 5.2, 6.2, 6.3, 8.3, 11.1, 11.2_
+  - _Boundary: calibration-facilitator templates_
+- [x] 3.2 Implement LLM-worded facilitation with scripted fallback
+  - Revoicing of critiques, disagreement follow-ups, document-aware comments quoting the latest snapshot (flag vague criteria / missing rationale), best-available final synthesis for group-timeout lock
+  - Uses the existing sendChat adapter with the offering's provider/model; any failure falls back to the scripted variant without blocking
+  - Done when: with a stubbed sendChat failure, every facilitator call still returns a scripted post
+  - _Requirements: 6.4, 7.1, 9.3, 9.4, 10.3, 11.3, 11.4_
+  - _Depends: 3.1_
+- [x] 3.3 (P) Implement deduplicated email notices with a development fallback
+  - Notice kinds team_formed / your_turn / targeted_prompt / nudge / scores_revealed / finalized / queue_ping / queue_expired / manual_match, each with a deep link to the space or queue; never includes score values; Workspace invite recording stays untouched
+  - Resend send path plus console/.data fallback when the API key is unset; dedupe-before-send via the notices log
+  - Done when: sending the same dedupe key twice results in exactly one delivery, and the fallback path writes a readable log entry
+  - _Requirements: 2.3, 2.4, 5.1, 13.1, 13.2, 13.3, 13.4_
+  - _Boundary: calibration-notices_
+  - _Depends: 1.3, 1.4_
+
+- [x] 4. Application API: access control, space operations, and scheduling
+- [x] 4.1 Implement the access guard and offering endpoints
+  - Caller resolution: team member (read/write), offering operator (read-only + operator actions), all others denied; operators are not queued as learners unless they check in; joining a team never adds Workspace membership
+  - Offering creation (title, sample bot, sample rubric, brief, transcript, facilitator AI config) and course-gate status endpoint
+  - Done when: a non-member request to a team endpoint returns 403 and an offering round-trips through create + gate status
+  - _Requirements: 1.1, 1.2, 15.1, 15.4, 15.5_
+- [x] 4.2 Implement the effect executor and team-space endpoints with opportunistic evaluation
+  - Effect executor (shared by all endpoints and the tick): persist engine state first, then facilitator posts and notices; presentation failures logged, never rolled back
+  - Space GET runs engine evaluation before serving; returns phase, recap since last seen, messages, doc metadata, own scores, reveal state
+  - Message POST and doc-snapshot POST apply learner events through the engine; snapshot rejected on locked teams
+  - Done when: posting a message advances a waiting round and the facilitator's next prompt appears in the space payload
+  - _Requirements: 3.1, 3.2, 3.3, 4.3, 6.2, 6.3, 7.3, 10.4, 11.2_
+  - _Depends: 2.5, 3.2, 3.3_
+- [x] 4.3 Implement check-in and queue endpoints executing team formation
+  - Check-in endpoint records the learner, runs queue evaluation, and executes formation effects (team creation, recap post, formation notices) through the shared effect executor; returns queue status n of 3
+  - Done when: the third check-in forms a team, posts the recap, and records formation notices for all three members
+  - _Requirements: 2.1, 2.2, 5.1, 5.2_
+  - _Depends: 2.1, 4.2_
+- [x] 4.4 Implement scoring, agreement, and addendum endpoints with reveal-safe serialization
+  - Score POST validates integers 1–5 against the team rubric; pre-reveal payloads contain only own values plus who-submitted booleans; reveal transaction through the engine effect
+  - Agreement POST for merge-complete and final consensus; addendum POST accepted only after lock
+  - Done when: before reveal, member B's space payload contains zero of member A's numeric values; after the last present submission both see the full matrix
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 10.2, 10.6, 15.3_
+  - _Depends: 2.4_
+- [x] 4.5 Implement operator endpoints: dashboard, full team read, manual match
+  - Dashboard lists 10-day stuck waiters with wait duration and every team with phase, members, last activity, auto-finalized flag
+  - Team inspect returns full contents (chat, docs, held/revealed scores, absences, final deliverable) read-only; operator viewing never reveals scores to members or mutates state
+  - Manual match validates exactly three distinct queued learners of the same offering and reuses the automatic formation path (including notices)
+  - Done when: an invalid trio returns 400 leaving the queue unchanged, and a valid trio forms a team identical to quorum formation
+  - _Requirements: 2.5, 2.6, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
+  - _Depends: 4.2_
+- [x] 4.6 Implement the cron tick endpoint and schedule
+  - Tick walks queued check-ins and unfinalized teams, runs evaluation, executes effects via the shared executor; authenticated via CRON_SECRET; returns a structured summary (teams evaluated, effects, notices sent/deduped)
+  - Add vercel.json with the daily cron entry pointing at the tick route
+  - Done when: two consecutive ticks with unchanged clocks send zero duplicate notices and mark no new absences
+  - _Requirements: 2.3, 2.4, 2.5, 4.4, 4.5, 13.1, 13.2_
+  - _Depends: 4.2_
+
+- [x] 5. Learner UI: activity pages
+- [x] 5.1 Build offering creation and course-gate landing with queue status
+  - Operator form: title, own-bot select, sample rubric, brief, transcript, facilitator provider/model
+  - Gate landing: enter/check-in action, queue status n of 3, redirect into the team space once matched; notice deep links resolve here
+  - Done when: checking in from the landing shows live queue status and a matched learner lands in their team space
+  - _Requirements: 1.1, 1.2, 2.1, 13.3_
+  - _Depends: 4.3_
+- [x] 5.2 Build the team space shell with recap and polling group chat
+  - Phase banner, recap-since-last-visit, ~10s polling plus focus refetch; no co-presence required and no live-session mode offered
+  - Chat panel renders learner and facilitator messages with the facilitator visually distinct; plain composer (no collaborative cursors); Presenter/Critic labels only for the current round
+  - Done when: two sessions in different browsers converge on the same chat and phase state within one polling interval
+  - _Requirements: 3.2, 3.3, 3.4, 6.2, 7.5, 11.1, 15.2_
+- [x] 5.3 (P) Build the read-only artifacts panel with try-chat link
+  - System prompt, deployment brief, transcript excerpt rendered read-only with no authoring affordances; try-chat links to the existing published student chat without prompt overrides
+  - Composed into the team space layout slot defined by the space shell (5.2)
+  - Done when: no editable control exists on any artifact and try-chat opens the published chat
+  - _Requirements: 1.3, 12.1, 12.2, 12.3, 12.4_
+  - _Boundary: ArtifactsPanel_
+- [x] 5.4 (P) Build the score sheet: private entry, submission status, revealed matrix
+  - Integer 1–5 entry per rubric criterion; pre-reveal shows own values and teammates' submitted checkmarks only; post-reveal full matrix with ≥2 spreads highlighted
+  - Done when: pre-reveal UI shows no teammate values and post-reveal highlights every flagged criterion
+  - _Requirements: 8.1, 8.2, 8.3, 8.7, 9.2_
+  - _Boundary: ScoreSheet_
+  - _Depends: 5.2, 4.4_
+- [x] 5.5 Build the finalized deliverable view and personal addendum
+  - Locked final rubric with unresolved-criteria labels and auto-finalized flag; late returner sees the deliverable and can add a personal addendum; group artifact stays unchanged
+  - Done when: after lock, the final rubric renders with unresolved labels, an addendum posts and renders, and an addendum attempt before lock is rejected
+  - _Requirements: 10.4, 10.5, 10.6_
+  - _Depends: 4.4_
+
+- [x] 6. Realtime co-editing on the two shared documents
+- [x] 6.1 Implement the Liveblocks session-token endpoint
+  - Access tokens scoped per team room from the Auth.js session: members get write until the team is locked, operators get read-only, everyone else denied
+  - Done when: a non-member token request returns 403 and a member's token stops granting write after lock
+  - _Requirements: 7.2, 10.4, 14.5, 15.1_
+  - _Depends: 1.4, 4.1_
+- [x] 6.2 Build the collaborative editor with live cursors on rubric and notes
+  - Lexical CollaborationPlugin + Liveblocks Yjs provider; one room per team with rubric and notes documents; cursors/selections show identity; no cursors anywhere else
+  - Done when: two browsers see each other's named cursors and edits without reload on both documents
+  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - _Depends: 6.1, 5.2_
+- [x] 6.3 Wire snapshot push, outage degradation, and post-lock read-only behavior
+  - Debounced plain-text snapshot POST feeds facilitator/operator/finalize reads and resets the group clock; Liveblocks outage degrades to a read-only snapshot view with a banner; locked teams render both documents read-only
+  - Done when: snapshots appear server-side after the debounce interval, and a locked team shows no editing affordance on either document
+  - _Requirements: 4.3, 7.3, 10.4_
+  - _Depends: 6.2, 4.2_
+
+- [x] 7. Operator UI
+- [x] 7.1 Build the operator dashboard with manual matching
+  - Stuck-queue list with wait durations; team progress table (phase, members, last activity, auto-finalized); manual-match picker enforcing three distinct waiters of the same offering
+  - Done when: selecting three eligible waiters forms a team visible in the progress table
+  - _Requirements: 2.5, 2.6, 14.1, 14.2, 14.3, 14.4_
+  - _Depends: 4.5_
+- [x] 7.2 Build the read-only team inspector
+  - Full team contents: chat, shared docs (latest snapshots), held or revealed scores, absence marks, final deliverable; no message/edit/reset/advance affordances
+  - Done when: the inspector renders held scores for the operator while a member session still cannot see them
+  - _Requirements: 14.5, 14.6, 14.7_
+  - _Depends: 4.5_
+
+- [x] 8. Integration validation
+- [x] 8.1 Write cross-component integration selftests
+  - ACL: non-member 403, operator write attempts 403; score privacy: member payload pre-reveal vs operator payload; manual match validation; tick idempotency (zero duplicate notices/absences on re-run); no Workspace membership side effects
+  - Done when: integration selftest passes via `npx tsx` on the JSON fallback backend
+  - _Requirements: 8.2, 11.5, 13.1, 14.3, 14.6, 14.7, 15.1, 15.3, 15.5_
+- [x] 8.2 Verify the end-to-end pilot flow and separation boundaries
+  - Scripted E2E pass: three check-ins → formation (recap + notices) → three critique rounds → merge with cursors in two browsers → blind scoring → reveal → discussion of a ≥2 spread → consensus lock → addendum
+  - Boundary verification: no edit rights appear on the sample bot, no Workspace/Publish/Community surface changes, no live-session mode reachable, activity completes without any external agent room
+  - Done when: the full flow completes on a local build and every boundary check is documented as passed
+  - _Requirements: 2.2, 5.1, 6.1, 7.2, 8.4, 9.2, 10.2, 12.3, 16.1, 16.2, 16.3, 16.4_
+
+## Implementation Notes
+- `npx tsx` needs unsandboxed/`all` permissions (tsx IPC listen EPERM in the default sandbox).
+- Store JSON override env is `CALIBRATION_DATA_FILE`. Operator held-score reads use `getScoresForOperator` (does not set `scores_revealed_at`). Generic member reads use `getScoresForMember`.
+- `evaluateQueue` forms teams of 3 via a literal (no TEAM_SIZE constant in types). `formTeam` effect has no offeringId; the executor must recover offering from the check-in set.
+- TeamStateRecord now includes memberUserIds, respondedUserIds, critiqueStage as official JSONB fields (needed for rotation persist/reload).
+- After executing revealScores, task 4.4 must call store.revealScores then engine.applySpread(state, revealed) — scoresSubmitted has no values so the engine cannot advance scoring→discussion/consensus until spread is applied.
+- Notices: peek via store.hasNotice → send → recordNotice only on success (so Resend failures retry). hasNotice is a non-claiming lookup on both JSON and Postgres.
+- Access guard is `resolveCaller` in lib/calibration-api/access.ts. Gate GET does not check-in. store.getTeam exists for ACL. Matched-learner teamId on the gate is deferred to 4.3.
+- executeEffects / executeFormation live in lib/calibration-api/space.ts. Operator space GET serializes only (no evaluateTeam). Member GET opportunistically evaluates.
+- Tick route exports GET and POST. Design table said POST; Vercel Cron invokes GET. `expireCheckIn` / `recordQueuePing` live on the store.
+- Activity UI helpers live in `lib/calibration-ui/` (paths, form payload, check-in next location). Gate does not poll; match after wait is via notice or reload. Team page at 5.1 is a thin landing only.
+- SpaceLayout polls GET /api/calibration/teams/{teamId} every 10s and on window focus. Recap is retained client-side across polls so last-seen updates do not wipe "since you last visited". Two-browser convergence is the poll contract (live E2E is 8.2).
+- Artifact texts are loaded on the team page via getOffering + getAppById (gate/space APIs only have meta). Try-chat is `/chat/{publicSlug||id}` with no query.
+- ScoreSheet computes flagged keys from the revealed matrix (max−min ≥ 2). Criterion keys come from the server page via getTeamForMember + rubricCriterionKeys (do not import scores.ts from client). Member UI never renders space.matrix pre-reveal.
+- Final deliverable extras (autoFinalized, addenda, flaggedCriteria, rubric snapshot) are SSR-loaded; Space GET does not carry them. `markDeliverableLocked` may leave `finalRubric` null — UI uses snapshot fallback. Unresolved chips currently use `state.flaggedCriteria` (may still show after explicit consensus).
+- Liveblocks auth: POST /api/calibration/liveblocks-auth `{ room }`. Room must be `calibration:{teamId}`. Member write until lock; operator read; others 403. Selftest injects authorize (no hosted network). Invalid room is 400.
+- SharedDocEditor: one room host (`getYjsProviderForRoom`) plus per-doc `DocScopedProvider` wrappers (`lib/calibration-ui/docs-provider.ts`) so rubric/notes have distinct Y.Docs and awareness; `disconnect()` must not tear down the sibling. Two-browser cursor proof is 8.2.
+- Snapshot debounce is 4000ms POST `{ text }` to docs endpoint. Locked teams still mount SharedDocEditor as read-only (no contenteditable / no snapshot POST). Liveblocks outage banner + last SSR snapshot; `liveblocksDown` does not auto-clear.
+- Operator dashboard is `/activity/{offeringId}/operate`. Manual-match picker uses stuck (10d+) waiters from GET operate. Inspect links: `/activity/{offeringId}/operate/team/{teamId}` (7.2).
+- Operator inspector page calls `inspectTeam` on the server (no extra HTTP route). It reuses `SpaceLayout` as a viewer (no AppShell dump): chat/docs/bot match the member space, composers stay closed by role, held scores + absences sit on the Score overlay, Final uses `visibleRubricText(finalRubric, snapshot)` because `markDeliverableLocked` may leave `finalRubric` null. Member ScoreSheet still strips `space.matrix` pre-reveal.
+- Cross-component integration selftest: `npx tsx lib/calibration-api/integration.selftest.ts` (JSON fallback). Scoring-phase privacy setup may use store helpers; full critique→lock walk is 8.2.
+- E2E: `npx tsx lib/calibration-api/e2e.selftest.ts`. Two-browser cursors remain MANUAL (Liveblocks keys + two browsers). `npm run build` is green after LOCAL type fixes: serializeSpace uses an explicit member/operator score branch; DocScopedProvider on/off matches Lexical Provider overloads.

@@ -15,11 +15,17 @@
         "@lexical/markdown": "^0.35.0",
         "@lexical/react": "^0.35.0",
         "@lexical/rich-text": "^0.35.0",
+        "@lexical/yjs": "^0.35.0",
+        "@liveblocks/client": "^3.24.0",
+        "@liveblocks/node": "^3.24.0",
+        "@liveblocks/react": "^3.24.0",
+        "@liveblocks/yjs": "^3.24.0",
         "@mdxeditor/editor": "^3.46.1",
         "@vercel/postgres": "^0.10.0",
         "bcryptjs": "^3.0.3",
         "katex": "^0.16.45",
         "lexical": "^0.35.0",
+        "lucide-react": "^1.31.0",
         "next": "^16.1.6",
         "next-auth": "^5.0.0-beta.30",
         "pdf-parse": "^2.4.5",
@@ -29,7 +35,9 @@
         "rehype-katex": "^7.0.1",
         "remark-breaks": "^4.0.0",
         "remark-gfm": "^4.0.1",
-        "remark-math": "^6.0.0"
+        "remark-math": "^6.0.0",
+        "resend": "^6.20.0",
+        "yjs": "^13.6.32"
     },
     "devDependencies": {
         "@tailwindcss/postcss": "^4",

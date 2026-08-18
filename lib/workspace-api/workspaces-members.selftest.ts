@@ -42,6 +42,8 @@ async function main(): Promise<void> {
   } = await import("./workspaces-members");
   const {
     addMember,
+    acceptPendingEmailInvitesForUser,
+    createInvite,
     createWorkspace,
     listActivity,
     listMembers,
@@ -107,6 +109,49 @@ async function main(): Promise<void> {
       listed.ok && listed.body.members.length === 4,
       "list returns all members"
     );
+
+    const labeledSelf = await listWorkspaceMembers(ownerId, ws.id, undefined, {
+      email: "owner@school.edu",
+      name: "Owner Name",
+    });
+    assert(labeledSelf.ok === true, "viewer-labeled list ok");
+    if (labeledSelf.ok) {
+      const ownerRow = labeledSelf.body.members.find(
+        (row) => row.userId === ownerId
+      );
+      assertEqual(ownerRow?.email, "owner@school.edu", "viewer email labels self");
+      assertEqual(ownerRow?.name, "Owner Name", "viewer name labels self");
+      const otherRow = labeledSelf.body.members.find(
+        (row) => row.userId === partId
+      );
+      assertEqual(
+        otherRow?.email,
+        null,
+        "viewer profile does not leak onto other members"
+      );
+    }
+
+    await createInvite({
+      workspaceId: ws.id,
+      kind: "email",
+      email: "invited@school.edu",
+      role: "participant",
+      createdByUserId: ownerId,
+    });
+    const invitedId = "invited_user";
+    await acceptPendingEmailInvitesForUser(invitedId, "invited@school.edu");
+    const afterInvite = await listWorkspaceMembers(ownerId, ws.id);
+    assert(afterInvite.ok === true, "list after email invite accept ok");
+    if (afterInvite.ok) {
+      const invitedRow = afterInvite.body.members.find(
+        (row) => row.userId === invitedId
+      );
+      assertEqual(
+        invitedRow?.email,
+        "invited@school.edu",
+        "accepted email invite labels the joined member"
+      );
+    }
 
     // --- Search q= ---
     const searched = await listWorkspaceMembers(facId, ws.id, "part_1");

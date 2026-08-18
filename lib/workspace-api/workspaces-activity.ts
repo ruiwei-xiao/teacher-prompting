@@ -2,6 +2,7 @@
  * WorkspacesAPI activity feed handler (Task 2.4).
  * Session is resolved by route wrappers; these accept userId for testability.
  */
+import { resolveUserLabels } from "@/lib/auth/resolve-labels";
 import { listApps } from "@/lib/app-store/store";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
@@ -63,10 +64,20 @@ async function resolveParticipantVisibleAppIds(
     .map((p) => p.appId);
 }
 
+function activityUserIds(events: WorkspaceActivityEvent[]): string[] {
+  const ids: string[] = [];
+  for (const event of events) {
+    ids.push(event.actorUserId);
+    const payloadUserId = event.payload.userId;
+    if (typeof payloadUserId === "string") ids.push(payloadUserId);
+  }
+  return ids;
+}
+
 export async function listWorkspaceActivity(
   userId: string | null,
   workspaceId: string
-): Promise<ApiResult<{ events: WorkspaceActivityEvent[] }>> {
+): Promise<ApiResult<{ events: WorkspaceActivityEvent[]; labels: Record<string, string> }>> {
   if (!userId) return unauthorized();
 
   const workspace = await getWorkspace(workspaceId);
@@ -85,7 +96,11 @@ export async function listWorkspaceActivity(
     const events = await listActivity(workspaceId, {
       viewerRole: membership.role,
     });
-    return { ok: true, status: 200, body: { events } };
+    return {
+      ok: true,
+      status: 200,
+      body: { events, labels: await resolveUserLabels(activityUserIds(events)) },
+    };
   }
 
   const participantView = assertWorkspaceAction({
@@ -113,5 +128,9 @@ export async function listWorkspaceActivity(
     viewerRole: "participant",
     visibleAppIds,
   });
-  return { ok: true, status: 200, body: { events } };
+  return {
+    ok: true,
+    status: 200,
+    body: { events, labels: await resolveUserLabels(activityUserIds(events)) },
+  };
 }

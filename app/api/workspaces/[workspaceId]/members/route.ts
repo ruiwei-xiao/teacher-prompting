@@ -14,7 +14,10 @@ export async function GET(
   const session = await auth();
   const userId = session?.user?.id ?? null;
   const q = req.nextUrl.searchParams.get("q") ?? undefined;
-  const result = await listWorkspaceMembers(userId, workspaceId, q);
+  const result = await listWorkspaceMembers(userId, workspaceId, q, {
+    email: session?.user?.email ?? null,
+    name: session?.user?.name ?? null,
+  });
   return NextResponse.json(result.body, { status: result.status });
 }
 

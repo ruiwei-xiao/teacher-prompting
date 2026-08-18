@@ -2,24 +2,60 @@
  * WorkspacesAPI membership handlers (Task 2.2).
  * Session is resolved by route wrappers; these accept userId for testability.
  */
-import { getUserById } from "@/lib/auth/user-store";
+import { getUsersByIds } from "@/lib/auth/user-store";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
   appendActivity,
   getWorkspace,
+  listInvites,
   listMembers,
   removeMember,
   setMemberRole,
   transferOwnership,
 } from "@/lib/workspace-store/store";
 import type {
+  WorkspaceInvite,
   WorkspaceMembership,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
 
 export type WorkspaceMemberListItem = WorkspaceMembership & {
   email: string | null;
+  name: string | null;
 };
+
+export type MemberViewerProfile = {
+  email?: string | null;
+  name?: string | null;
+};
+
+function cleanText(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function emailFromAcceptedInvite(
+  member: WorkspaceMembership,
+  invites: WorkspaceInvite[]
+): string | null {
+  const joinedMs = Date.parse(member.joinedAt);
+  if (!Number.isFinite(joinedMs)) return null;
+  let best: string | null = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const invite of invites) {
+    if (invite.kind !== "email") continue;
+    const email = cleanText(invite.email);
+    if (!email || !invite.revokedAt) continue;
+    const revokedMs = Date.parse(invite.revokedAt);
+    if (!Number.isFinite(revokedMs)) continue;
+    const delta = Math.abs(revokedMs - joinedMs);
+    if (delta <= 5_000 && delta < bestDelta) {
+      best = email;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
 
 export type ApiError = { error: string };
 
@@ -56,14 +92,27 @@ async function getMembership(
 }
 
 async function withMemberEmails(
-  members: WorkspaceMembership[]
+  members: WorkspaceMembership[],
+  viewer?: { userId: string } & MemberViewerProfile
 ): Promise<WorkspaceMemberListItem[]> {
-  return Promise.all(
-    members.map(async (member) => {
-      const user = await getUserById(member.userId);
-      return { ...member, email: user?.email ?? null };
-    })
-  );
+  const users = await getUsersByIds(members.map((member) => member.userId));
+  const invites = members[0]
+    ? await listInvites(members[0].workspaceId)
+    : [];
+  return members.map((member) => {
+    const user = users.get(member.userId);
+    const isViewer = viewer?.userId === member.userId;
+    return {
+      ...member,
+      email:
+        cleanText(user?.email) ??
+        (isViewer ? cleanText(viewer?.email) : null) ??
+        emailFromAcceptedInvite(member, invites),
+      name:
+        cleanText(user?.name) ??
+        (isViewer ? cleanText(viewer?.name) : null),
+    };
+  });
 }
 
 function matchesMemberListQuery(
@@ -75,6 +124,7 @@ function matchesMemberListQuery(
   if (!q) return true;
   if (member.userId.toLowerCase().includes(q)) return true;
   if (member.email?.toLowerCase().includes(q)) return true;
+  if (member.name?.toLowerCase().includes(q)) return true;
   return false;
 }
 
@@ -84,7 +134,8 @@ const ASSIGNABLE_ROLES = new Set(["facilitator", "participant"]);
 export async function listWorkspaceMembers(
   userId: string | null,
   workspaceId: string,
-  query?: string
+  query?: string,
+  viewer?: MemberViewerProfile
 ): Promise<ApiResult<{ members: WorkspaceMemberListItem[] }>> {
   if (!userId) return unauthorized();
 
@@ -101,7 +152,11 @@ export async function listWorkspaceMembers(
     return forbidden();
   }
 
-  const members = await withMemberEmails(await listMembers(workspaceId));
+  const members = await withMemberEmails(await listMembers(workspaceId), {
+    userId,
+    email: viewer?.email,
+    name: viewer?.name,
+  });
   const filtered = query
     ? members.filter((member) => matchesMemberListQuery(member, query))
     : members;
