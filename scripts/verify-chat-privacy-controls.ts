@@ -99,7 +99,10 @@ async function main() {
           firstReply,
           secondUser,
         ]);
-        assert(typeof after.sessionId === "string" && after.sessionId.length > 0);
+        assert(
+          typeof after.sessionId === "string" && after.sessionId.length > 0,
+          "sessionId remains after opt-out"
+        );
         assertEqual(after.surface, "public", "surface");
         assertEqual(after.ownerSharing, false, "opted out");
         assertEqual(after.messageTimes.length, 4, "messageTimes length");

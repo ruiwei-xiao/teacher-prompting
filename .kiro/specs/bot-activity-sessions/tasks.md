@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Foundation: chat session data layer
+- [x] 1. Foundation: chat session data layer
 - [x] 1.1 Create the chat session domain types and store scaffolding with the recorded-turn write path
   - Define session and message domain types (surface, participant, sharing flag, snapshot fields, image-omitted marker)
   - Set up the environment-switched persistence backends (Postgres table with indexes created lazily; local JSON-file fallback) following the existing store façade convention
@@ -18,7 +18,7 @@
   - Observable completion: unshared sessions disappear from the owner-dimension list but remain in the participant-dimension list, in both backends
   - _Requirements: 2.2, 2.8, 3.2, 3.5, 3.6, 3.7, 4.6_
 
-- [ ] 2. Recording integration across chat surfaces
+- [x] 2. Recording integration across chat surfaces
 - [x] 2.1 Add the opt-in recording step to the chat API route
   - Accept an optional recording payload (session id, surface, owner-sharing flag, message timestamps) without changing behavior for requests that omit it (builder-assistant conversations stay unrecorded)
   - Validate surface claims against the existing published/editor auth branch; on mismatch skip recording, never fail the chat
@@ -45,7 +45,7 @@
   - _Boundary: AssistantPanel_
   - _Depends: 2.1_
 
-- [ ] 3. Session read and control APIs
+- [x] 3. Session read and control APIs
 - [x] 3.1 (P) Owner-scoped session list endpoint for a bot
   - Authenticate, verify bot ownership, return paginated shared-only session summaries ordered by recency
   - Observable completion: the owner receives their bot's shared sessions with a has-more flag; a non-owner receives an error status
@@ -82,7 +82,7 @@
   - _Requirements: 4.1, 4.5, 4.6, 4.8_
   - _Depends: 3.4_
 
-- [ ] 5. Viewing surfaces
+- [x] 5. Viewing surfaces
 - [x] 5.1 Build the shared session list and read-only transcript components
   - Paginated list with load-more, surface badges (public chat vs editor test), participant-or-bot name mode, "Anonymous" labeling, "not shared with owner" badge, deleted-bot indication, and a configurable empty state
   - Read-only transcript rendering with existing chat message rendering, image-omitted placeholders, and no edit/delete affordances
@@ -104,7 +104,7 @@
   - _Boundary: MySessionsPage, MySessionsView_
   - _Depends: 3.2, 3.3, 5.1_
 
-- [ ] 6. Navigation and dashboard entry points
+- [x] 6. Navigation and dashboard entry points
 - [x] 6.1 (P) Update sidebar navigation
   - Rename the rubric calibration item to "Collaborative activities" without touching its routes or behavior; add a "My sessions" item using the navigation constants module
   - Observable completion: the sidebar shows distinct "My sessions" and "Collaborative activities" items; the calibration pages behave exactly as before
@@ -126,7 +126,7 @@
   - _Boundary: AppCard, AppGrid_
   - _Depends: 5.2_
 
-- [ ] 7. Run the end-to-end verification scenarios and production build
+- [x] 7. Run the end-to-end verification scenarios and production build
   - Execute the ten manual verification scenarios from the design testing strategy (anonymous and signed-in recording, editor test recording with builder-chat exclusion, signed-in and anonymous opt-out, persistence-failure resilience, access control, deleted-bot history, pagination, chrome changes)
   - Observable completion: all scenarios pass, and the production build completes without errors
   - _Requirements: 1.8, 1.9, 2.7, 3.6, 3.8, 4.3, 4.6_
@@ -134,3 +134,4 @@
 ## Implementation Notes
 - Recording rules live in `lib/chat-session-store/record-chat-turn.ts`; `/api/chat` calls `swallowRecordingFailure` after `sendChat`. Clients must send `recording: { sessionId, surface, ownerSharing?, messageTimes? }`.
 - "Not shared with owner" is shown whenever `shared === false` (My sessions / bot nameMode). Owner lists never include unshared rows.
+- Task 7: production build green; ten design scenarios covered by verify scripts/source. Live logged-in browser click-through was not run.
