@@ -9,6 +9,7 @@ import {
   buildEducatorSharePatchBody,
   educatorSharePatchErrorMessage,
 } from "@/lib/workspace-api/share-patch-body";
+import { activityHrefForApp } from "@/lib/chat-session-ui/nav";
 import AppCard from "./AppCard";
 import DeleteBotDialog from "./DeleteBotDialog";
 import ShareDialog from "./ShareDialog";
@@ -282,8 +283,9 @@ export default function AppGrid({
                 "No description yet. Open this bot to edit the prompt and settings."
               }
               meta={app.updatedAt ? `Updated ${new Date(app.updatedAt).toLocaleDateString()}` : undefined}
-              ctaLabel="Open bot"
+              ctaLabel="Edit"
               onOpen={() => router.push(`/app/${app.id}/editor`)}
+              onActivity={() => router.push(activityHrefForApp(app.id))}
               onShare={() => void handleShare(app)}
               shareDisabled={!app.publishedAt}
               onDelete={() => {

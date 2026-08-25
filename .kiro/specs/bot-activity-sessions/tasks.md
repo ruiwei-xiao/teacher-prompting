@@ -119,7 +119,7 @@
   - _Boundary: EditorChrome_
   - _Depends: 5.2_
 
-- [ ] 6.3 (P) Clean up My bots card actions
+- [x] 6.3 (P) Clean up My bots card actions
   - Relabel the editor-opening action to "Edit"; add an "Activity" action linking to the bot's activity page; keep Share; convert Delete to a visually distinct destructive icon control that still opens the existing confirmation dialog; give every icon action an accessible label and tooltip
   - Observable completion: a My bots card shows Edit, Activity, Share, and an icon Delete with tooltip; deleting still requires typed confirmation
   - _Requirements: 2.5, 6.1, 6.2, 6.3, 6.4, 6.5_
