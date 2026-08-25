@@ -53,7 +53,7 @@
   - _Boundary: OwnerSessionsAPI_
   - _Depends: 1.2_
 
-- [ ] 3.2 (P) Participant-scoped session list endpoint
+- [x] 3.2 (P) Participant-scoped session list endpoint
   - Authenticate and return the caller's own session summaries across all bots, newest first, paginated
   - Observable completion: a signed-in user receives only their own sessions including unshared and editor-test ones; signed-out callers receive an unauthorized status
   - _Requirements: 3.2, 3.5, 3.7_
