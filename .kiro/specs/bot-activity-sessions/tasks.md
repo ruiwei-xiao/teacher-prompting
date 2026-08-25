@@ -36,7 +36,7 @@
   - _Boundary: PublishedChatbot_
   - _Depends: 2.1_
 
-- [ ] 2.3 (P) Wire the editor test chat into recording
+- [x] 2.3 (P) Wire the editor test chat into recording
   - Attach the recording payload with the editor-test surface at both chat call sites (test-case rail and try-chat)
   - Maintain one session identifier per test-case conversation; switching or resetting a case starts a new session
   - Builder-assistant (left panel) conversations remain untouched and unrecorded
