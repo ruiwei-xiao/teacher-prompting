@@ -46,7 +46,7 @@
   - _Depends: 2.1_
 
 - [ ] 3. Session read and control APIs
-- [ ] 3.1 (P) Owner-scoped session list endpoint for a bot
+- [x] 3.1 (P) Owner-scoped session list endpoint for a bot
   - Authenticate, verify bot ownership, return paginated shared-only session summaries ordered by recency
   - Observable completion: the owner receives their bot's shared sessions with a has-more flag; a non-owner receives an error status
   - _Requirements: 2.2, 2.7, 2.8_
