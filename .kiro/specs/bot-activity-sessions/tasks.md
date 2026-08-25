@@ -67,7 +67,7 @@
   - _Boundary: TranscriptAPI_
   - _Depends: 1.2_
 
-- [ ] 3.4 (P) Sharing opt-out endpoint
+- [x] 3.4 (P) Sharing opt-out endpoint
   - Signed-in participant turns sharing off for their own session (flag flip); anonymous requests on anonymous sessions discard the session entirely; the endpoint accepts only the off transition
   - Observable completion: after opt-out, a signed-in session is flagged unshared and an anonymous session no longer exists
   - _Requirements: 1.9, 4.6_
