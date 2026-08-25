@@ -60,7 +60,7 @@
   - _Boundary: MySessionsAPI_
   - _Depends: 1.2_
 
-- [ ] 3.3 (P) Single-session transcript endpoint with owner-or-participant authorization
+- [x] 3.3 (P) Single-session transcript endpoint with owner-or-participant authorization
   - Allow the session participant always; allow the bot owner only while the session is shared; reject everyone else
   - Observable completion: an unshared session's transcript is retrievable by its participant but returns a forbidden/not-found status to the bot owner
   - _Requirements: 2.4, 3.4, 4.3_
