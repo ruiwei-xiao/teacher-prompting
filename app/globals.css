@@ -125,7 +125,7 @@ html.dark .app-chrome {
 
 /* === Full-screen layout helpers === */
 .main-viewport {
-  height: calc(100vh - var(--header-h));
+  height: calc(100dvh - var(--header-h));
 }
 
 /* Pressable controls — shared tactile feedback */
@@ -185,6 +185,54 @@ html.dark .app-chrome {
   transition: transform var(--duration-ui) var(--ease-out),
     width var(--duration-ui) var(--ease-out);
   will-change: transform, width;
+}
+
+/* Scroll columns — fade at the edge instead of a hard clip */
+.scroll-fade-y {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 14px,
+    #000 calc(100% - 14px),
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 14px,
+    #000 calc(100% - 14px),
+    transparent
+  );
+}
+
+.pane-surface {
+  background: var(--chrome-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+html.dark .pane-surface {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .pane-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: #ffffff;
+  }
+  html.dark .pane-surface {
+    background: #18181b;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .pane-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--background);
+    border: 1px solid var(--foreground);
+  }
 }
 
 /* Optional: subtle page padding that collapses on small screens */

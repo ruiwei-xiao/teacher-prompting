@@ -1,6 +1,6 @@
 /**
  * Task-local verification for public-chat privacy controls (task 4).
- * Covers the opt-out client helper, sticky-off, failure revert, live
+ * Covers the sharing toggle client helper, re-enable, failure revert, live
  * ownerSharing on later recording payloads, and source wiring.
  *
  * Run: npx tsx scripts/verify-chat-privacy-controls.ts
@@ -112,13 +112,14 @@ async function main() {
       name: "buildSharingRequest returns POST path for the session",
       run: async () => {
         const { buildSharingRequest } = await loadSharingHelpers();
-        const request = buildSharingRequest("sess-abc");
+        const request = buildSharingRequest("sess-abc", false);
         assertEqual(request.method, "POST", "method");
         assertEqual(
           request.url,
           "/api/sessions/sess-abc/sharing",
           "url"
         );
+        assertEqual(request.body, { shared: false }, "body");
       },
     },
     {
@@ -151,46 +152,49 @@ async function main() {
     {
       name: "404 before first message is local opt-out success; later payload ownerSharing false",
       run: async () => {
-        const { optOutResultFromHttpStatus, applySharingTransition } =
+        const { sharingResultFromHttpStatus, applySharingResult } =
           await loadSharingHelpers();
         assert(
-          typeof optOutResultFromHttpStatus === "function",
-          "optOutResultFromHttpStatus is exported"
+          typeof sharingResultFromHttpStatus === "function",
+          "sharingResultFromHttpStatus is exported"
         );
         const recording = createPublicChatRecording();
         const before = recording.buildPayload([welcome]);
         assertEqual(before.ownerSharing, true, "sharing still on before opt-out");
 
         // No session row yet: POST /sharing → 404. Treat as local success.
-        const interpreted = optOutResultFromHttpStatus(404);
-        const next = applySharingTransition(true, interpreted);
+        const interpreted = sharingResultFromHttpStatus(404);
+        const next = applySharingResult(true, false, interpreted);
         assertEqual(next.sharing, false, "sharing stays off after 404");
         assertEqual(next.error, null, "no error toast on 404");
         if (next.sharing === false) {
           recording.setOwnerSharing(false);
         }
 
-        const sticky = applySharingTransition(next.sharing, { ok: false });
-        assertEqual(sticky.sharing, false, "sticky off after local 404 success");
-        assertEqual(sticky.error, null, "no error once already off");
-
         const later = recording.buildPayload([welcome, firstUser]);
         assertEqual(later.ownerSharing, false, "next buildPayload ownerSharing false");
         assertEqual(later.sessionId, before.sessionId, "same conversation session");
+
+        const backOn = applySharingResult(false, true, sharingResultFromHttpStatus(404));
+        assertEqual(backOn.sharing, true, "404 re-enable is local success");
+        recording.setOwnerSharing(true);
+        const afterOn = recording.buildPayload([welcome, firstUser]);
+        assertEqual(afterOn.ownerSharing, true, "later payload ownerSharing true");
       },
     },
     {
       name: "existing-session non-OK still reverts to on",
       run: async () => {
         const {
-          optOutResultFromHttpStatus,
-          applySharingTransition,
+          sharingResultFromHttpStatus,
+          applySharingResult,
           applyOptOutResult,
         } = await loadSharingHelpers();
 
-        const forbidden = applySharingTransition(
+        const forbidden = applySharingResult(
           true,
-          optOutResultFromHttpStatus(403)
+          false,
+          sharingResultFromHttpStatus(403)
         );
         assertEqual(forbidden.sharing, true, "403 reverts to on");
         assert(
@@ -198,9 +202,10 @@ async function main() {
           "403 shows a brief error"
         );
 
-        const server = applySharingTransition(
+        const server = applySharingResult(
           true,
-          optOutResultFromHttpStatus(500)
+          false,
+          sharingResultFromHttpStatus(500)
         );
         assertEqual(server.sharing, true, "500 reverts to on");
         assert(
@@ -217,17 +222,18 @@ async function main() {
       },
     },
     {
-      name: "sticky-off: once sharing is false it stays false",
+      name: "sharing can turn back on after a successful off",
       run: async () => {
-        const { applySharingTransition, isSharingToggleDisabled } =
+        const { applySharingResult, isSharingToggleDisabled } =
           await loadSharingHelpers();
-        const afterSuccess = applySharingTransition(true, { ok: true });
-        assertEqual(afterSuccess.sharing, false, "opt-out succeeds");
-        const laterFailure = applySharingTransition(false, { ok: false });
-        assertEqual(laterFailure.sharing, false, "sticky off ignores later failure");
-        assertEqual(laterFailure.error, null, "no error once already off");
-        assertEqual(isSharingToggleDisabled(true), false, "on is still toggleable");
-        assertEqual(isSharingToggleDisabled(false), true, "off is sticky/disabled");
+        const afterOff = applySharingResult(true, false, { ok: true });
+        assertEqual(afterOff.sharing, false, "opt-out succeeds");
+        const afterOn = applySharingResult(false, true, { ok: true });
+        assertEqual(afterOn.sharing, true, "opt-in succeeds");
+        const failedOn = applySharingResult(false, true, { ok: false });
+        assertEqual(failedOn.sharing, false, "failed opt-in stays off");
+        assertEqual(isSharingToggleDisabled(true), false, "on is toggleable");
+        assertEqual(isSharingToggleDisabled(false), false, "off is toggleable");
       },
     },
     {
@@ -241,18 +247,17 @@ async function main() {
           "notice copy"
         );
         assert(
-          source.includes("sharing: boolean") && source.includes("onTurnOff"),
-          "props { sharing, onTurnOff }"
+          source.includes("sharing: boolean") && source.includes("onToggle"),
+          "props { sharing, onToggle }"
         );
         assert(
           source.includes("aria-checked") || source.includes("aria-pressed"),
           "toggle exposes aria-checked or aria-pressed"
         );
         assert(
-          /disabled=\{!sharing\}|disabled=\{sharing === false\}|disabled=\{sharing === !1\}/.test(
-            source
-          ) || source.includes("disabled={!sharing}"),
-          "toggle is disabled after opt-out"
+          !/disabled=\{!sharing\}/.test(source) &&
+            !source.includes("disabled={!sharing}"),
+          "toggle stays enabled after opt-out"
         );
         assert(
           source.includes("role=\"switch\"") ||
@@ -278,13 +283,15 @@ async function main() {
           "opt-out calls the sharing endpoint"
         );
         assert(
-          source.includes("optOutResultFromHttpStatus"),
-          "HTTP status mapping treats 404 as local opt-out success"
+          source.includes("sharingResultFromHttpStatus") ||
+            source.includes("optOutResultFromHttpStatus"),
+          "HTTP status mapping treats 404 as local success"
         );
         assert(
-          source.includes("applyOptOutResult") ||
-            source.includes("setSharing(true)"),
-          "endpoint failure reverts sharing"
+          source.includes("applySharingResult") ||
+            source.includes("applyOptOutResult") ||
+            source.includes("setSharing("),
+          "endpoint failure keeps the current sharing state"
         );
         assert(
           source.includes("setOwnerSharing(false)") ||

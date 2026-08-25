@@ -26,28 +26,26 @@ export default async function ActivityPage({
 
   return (
     <AppShell>
-      <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
-        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-10 sm:px-6 lg:px-8">
-          <div className="w-full min-w-0 py-6">
-            <section className="w-full">
-              <div className="text-center">
-                <h1 className="type-display text-4xl text-slate-900 md:text-5xl dark:text-zinc-100">
-                  Activity
-                </h1>
-                <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
-                  {appName}
-                </p>
-                <Link
-                  href={`/app/${appId}/editor`}
-                  className="pressable mt-4 inline-flex text-sm font-medium text-sky-700 hover-ok:underline dark:text-sky-400"
-                >
-                  Back to editor
-                </Link>
-              </div>
-
-              <BotActivityView appId={app.id} appName={appName} />
-            </section>
-          </div>
+      <main className="main-viewport flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
+        <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8">
+          <header className="shrink-0">
+            <Link
+              href={`/app/${appId}/editor`}
+              className="pressable -ml-2 inline-flex h-9 items-center gap-1 rounded-xl px-2 text-sm font-medium text-sky-700 hover-ok:bg-sky-50 dark:text-sky-400 dark:hover-ok:bg-sky-950/40"
+            >
+              <span aria-hidden="true" className="text-base leading-none">
+                ‹
+              </span>
+              Back to editor
+            </Link>
+            <h1 className="type-display mt-1 text-3xl text-slate-900 md:text-4xl dark:text-zinc-100">
+              Activity
+            </h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
+              {appName}
+            </p>
+          </header>
+          <BotActivityView appId={app.id} appName={appName} />
         </div>
       </main>
     </AppShell>

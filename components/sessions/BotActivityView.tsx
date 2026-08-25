@@ -13,6 +13,10 @@ import type {
   SessionSummary,
 } from "@/lib/chat-session-store/types";
 import { activityHrefForApp } from "@/lib/chat-session-ui/nav";
+import SessionBrowseLayout, {
+  SessionDetailHint,
+  SessionEmptyState,
+} from "./SessionBrowseLayout";
 import SessionList from "./SessionList";
 import SessionTranscript from "./SessionTranscript";
 import {
@@ -122,16 +126,10 @@ function BotActivityViewInner({
   let detail: ReactNode;
   if (!selectedId) {
     detail = (
-      <p className="text-sm text-slate-600 dark:text-zinc-400">
-        Select a session to read the transcript.
-      </p>
+      <SessionDetailHint>Select a session to read the transcript.</SessionDetailHint>
     );
   } else if (transcriptLoading) {
-    detail = (
-      <p className="text-sm text-slate-500 dark:text-zinc-400">
-        Loading transcript…
-      </p>
-    );
+    detail = <SessionDetailHint>Loading transcript…</SessionDetailHint>;
   } else if (transcriptError) {
     detail = (
       <div className="space-y-3">
@@ -151,45 +149,54 @@ function BotActivityViewInner({
     detail = <SessionTranscript session={transcript} />;
   }
 
+  const isBare = sessions.length === 0 && !listError && !selectedId;
+
+  const list =
+    listError && sessions.length === 0 && !listLoading ? (
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
+        <p className="text-sm text-red-700 dark:text-red-300" role="alert">
+          {listError}
+        </p>
+        <button
+          type="button"
+          onClick={() => void loadList(0, false)}
+          className="pressable mt-4 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover-ok:bg-zinc-800"
+        >
+          Try again
+        </button>
+      </div>
+    ) : (
+      <SessionList
+        sessions={sessions}
+        hasMore={hasMore}
+        loading={listLoading}
+        selectedId={selectedId}
+        onLoadMore={() => void loadList(sessions.length, true)}
+        onSelect={selectSession}
+        emptyMessage={EMPTY_MESSAGE}
+        nameMode="participant"
+      />
+    );
+
   return (
-    <div
-      className="mt-10 grid items-start gap-6 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]"
-      aria-label={`${appName} activity`}
-    >
-      <section aria-label="Sessions">
-        {listError && sessions.length === 0 && !listLoading ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
-            <p className="text-sm text-red-700 dark:text-red-300" role="alert">
-              {listError}
-            </p>
-            <button
-              type="button"
-              onClick={() => void loadList(0, false)}
-              className="pressable mt-4 inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover-ok:bg-zinc-800"
-            >
-              Try again
-            </button>
-          </div>
+    <SessionBrowseLayout
+      ariaLabel={`${appName} activity`}
+      isEmpty={isBare}
+      empty={
+        listLoading ? (
+          <p className="py-16 text-center text-sm text-slate-500 dark:text-zinc-400">
+            Loading sessions…
+          </p>
         ) : (
-          <SessionList
-            sessions={sessions}
-            hasMore={hasMore}
-            loading={listLoading}
-            selectedId={selectedId}
-            onLoadMore={() => void loadList(sessions.length, true)}
-            onSelect={selectSession}
-            emptyMessage={EMPTY_MESSAGE}
-            nameMode="participant"
+          <SessionEmptyState
+            title="No sessions yet"
+            message={EMPTY_MESSAGE}
           />
-        )}
-      </section>
-      <section
-        aria-label="Transcript"
-        className="min-h-[16rem] rounded-2xl border border-slate-200 bg-white/80 p-6 dark:border-zinc-700 dark:bg-zinc-900/80"
-      >
-        {detail}
-      </section>
-    </div>
+        )
+      }
+      list={list}
+      detail={detail}
+    />
   );
 }
 
@@ -201,14 +208,16 @@ export default function BotActivityView({
   appName: string;
 }) {
   return (
-    <Suspense
-      fallback={
-        <p className="mt-10 text-center text-sm text-slate-500 dark:text-zinc-400">
-          Loading sessions…
-        </p>
-      }
-    >
-      <BotActivityViewInner appId={appId} appName={appName} />
-    </Suspense>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Suspense
+        fallback={
+          <p className="mt-10 text-center text-sm text-slate-500 dark:text-zinc-400">
+            Loading sessions…
+          </p>
+        }
+      >
+        <BotActivityViewInner appId={appId} appName={appName} />
+      </Suspense>
+    </div>
   );
 }

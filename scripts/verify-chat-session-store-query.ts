@@ -46,6 +46,7 @@ async function main() {
     listSessionsForApp,
     listSessionsForUser,
     disableSharing,
+    enableSharing,
     discardSession,
   } = await import("../lib/chat-session-store/store");
   const {
@@ -400,7 +401,7 @@ async function main() {
       },
     },
     {
-      name: "disableSharing is true-to-false only; owner list drops it, participant list keeps it",
+      name: "disableSharing hides from owner; enableSharing restores it",
       run: async () => {
         await upsertSessionTurn({
           id: "share-toggle",
@@ -447,6 +448,20 @@ async function main() {
         const kept = afterUser.items.find((item) => item.id === "share-toggle");
         assert(kept, "unshared session remains in the participant list");
         assertEqual(kept.shared, false, "participant summary shows unshared");
+
+        await enableSharing("share-toggle");
+        const reenabled = await getSessionById("share-toggle");
+        assert(reenabled, "session remains after enableSharing");
+        assertEqual(reenabled.shared, true, "shared flipped back to true");
+
+        const ownerAgain = await listSessionsForApp(botA.appId, {
+          limit: 50,
+          offset: 0,
+        });
+        assert(
+          ownerAgain.items.some((item) => item.id === "share-toggle"),
+          "re-shared session returns to the owner list"
+        );
       },
     },
     {

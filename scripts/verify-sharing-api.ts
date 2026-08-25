@@ -61,6 +61,7 @@ function createFakeStore(initial: ChatSessionRecord | null) {
     ? { ...initial, messages: [...initial.messages] }
     : null;
   const disableIds: string[] = [];
+  const enableIds: string[] = [];
   const discardIds: string[] = [];
   const loadIds: string[] = [];
 
@@ -69,6 +70,7 @@ function createFakeStore(initial: ChatSessionRecord | null) {
       return current;
     },
     disableIds,
+    enableIds,
     discardIds,
     loadIds,
     getSessionById: async (id: string) => {
@@ -82,6 +84,12 @@ function createFakeStore(initial: ChatSessionRecord | null) {
         current = { ...current, shared: false };
       }
     },
+    enableSharing: async (id: string) => {
+      enableIds.push(id);
+      if (current && current.id === id) {
+        current = { ...current, shared: true };
+      }
+    },
     discardSession: async (id: string) => {
       discardIds.push(id);
       if (current && current.id === id) {
@@ -92,7 +100,7 @@ function createFakeStore(initial: ChatSessionRecord | null) {
 }
 
 async function main() {
-  const { optOutSharing } = await import("../lib/chat-session-api/sharing");
+  const { updateSharing } = await import("../lib/chat-session-api/sharing");
 
   const ownerId = "owner-1";
   const participantId = "user-1";
@@ -103,7 +111,12 @@ async function main() {
       name: "missing session → 404 and does not mutate",
       run: async () => {
         const store = createFakeStore(null);
-        const result = await optOutSharing(participantId, sessionId, store);
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          false,
+          store
+        );
         assertEqual(result.status, 404, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
@@ -120,17 +133,43 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, participantId, shared: true })
         );
-        const result = await optOutSharing(participantId, sessionId, store);
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          false,
+          store
+        );
         assertEqual(result.status, 200, "status");
         assert(result.ok, "ok");
         if (result.ok) {
           assertEqual(result.body, { ok: true }, "body");
         }
         assertEqual(store.disableIds, [sessionId], "disableSharing id");
+        assertEqual(store.enableIds, [], "enableSharing not called");
         assertEqual(store.discardIds, [], "does not discard signed-in session");
         assert(store.current !== null, "session still exists");
         assertEqual(store.current?.shared, false, "shared flipped off");
         assertEqual(store.current?.id, sessionId, "same session id");
+      },
+    },
+    {
+      name: "signed-in participant can turn sharing back on",
+      run: async () => {
+        const store = createFakeStore(
+          sampleSession({ id: sessionId, participantId, shared: false })
+        );
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          true,
+          store
+        );
+        assertEqual(result.status, 200, "status");
+        assert(result.ok, "ok");
+        assertEqual(store.enableIds, [sessionId], "enableSharing id");
+        assertEqual(store.disableIds, [], "disableSharing not called");
+        assertEqual(store.discardIds, [], "does not discard");
+        assertEqual(store.current?.shared, true, "shared flipped on");
       },
     },
     {
@@ -139,7 +178,12 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, participantId, shared: false })
         );
-        const result = await optOutSharing(participantId, sessionId, store);
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          false,
+          store
+        );
         assertEqual(result.status, 200, "status");
         assert(result.ok, "ok");
         if (result.ok) {
@@ -156,7 +200,12 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, participantId, shared: true })
         );
-        const result = await optOutSharing(participantId, sessionId, store);
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          false,
+          store
+        );
         assert(result.ok, "ok");
         assertEqual(store.disableIds, [sessionId], "disableSharing");
         assertEqual(
@@ -177,7 +226,7 @@ async function main() {
             shared: true,
           })
         );
-        const result = await optOutSharing(null, sessionId, store);
+        const result = await updateSharing(null, sessionId, false, store);
         assertEqual(result.status, 200, "status");
         assert(result.ok, "ok");
         if (result.ok) {
@@ -194,7 +243,7 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, participantId, shared: true })
         );
-        const result = await optOutSharing(null, sessionId, store);
+        const result = await updateSharing(null, sessionId, false, store);
         assertEqual(result.status, 403, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
@@ -215,7 +264,7 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, participantId, shared: true })
         );
-        const result = await optOutSharing("intruder", sessionId, store);
+        const result = await updateSharing("intruder", sessionId, false, store);
         assertEqual(result.status, 403, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
@@ -232,7 +281,7 @@ async function main() {
         const store = createFakeStore(
           sampleSession({ id: sessionId, ownerId, participantId, shared: true })
         );
-        const result = await optOutSharing(ownerId, sessionId, store);
+        const result = await updateSharing(ownerId, sessionId, false, store);
         assertEqual(result.status, 403, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
@@ -253,7 +302,12 @@ async function main() {
             shared: true,
           })
         );
-        const result = await optOutSharing(participantId, sessionId, store);
+        const result = await updateSharing(
+          participantId,
+          sessionId,
+          false,
+          store
+        );
         assertEqual(result.status, 403, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
@@ -269,13 +323,17 @@ async function main() {
       },
     },
     {
-      name: "handler signature has no re-enable payload",
+      name: "updateSharing accepts a shared flag (userId, sessionId, shared)",
       run: async () => {
-        assertEqual(optOutSharing.length, 2, "arity is userId, sessionId (deps optional)");
+        assertEqual(
+          updateSharing.length,
+          3,
+          "arity is userId, sessionId, shared (deps optional)"
+        );
       },
     },
     {
-      name: "route is a thin POST auth wrapper around optOutSharing",
+      name: "route is a thin POST auth wrapper around updateSharing",
       run: async () => {
         const routePath = path.join(
           process.cwd(),
@@ -287,8 +345,8 @@ async function main() {
           "route calls auth()"
         );
         assert(
-          source.includes("optOutSharing"),
-          "route delegates to optOutSharing"
+          source.includes("updateSharing"),
+          "route delegates to updateSharing"
         );
         assert(
           source.includes("export async function POST"),
@@ -298,7 +356,7 @@ async function main() {
           !source.includes("export async function GET") &&
             !source.includes("export async function PUT") &&
             !source.includes("export async function PATCH"),
-          "off-only: no GET/PUT/PATCH re-enable surface"
+          "toggle stays on POST"
         );
         assert(
           source.includes("sessionId"),
@@ -311,10 +369,8 @@ async function main() {
           "route does not call store functions directly"
         );
         assert(
-          !source.includes("req.json") &&
-            !source.includes("request.json") &&
-            !/_req\.json|_request\.json/.test(source),
-          "no re-enable payload: route does not read a body"
+          source.includes("req.json") || source.includes("request.json"),
+          "route reads { shared } from the body"
         );
       },
     },

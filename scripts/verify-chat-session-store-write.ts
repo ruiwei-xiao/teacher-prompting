@@ -170,7 +170,7 @@ async function main() {
       },
     },
     {
-      name: "sharing is monotonic: create-off stays off and cannot flip back on",
+      name: "sharing can flip off and back on across upserts",
       run: async () => {
         const unsharedId = "session-unshared-1";
         await upsertSessionTurn({
@@ -189,17 +189,13 @@ async function main() {
           shared: true,
           messages: secondHistory,
         });
-        const afterFlipAttempt = await getSessionById(unsharedId);
-        assert(afterFlipAttempt, "unshared session should still exist");
+        const afterFlipOn = await getSessionById(unsharedId);
+        assert(afterFlipOn, "unshared session should still exist");
+        assertEqual(afterFlipOn.shared, true, "requested true re-enables sharing");
         assertEqual(
-          afterFlipAttempt.shared,
-          false,
-          "must not flip unshared back to shared"
-        );
-        assertEqual(
-          afterFlipAttempt.messages,
+          afterFlipOn.messages,
           secondHistory,
-          "transcript still replaced while sharing stays off"
+          "transcript is replaced when sharing flips back on"
         );
 
         const sharedId = "session-shared-then-off";

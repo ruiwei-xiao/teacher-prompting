@@ -410,9 +410,9 @@ async function main() {
       },
     },
     {
-      name: "recording cannot re-enable sharing on an unshared session",
+      name: "recording can re-enable sharing on an unshared session",
       run: async () => {
-        const sessionId = "rec-share-mono";
+        const sessionId = "rec-share-toggle";
         await upsertSessionTurn({
           id: sessionId,
           appId: publishedApp.id,
@@ -438,13 +438,13 @@ async function main() {
           userName: "Eve",
           app: publishedApp,
           messages: incomingMessages,
-          assistantReply: "Still unshared",
+          assistantReply: "Shared again",
           now,
         });
         assertEqual(result.status, "persisted", "status");
         const session = await getSessionById(sessionId);
         assert(session, "expected the existing session");
-        assertEqual(session.shared, false, "shared stays off");
+        assertEqual(session.shared, true, "shared flips back on");
       },
     },
     {

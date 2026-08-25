@@ -13,12 +13,12 @@ export default async function MySessionsPage() {
         <SignInPanel
           callbackUrl={MY_SESSIONS_HREF}
           googleEnabled={Boolean(
-            process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET
+            process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET,
           )}
           microsoftEnabled={Boolean(
             process.env.AUTH_MICROSOFT_ENTRA_ID_ID &&
-              process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET &&
-              process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER
+            process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET &&
+            process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER,
           )}
         />
       </main>
@@ -27,23 +27,14 @@ export default async function MySessionsPage() {
 
   return (
     <AppShell>
-      <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
-        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-10 sm:px-6 lg:px-8">
-          <div className="w-full min-w-0 py-6">
-            <section className="w-full">
-              <div className="text-center">
-                <h1 className="type-display text-4xl text-slate-900 md:text-5xl dark:text-zinc-100">
-                  My sessions
-                </h1>
-                <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
-                  Revisit conversations you have had with any bot — including
-                  editor tests and chats that are not shared with the owner.
-                </p>
-              </div>
-
-              <MySessionsView />
-            </section>
-          </div>
+      <main className="main-viewport flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
+        <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8">
+          <header className="shrink-0">
+            <h1 className="type-display text-3xl text-slate-900 md:text-4xl dark:text-zinc-100">
+              My sessions
+            </h1>
+          </header>
+          <MySessionsView />
         </div>
       </main>
     </AppShell>

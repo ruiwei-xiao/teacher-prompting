@@ -13,7 +13,7 @@
 - Persist conversations from the public chat page and editor test chats as sessions, without ever blocking chat on persistence failure.
 - Give bot owners a paginated, deep-linkable activity view with read-only transcripts.
 - Give signed-in users a My sessions history across all bots, resilient to bot deletion.
-- Enforce participant privacy: anonymous identity, a visible recording notice, and a sticky owner-sharing opt-out.
+- Enforce participant privacy: anonymous identity, a visible recording notice, and a participant-controlled owner-sharing toggle.
 - Clean up navigation naming ("Collaborative activities") and My bots card actions ("Edit", activity entry, icon-based Delete).
 
 ### Non-Goals
@@ -188,13 +188,13 @@ sequenceDiagram
     else anonymous participant
         R->>S: discardSession delete row
     end
-    C->>C: sharing state off sticky
+    C->>C: sharing state updates to the requested value
     U->>C: sends next message
-    C->>R: POST with recording ownerSharing false
-    R->>S: record only if signed in
+    C->>R: POST with recording ownerSharing live value
+    R->>S: record only if signed in or sharing is on
 ```
 
-Flow decisions: recording happens after the model reply so failed inference never creates half-turns; the sharing endpoint only supports turning sharing **off** (sticky per conversation); anonymous turns with `ownerSharing: false` are never persisted.
+Flow decisions: recording happens after the model reply so failed inference never creates half-turns; the sharing endpoint accepts `{ shared: boolean }` so the participant can turn sharing off and back on; anonymous turns with `ownerSharing: false` are never persisted.
 
 ## Requirements Traceability
 
@@ -230,7 +230,7 @@ Flow decisions: recording happens after the model reply so failed inference neve
 | 4.3 | Transcript visible to owner or participant only | TranscriptAPI | authorization rule |
 | 4.4 | Read-only, no edit/delete UI | SessionTranscript, views | no mutation affordances |
 | 4.5 | Toggle near notice, default on | ChatPrivacyControls | toggle contract |
-| 4.6 | Sticky off; whole session excluded | SharingEndpoint, ChatSessionStore | off-only endpoint |
+| 4.6 | Toggle sharing off and back on; whole session excluded while off | SharingEndpoint, ChatSessionStore | `{ shared }` body |
 | 4.7 | Unshared signed-in sessions stay in My sessions, labeled | SessionList | `shared` flag rendering |
 | 4.8 | Sharing state visible on chat page | ChatPrivacyControls | state display |
 | 5.1 | "Collaborative activities" label | WorkspaceSidebar | label change |
@@ -366,16 +366,16 @@ All follow the repo convention: `auth()` → authorization → store call → JS
 | GET | /api/apps/[appId]/sessions?limit&offset | signed-in owner of app (`getAppById(appId, userId)`) | `{ sessions: SessionSummary[]; hasMore: boolean }` (shared only) | 401, 404 |
 | GET | /api/sessions?limit&offset | signed-in; `participantId = userId` | `{ sessions: SessionSummary[]; hasMore: boolean }` | 401 |
 | GET | /api/sessions/[sessionId] | participant (`participantId === userId`), or bot owner (`ownerId === userId` AND `shared === true`) | `{ session: ChatSessionRecord }` | 401, 403, 404 |
-| POST | /api/sessions/[sessionId]/sharing | signed-in participant → `disableSharing`; anonymous request on an anonymous session → `discardSession` (UUID knowledge = capability) | `{ ok: true }` | 403 (signed-in session, non-participant caller), 404 |
+| POST | /api/sessions/[sessionId]/sharing | signed-in participant → `disableSharing` / `enableSharing` from `{ shared }`; anonymous request on an anonymous session → `discardSession` when turning off (UUID knowledge = capability) | `{ ok: true }` | 403 (signed-in session, non-participant caller), 404 |
 
-- The sharing endpoint accepts only the off transition; there is no re-enable payload (4.6).
+- The sharing endpoint accepts `{ shared: boolean }` so the participant can turn sharing off and back on (4.6).
 - Owner transcript access re-checks `shared` so an unshared session is invisible to the owner even with a known ID (4.3, 4.6).
 
 ### UI Layer
 
 UI components are summary-only (no new boundaries beyond fetching the APIs above).
 
-- **ChatPrivacyControls** (`components/public/ChatPrivacyControls.tsx`): renders the persistent notice ("Your conversation may be viewed by this bot's creator") and the sharing toggle (default on, off is sticky and disabled after opt-out). Props: `{ sharing: boolean; onTurnOff: () => void }`. Placed within `PublishedChatbot` near the composer/header (4.1, 4.5, 4.8).
+- **ChatPrivacyControls** (`components/public/ChatPrivacyControls.tsx`): renders the persistent notice ("Your conversation may be viewed by this bot's creator") and the sharing toggle (default on; the participant can turn it off and back on). Props: `{ sharing: boolean; onToggle: () => void; busy?: boolean }`. Placed within `PublishedChatbot` near the composer/header (4.1, 4.5, 4.8).
 - **SessionList**: presentational paginated list; props include `sessions: SessionSummary[]`, `hasMore`, `onLoadMore`, `onSelect`, `emptyMessage`, `nameMode: "participant" | "bot"` (owner view shows participant names, My sessions shows bot names). Renders surface badges ("Public chat" / "Editor test"), "Anonymous" for null participants, "Not shared with owner" badge when `shared === false` in participant mode, and "Bot no longer available" when `appExists === false` (2.3, 2.6, 3.3, 4.2, 4.7, 3.6).
 - **SessionTranscript**: read-only transcript rendered with `ChatMessageBody`; shows `(image attached)` placeholders for `imageOmitted` messages; no mutation affordances (2.4, 3.4, 4.4).
 - **BotActivityView / MySessionsView**: client master-detail views composing SessionList + SessionTranscript over their respective APIs via `session-client.ts` helpers.
@@ -388,7 +388,7 @@ UI components are summary-only (no new boundaries beyond fetching the APIs above
 ### Domain Model
 
 - Aggregate: **ChatSession** (root) containing its transcript. One session = one continuous conversation with one bot on one surface by one participant.
-- Invariants: sharing is monotonic (`true → false` only); anonymous sessions carry no identity; transcripts are append-observed but stored as whole-replacements; snapshots (`appName`, `ownerId`, `participantName`) are immutable after creation.
+- Invariants: sharing follows the participant's latest toggle (`true ↔ false`); anonymous sessions carry no identity; transcripts are append-observed but stored as whole-replacements; snapshots (`appName`, `ownerId`, `participantName`) are immutable after creation.
 
 ### Physical Data Model (Postgres)
 

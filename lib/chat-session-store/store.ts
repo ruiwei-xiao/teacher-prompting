@@ -5,9 +5,9 @@
  *
  * upsertSessionTurn creates on first turn and replaces the transcript later.
  * Identity (appId + participantId) must match an existing row.
- * shared may start false or stay false, but never flips unshared → shared.
+ * shared follows the latest requested owner-sharing flag on each upsert.
  * listSessionsForApp is shared-only; listSessionsForUser excludes anonymous.
- * disableSharing is true→false only; discardSession deletes the row.
+ * disableSharing / enableSharing flip the flag; discardSession deletes the row.
  */
 import fs from "fs/promises";
 import path from "path";
@@ -141,13 +141,13 @@ function identitiesMatch(
 }
 
 function nextShared(existingShared: boolean, requested?: boolean): boolean {
-  if (!existingShared) {
-    return false;
-  }
   if (requested === false) {
     return false;
   }
-  return true;
+  if (requested === true) {
+    return true;
+  }
+  return existingShared;
 }
 
 function applyTurn(
@@ -379,6 +379,16 @@ async function disableSharingInFile(id: string): Promise<void> {
   await writeFileData(data);
 }
 
+async function enableSharingInFile(id: string): Promise<void> {
+  const data = await readFileData();
+  const session = data.sessions.find((item) => item.id === id);
+  if (!session || session.shared) {
+    return;
+  }
+  session.shared = true;
+  await writeFileData(data);
+}
+
 async function discardSessionInFile(id: string): Promise<void> {
   const data = await readFileData();
   const next = data.sessions.filter((session) => session.id !== id);
@@ -501,6 +511,15 @@ async function disableSharingInPostgres(id: string): Promise<void> {
   `;
 }
 
+async function enableSharingInPostgres(id: string): Promise<void> {
+  await ensurePostgresStore();
+  await sql`
+    UPDATE chat_sessions
+    SET shared = TRUE
+    WHERE id = ${id} AND shared = FALSE
+  `;
+}
+
 async function discardSessionInPostgres(id: string): Promise<void> {
   await ensurePostgresStore();
   await sql`
@@ -554,6 +573,13 @@ export async function disableSharing(id: string): Promise<void> {
     return disableSharingInPostgres(id);
   }
   return disableSharingInFile(id);
+}
+
+export async function enableSharing(id: string): Promise<void> {
+  if (shouldUsePostgres()) {
+    return enableSharingInPostgres(id);
+  }
+  return enableSharingInFile(id);
 }
 
 export async function discardSession(id: string): Promise<void> {

@@ -43,19 +43,17 @@ export default function SessionList({
 
   if (viewState === "loading") {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+      <p className="px-2 py-8 text-center text-sm text-slate-500 dark:text-zinc-400">
         Loading sessions…
-      </div>
+      </p>
     );
   }
 
   if (viewState === "empty") {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-        <p className="text-sm text-slate-600 dark:text-zinc-400">
-          {emptyMessage}
-        </p>
-      </div>
+      <p className="px-2 py-8 text-center text-sm leading-6 text-slate-500 dark:text-zinc-400">
+        {emptyMessage}
+      </p>
     );
   }
 
@@ -78,9 +76,10 @@ export default function SessionList({
               onClick={() => onSelect(session.id)}
               className={[
                 "pressable w-full rounded-2xl border px-4 py-3 text-left",
+                "transition-[transform,border-color,background-color] duration-[var(--duration-ui)] ease-[var(--ease-out)]",
                 selected
-                  ? "border-sky-400 bg-sky-50 dark:border-sky-500/70 dark:bg-sky-950/50"
-                  : "border-slate-200 bg-white hover-ok:border-slate-300 hover-ok:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover-ok:border-zinc-600 dark:hover-ok:bg-zinc-800",
+                  ? "border-sky-300 bg-sky-50 dark:border-sky-500/60 dark:bg-sky-950/50"
+                  : "border-slate-200 bg-white hover-ok:border-slate-300 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:hover-ok:border-zinc-500 dark:hover-ok:bg-zinc-800",
               ].join(" ")}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">

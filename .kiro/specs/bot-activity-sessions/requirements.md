@@ -69,7 +69,7 @@ This feature introduces chat session recording and viewing to the platform, equi
 3. The system shall allow a session transcript to be viewed only by the bot's owner and, for sessions associated with an account, the session's participant.
 4. The system shall present all session lists and transcripts as read-only, with no edit or delete capability in this release.
 5. While a public chat page is displayed, the system shall provide a sharing toggle near the recording notice that lets the participant turn owner sharing off for the current conversation, with sharing on by default.
-6. If the participant turns owner sharing off at any point during a conversation, the system shall exclude the entire session (including messages exchanged before the toggle was changed) from the bot owner's activity view, and the toggle shall remain off for the rest of that conversation.
+6. If the participant turns owner sharing off, the system shall exclude the entire session (including messages exchanged before the toggle was changed) from the bot owner's activity view. The participant shall be able to turn owner sharing back on for the same conversation; when sharing is on again, the owner can see the session.
 7. While owner sharing is off for a signed-in participant's session, the system shall continue to record the session and display it in that participant's My sessions with an indication that it is not shared with the owner.
 8. When a participant changes the sharing toggle, the system shall reflect the current sharing state visibly on the chat page.
 
@@ -80,7 +80,7 @@ This feature introduces chat session recording and viewing to the platform, equi
 #### Acceptance Criteria
 
 1. The sidebar shall label the existing rubric calibration navigation item "Collaborative activities" instead of "Activities".
-2. When a user opens the renamed "Collaborative activities" item, the system shall present the existing rubric calibration feature with unchanged behavior.
+2. When a user opens the renamed "Collaborative activities" item, the system shall present the existing rubric calibration feature with unchanged behavior, using the page title "Collaborative activities".
 3. The sidebar shall present "My sessions" and "Collaborative activities" as distinct items with labels that do not overlap in meaning.
 
 ### Requirement 6: My Bots Card Actions

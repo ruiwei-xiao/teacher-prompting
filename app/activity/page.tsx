@@ -40,20 +40,17 @@ export default async function CalibrationHubPage() {
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
-                Collaborative
-              </p>
-              <h1 className="mt-2 text-3xl font-bold text-slate-900 md:text-4xl dark:text-zinc-100">
-                Activities
+              <h1 className="type-display text-3xl text-slate-900 md:text-4xl dark:text-zinc-100">
+                Collaborative activities
               </h1>
-              <p className="mt-2 max-w-2xl text-slate-600 dark:text-zinc-400">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
                 Activities you created or joined. Learners start from the join
                 link; after that, they come back here.
               </p>
             </div>
             <Link
               href={ACTIVITY_NEW_HREF}
-              className="pressable inline-flex rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover-ok:bg-sky-800 dark:bg-sky-600 dark:hover-ok:bg-sky-500"
+              className="pressable inline-flex h-11 items-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white shadow-sm hover-ok:bg-sky-800 dark:bg-sky-600 dark:hover-ok:bg-sky-500"
             >
               New activity
             </Link>
@@ -61,16 +58,16 @@ export default async function CalibrationHubPage() {
 
           <section className="mt-10">
             {offerings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-                <p className="text-sm font-medium text-slate-800 dark:text-zinc-200">
-                  No activities yet
+              <div className="px-6 py-16 text-center">
+                <p className="type-title text-lg text-slate-800 dark:text-zinc-200">
+                  No collaborative activities yet
                 </p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-zinc-400">
                   Create one, or open the join link your instructor sent.
                 </p>
                 <Link
                   href={ACTIVITY_NEW_HREF}
-                  className="pressable mt-5 inline-flex rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover-ok:bg-sky-800"
+                  className="pressable mt-5 inline-flex h-11 items-center rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white hover-ok:bg-sky-800"
                 >
                   Create an activity
                 </Link>

@@ -1,14 +1,20 @@
 /**
- * Client helpers for public-chat owner-sharing opt-out (task 4).
- * The sharing endpoint accepts only the off transition; off is sticky.
+ * Client helpers for public-chat owner-sharing toggle.
+ * The sharing endpoint accepts { shared: boolean }; 404 is local success
+ * so the toggle can change before the first recorded turn (or after an
+ * anonymous discard).
  */
 
 export const SHARING_OPT_OUT_ERROR =
   "Could not turn off sharing. Please try again.";
 
+export const SHARING_OPT_IN_ERROR =
+  "Could not turn on sharing. Please try again.";
+
 export type SharingRequest = {
   url: string;
   method: "POST";
+  body: { shared: boolean };
 };
 
 export type OptOutResultInput =
@@ -20,25 +26,35 @@ export type SharingClientState = {
   error: string | null;
 };
 
-export function buildSharingRequest(sessionId: string): SharingRequest {
+export function buildSharingRequest(
+  sessionId: string,
+  shared: boolean
+): SharingRequest {
   return {
     url: `/api/sessions/${encodeURIComponent(sessionId)}/sharing`,
     method: "POST",
+    body: { shared },
   };
 }
 
 /**
- * Map the sharing-endpoint HTTP status to an opt-out result.
- * 2xx: session existed and opt-out succeeded.
- * 404: no session row yet (opt-out before the first recorded turn) — local
- *      success so later chat turns send ownerSharing:false.
+ * Map the sharing-endpoint HTTP status to a toggle result.
+ * 2xx: session existed and the requested transition succeeded.
+ * 404: no session row yet (toggle before the first recorded turn, or
+ *      anonymous re-enable after discard) — local success so later chat
+ *      turns send the live ownerSharing flag.
  * Other statuses (403/500/…) are real failures of an existing session.
  */
-export function optOutResultFromHttpStatus(status: number): OptOutResultInput {
+export function sharingResultFromHttpStatus(status: number): OptOutResultInput {
   if ((status >= 200 && status < 300) || status === 404) {
     return { ok: true };
   }
   return { ok: false };
+}
+
+/** @deprecated Use sharingResultFromHttpStatus. */
+export function optOutResultFromHttpStatus(status: number): OptOutResultInput {
+  return sharingResultFromHttpStatus(status);
 }
 
 export function applyOptOutResult(
@@ -53,7 +69,23 @@ export function applyOptOutResult(
   };
 }
 
-/** Sticky-off: once sharing is false, later failures cannot turn it back on. */
+export function applySharingResult(
+  currentSharing: boolean,
+  requested: boolean,
+  result: OptOutResultInput
+): SharingClientState {
+  if ("ok" in result && result.ok === true) {
+    return { sharing: requested, error: null };
+  }
+  return {
+    sharing: currentSharing,
+    error: requested ? SHARING_OPT_IN_ERROR : SHARING_OPT_OUT_ERROR,
+  };
+}
+
+/**
+ * Apply an off-transition. Failures while already off leave sharing off.
+ */
 export function applySharingTransition(
   currentSharing: boolean,
   result: OptOutResultInput
@@ -64,6 +96,6 @@ export function applySharingTransition(
   return applyOptOutResult(result);
 }
 
-export function isSharingToggleDisabled(sharing: boolean): boolean {
-  return sharing === false;
+export function isSharingToggleDisabled(_sharing: boolean): boolean {
+  return false;
 }

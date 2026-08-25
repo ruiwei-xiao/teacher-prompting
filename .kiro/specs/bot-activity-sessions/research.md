@@ -153,9 +153,9 @@ Research Needed (carry into design):
 - **Selected Approach**: New sibling route rendered with an "Activity" navigation control in `EditorChrome`, satisfying "tab or section" as a chrome-level tab.
 - **Trade-offs**: Navigating leaves the editing surface; acceptable and consistent with deep-linking.
 
-### Decision: Sharing toggle semantics (sticky off, branch by participant kind)
-- **Selected Approach**: Toggle rendered next to the recording notice, on by default. Turning it off calls a sharing endpoint: signed-in participant → session flagged `shared = false` (kept for My sessions, hidden from owner); anonymous participant → session row deleted. Subsequent turns carry `ownerSharing: false` so anonymous conversations are simply never persisted. The endpoint only supports turning sharing off; re-enabling within the same conversation is not accepted (Req 4.6).
-- **Trade-offs**: An internal delete path exists even though user-facing deletion is out of scope; documented as such.
+### Decision: Sharing toggle semantics (toggle both ways, branch by participant kind)
+- **Selected Approach**: Toggle rendered next to the recording notice, on by default. The participant can turn sharing off and back on. Turning it off calls a sharing endpoint: signed-in participant → session flagged `shared = false` (kept for My sessions, hidden from owner); anonymous participant → session row deleted. Turning it back on: signed-in → `shared = true` (owner can see the session again); anonymous → local on, and the next recorded turn recreates the row from the live transcript. Subsequent turns carry the live `ownerSharing` flag so anonymous conversations are not persisted while sharing is off.
+- **Trade-offs**: An internal delete path exists even though user-facing deletion is out of scope; documented as such. Anonymous re-enable cannot restore a discarded row until the next message is sent.
 
 ### Decision: Offset pagination for session lists
 - **Context**: Req 2.8; no pagination precedent in repo.
