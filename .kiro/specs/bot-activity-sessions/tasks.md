@@ -90,7 +90,7 @@
   - Observable completion: components render list states (loading, empty, load-more) and a read-only transcript from API data
   - _Requirements: 2.3, 2.6, 2.8, 3.3, 3.6, 4.2, 4.4, 4.7_
 
-- [ ] 5.2 (P) Create the bot activity page for creators
+- [x] 5.2 (P) Create the bot activity page for creators
   - Server-gated route for one bot: unauthenticated or non-owner visitors get not-found; owners get a master-detail view (session list plus transcript) with an explanatory empty state
   - Observable completion: the owner browses their bot's sessions and opens transcripts at a stable URL; a non-owner cannot access the page
   - _Requirements: 2.1, 2.2, 2.4, 2.6, 2.7_
