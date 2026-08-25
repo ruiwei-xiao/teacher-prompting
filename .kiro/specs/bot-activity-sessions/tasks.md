@@ -105,7 +105,7 @@
   - _Depends: 3.2, 3.3, 5.1_
 
 - [ ] 6. Navigation and dashboard entry points
-- [ ] 6.1 (P) Update sidebar navigation
+- [x] 6.1 (P) Update sidebar navigation
   - Rename the rubric calibration item to "Collaborative activities" without touching its routes or behavior; add a "My sessions" item using the navigation constants module
   - Observable completion: the sidebar shows distinct "My sessions" and "Collaborative activities" items; the calibration pages behave exactly as before
   - _Requirements: 3.1, 5.1, 5.2, 5.3_
