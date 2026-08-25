@@ -6,13 +6,18 @@
  * upsertSessionTurn creates on first turn and replaces the transcript later.
  * Identity (appId + participantId) must match an existing row.
  * shared may start false or stay false, but never flips unshared → shared.
+ * listSessionsForApp is shared-only; listSessionsForUser excludes anonymous.
+ * disableSharing is true→false only; discardSession deletes the row.
  */
 import fs from "fs/promises";
 import path from "path";
 import { sql } from "@vercel/postgres";
+import { getAppById } from "@/lib/app-store/store";
 import type {
   ChatSessionRecord,
   ChatSessionsFileData,
+  ListPage,
+  SessionSummary,
   SessionSurface,
   StoredChatMessage,
   UpsertSessionTurnInput,
@@ -193,6 +198,61 @@ function rowToSession(row: ChatSessionRow): ChatSessionRecord {
   };
 }
 
+function compareRecency(a: ChatSessionRecord, b: ChatSessionRecord): number {
+  if (a.updatedAt === b.updatedAt) {
+    return b.id.localeCompare(a.id);
+  }
+  return a.updatedAt < b.updatedAt ? 1 : -1;
+}
+
+function toSummary(
+  session: ChatSessionRecord,
+  appExists: boolean
+): SessionSummary {
+  const { messages, ...rest } = session;
+  return {
+    ...rest,
+    messageCount: messages.length,
+    appExists,
+  };
+}
+
+async function resolveAppExists(
+  appIds: string[]
+): Promise<Map<string, boolean>> {
+  const uniqueIds = [...new Set(appIds)];
+  const entries = await Promise.all(
+    uniqueIds.map(async (appId) => {
+      const app = await getAppById(appId);
+      return [appId, app !== null] as const;
+    })
+  );
+  return new Map(entries);
+}
+
+async function toSummaries(
+  sessions: ChatSessionRecord[]
+): Promise<SessionSummary[]> {
+  const existence = await resolveAppExists(
+    sessions.map((session) => session.appId)
+  );
+  return sessions.map((session) =>
+    toSummary(session, existence.get(session.appId) === true)
+  );
+}
+
+function paginateRecords(
+  records: ChatSessionRecord[],
+  opts: { limit: number; offset: number }
+): { items: ChatSessionRecord[]; hasMore: boolean } {
+  const sliced = records.slice(opts.offset, opts.offset + opts.limit + 1);
+  const hasMore = sliced.length > opts.limit;
+  return {
+    items: hasMore ? sliced.slice(0, opts.limit) : sliced,
+    hasMore,
+  };
+}
+
 async function ensureFileStore() {
   const filePath = sessionsFilePath();
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -279,6 +339,55 @@ async function upsertSessionTurnInFile(
   await writeFileData(data);
 }
 
+async function listSessionsForAppInFile(
+  appId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  const data = await readFileData();
+  const matched = data.sessions
+    .filter((session) => session.appId === appId && session.shared)
+    .sort(compareRecency);
+  const page = paginateRecords(matched, opts);
+  return {
+    items: await toSummaries(page.items),
+    hasMore: page.hasMore,
+  };
+}
+
+async function listSessionsForUserInFile(
+  userId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  const data = await readFileData();
+  const matched = data.sessions
+    .filter((session) => session.participantId === userId)
+    .sort(compareRecency);
+  const page = paginateRecords(matched, opts);
+  return {
+    items: await toSummaries(page.items),
+    hasMore: page.hasMore,
+  };
+}
+
+async function disableSharingInFile(id: string): Promise<void> {
+  const data = await readFileData();
+  const session = data.sessions.find((item) => item.id === id);
+  if (!session || !session.shared) {
+    return;
+  }
+  session.shared = false;
+  await writeFileData(data);
+}
+
+async function discardSessionInFile(id: string): Promise<void> {
+  const data = await readFileData();
+  const next = data.sessions.filter((session) => session.id !== id);
+  if (next.length === data.sessions.length) {
+    return;
+  }
+  await writeFileData({ sessions: next });
+}
+
 // --- Postgres implementations ---
 
 async function getSessionByIdInPostgres(
@@ -336,6 +445,70 @@ async function upsertSessionTurnInPostgres(
   `;
 }
 
+async function pageFromRows(
+  rows: ChatSessionRow[],
+  limit: number
+): Promise<ListPage<SessionSummary>> {
+  const sessions = rows.map(rowToSession);
+  const hasMore = sessions.length > limit;
+  const page = hasMore ? sessions.slice(0, limit) : sessions;
+  return {
+    items: await toSummaries(page),
+    hasMore,
+  };
+}
+
+async function listSessionsForAppInPostgres(
+  appId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  await ensurePostgresStore();
+  const result = await sql<ChatSessionRow>`
+    SELECT
+      id, app_id, app_name, owner_id, participant_id, participant_name,
+      surface, shared, messages, created_at, updated_at
+    FROM chat_sessions
+    WHERE app_id = ${appId} AND shared = TRUE
+    ORDER BY updated_at DESC
+    LIMIT ${opts.limit + 1} OFFSET ${opts.offset}
+  `;
+  return pageFromRows(result.rows, opts.limit);
+}
+
+async function listSessionsForUserInPostgres(
+  userId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  await ensurePostgresStore();
+  const result = await sql<ChatSessionRow>`
+    SELECT
+      id, app_id, app_name, owner_id, participant_id, participant_name,
+      surface, shared, messages, created_at, updated_at
+    FROM chat_sessions
+    WHERE participant_id = ${userId}
+    ORDER BY updated_at DESC
+    LIMIT ${opts.limit + 1} OFFSET ${opts.offset}
+  `;
+  return pageFromRows(result.rows, opts.limit);
+}
+
+async function disableSharingInPostgres(id: string): Promise<void> {
+  await ensurePostgresStore();
+  await sql`
+    UPDATE chat_sessions
+    SET shared = FALSE
+    WHERE id = ${id} AND shared = TRUE
+  `;
+}
+
+async function discardSessionInPostgres(id: string): Promise<void> {
+  await ensurePostgresStore();
+  await sql`
+    DELETE FROM chat_sessions
+    WHERE id = ${id}
+  `;
+}
+
 // --- Public façade ---
 
 export async function getSessionById(
@@ -354,4 +527,38 @@ export async function upsertSessionTurn(
     return upsertSessionTurnInPostgres(input);
   }
   return upsertSessionTurnInFile(input);
+}
+
+export async function listSessionsForApp(
+  appId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  if (shouldUsePostgres()) {
+    return listSessionsForAppInPostgres(appId, opts);
+  }
+  return listSessionsForAppInFile(appId, opts);
+}
+
+export async function listSessionsForUser(
+  userId: string,
+  opts: { limit: number; offset: number }
+): Promise<ListPage<SessionSummary>> {
+  if (shouldUsePostgres()) {
+    return listSessionsForUserInPostgres(userId, opts);
+  }
+  return listSessionsForUserInFile(userId, opts);
+}
+
+export async function disableSharing(id: string): Promise<void> {
+  if (shouldUsePostgres()) {
+    return disableSharingInPostgres(id);
+  }
+  return disableSharingInFile(id);
+}
+
+export async function discardSession(id: string): Promise<void> {
+  if (shouldUsePostgres()) {
+    return discardSessionInPostgres(id);
+  }
+  return discardSessionInFile(id);
 }

@@ -9,7 +9,7 @@
   - Observable completion: calling the upsert twice for the same session yields one session whose transcript equals the latest submitted history, in both backends
   - _Requirements: 1.3, 1.4, 1.7, 4.6_
 
-- [ ] 1.2 Implement session query and sharing mutation functions
+- [x] 1.2 Implement session query and sharing mutation functions
   - Owner-dimension list scoped to one bot, newest activity first, excluding unshared sessions, with limit/offset paging and a has-more signal
   - Participant-dimension list across bots, newest first, never returning anonymous sessions
   - Single-session lookup returning the full transcript; summaries expose message count and whether the bot still exists (for deleted-bot labeling)
