@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import Link from "next/link";
 import Icon from "@/components/common/Icon";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 
@@ -6,6 +7,7 @@ export default function EditorChrome({
   appName,
   modelLabel,
   variabilityLabel,
+  activityHref,
   onShare,
   shareBusy,
   shareDisabled,
@@ -18,6 +20,7 @@ export default function EditorChrome({
   appName: React.ReactNode;
   modelLabel?: React.ReactNode;
   variabilityLabel?: React.ReactNode;
+  activityHref?: string;
   onShare?: () => void;
   shareBusy?: boolean;
   shareDisabled?: boolean;
@@ -67,6 +70,14 @@ export default function EditorChrome({
               </span>
             </div>
             <ThemeToggle />
+            {activityHref ? (
+              <Link
+                href={activityHref}
+                className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Activity
+              </Link>
+            ) : null}
             {onPublish && (
               <button
                 ref={publishButtonRef}

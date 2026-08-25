@@ -35,6 +35,7 @@ import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail"
 import { shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
 import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
 import { clearAssistedAuthoringSnapshot } from "@/lib/assisted-authoring/snapshot";
+import { activityHrefForApp } from "@/lib/chat-session-ui/nav";
 
 function PanelResizeHandle({
   label,
@@ -510,6 +511,7 @@ export default function EditorPage({
       appName={appName}
       modelLabel={headerModelLabel}
       variabilityLabel={headerVariabilityLabel}
+      activityHref={activityHrefForApp(appId)}
       onShare={handleShare}
       shareBusy={shareBusy}
       shareDisabled={!isPublished}

@@ -112,7 +112,7 @@
   - _Boundary: WorkspaceSidebar_
   - _Depends: 5.3_
 
-- [ ] 6.2 (P) Add the activity entry point to the editor chrome
+- [x] 6.2 (P) Add the activity entry point to the editor chrome
   - Add an "Activity" navigation control in the editor header linking to the bot's activity page
   - Observable completion: from the editor, one click opens the edited bot's activity view
   - _Requirements: 2.1_
