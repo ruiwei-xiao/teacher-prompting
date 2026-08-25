@@ -158,24 +158,29 @@ async function main() {
       },
     },
     {
-      name: "Not shared with owner badge only in participant mode when unshared",
+      name: "Not shared with owner badge when shared is false in any nameMode",
       run: () => {
         const unshared = sampleSummary({ shared: false });
         const shared = sampleSummary({ shared: true });
         assertEqual(
           display.sessionNotSharedBadge(unshared, "participant"),
           "Not shared with owner",
-          "my sessions unshared"
+          "participant unshared"
         );
         assertEqual(
           display.sessionNotSharedBadge(shared, "participant"),
           null,
-          "my sessions shared"
+          "participant shared"
         );
         assertEqual(
           display.sessionNotSharedBadge(unshared, "bot"),
+          "Not shared with owner",
+          "bot-mode unshared (My sessions)"
+        );
+        assertEqual(
+          display.sessionNotSharedBadge(shared, "bot"),
           null,
-          "owner view never shows not-shared"
+          "bot-mode shared"
         );
         assertEqual(
           display.sessionBadges(unshared, "participant"),
@@ -184,7 +189,7 @@ async function main() {
         );
         assertEqual(
           display.sessionBadges(unshared, "bot"),
-          ["Public chat"],
+          ["Public chat", "Not shared with owner"],
           "bot-mode unshared badges"
         );
       },

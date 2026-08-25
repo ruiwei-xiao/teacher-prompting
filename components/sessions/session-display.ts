@@ -39,9 +39,9 @@ export function sessionSurfaceBadge(surface: SessionSurface): string {
 
 export function sessionNotSharedBadge(
   session: Pick<SessionSummary, "shared">,
-  nameMode: SessionNameMode
+  _nameMode: SessionNameMode
 ): string | null {
-  if (nameMode === "participant" && session.shared === false) {
+  if (session.shared === false) {
     return NOT_SHARED_LABEL;
   }
   return null;

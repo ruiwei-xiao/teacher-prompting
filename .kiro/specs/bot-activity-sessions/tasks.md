@@ -97,7 +97,7 @@
   - _Boundary: ActivityPage, BotActivityView_
   - _Depends: 3.1, 3.3, 5.1_
 
-- [ ] 5.3 (P) Create the My sessions page
+- [x] 5.3 (P) Create the My sessions page
   - Server-gated route requiring sign-in (redirect to sign-in when signed out); master-detail view across all of the user's sessions with bot names, surface badges, and deleted-bot labeling
   - Observable completion: a signed-in user opens past transcripts including editor tests and unshared sessions; a signed-out visitor is redirected to sign-in
   - _Requirements: 3.2, 3.3, 3.4, 3.5, 3.6, 3.8_
@@ -133,3 +133,4 @@
 
 ## Implementation Notes
 - Recording rules live in `lib/chat-session-store/record-chat-turn.ts`; `/api/chat` calls `swallowRecordingFailure` after `sendChat`. Clients must send `recording: { sessionId, surface, ownerSharing?, messageTimes? }`.
+- "Not shared with owner" is shown whenever `shared === false` (My sessions / bot nameMode). Owner lists never include unshared rows.
