@@ -26,8 +26,10 @@ export type PublicChatRecordingOptions = {
 export type PublicChatRecording = {
   readonly sessionId: string;
   reset: () => void;
+  setOwnerSharing: (value: boolean) => void;
   buildPayload: (
-    messages: readonly PublicChatRecordingMessage[]
+    messages: readonly PublicChatRecordingMessage[],
+    payloadOptions?: { ownerSharing?: boolean }
   ) => PublicChatRecordingPayload;
 };
 
@@ -36,7 +38,7 @@ export function createPublicChatRecording(
 ): PublicChatRecording {
   const now = options.now ?? (() => new Date().toISOString());
   const createId = options.createId ?? (() => crypto.randomUUID());
-  const ownerSharing = options.ownerSharing ?? true;
+  let ownerSharing = options.ownerSharing ?? true;
 
   let sessionId = createId();
   const rememberedTimes: string[] = [];
@@ -44,11 +46,21 @@ export function createPublicChatRecording(
   function reset(): void {
     sessionId = createId();
     rememberedTimes.length = 0;
+    ownerSharing = options.ownerSharing ?? true;
+  }
+
+  function setOwnerSharing(value: boolean): void {
+    ownerSharing = value;
   }
 
   function buildPayload(
-    messages: readonly PublicChatRecordingMessage[]
+    messages: readonly PublicChatRecordingMessage[],
+    payloadOptions?: { ownerSharing?: boolean }
   ): PublicChatRecordingPayload {
+    if (typeof payloadOptions?.ownerSharing === "boolean") {
+      ownerSharing = payloadOptions.ownerSharing;
+    }
+
     const messageTimes = messages.map((_, index) => {
       const existing = rememberedTimes[index];
       if (existing) {
@@ -72,6 +84,7 @@ export function createPublicChatRecording(
       return sessionId;
     },
     reset,
+    setOwnerSharing,
     buildPayload,
   };
 }

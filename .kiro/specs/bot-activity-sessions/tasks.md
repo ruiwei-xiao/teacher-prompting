@@ -74,7 +74,7 @@
   - _Boundary: SharingEndpoint_
   - _Depends: 1.2_
 
-- [ ] 4. Participant privacy controls on the public chat page
+- [x] 4. Participant privacy controls on the public chat page
   - Show a persistent, unobtrusive notice that the creator may view the conversation, with the sharing toggle beside it (on by default)
   - Turning the toggle off calls the opt-out endpoint, keeps the toggle off for the rest of the conversation, and updates recording payloads so anonymous turns stop being persisted
   - Sharing state remains visible on the page; on endpoint failure the toggle reverts to on with a brief error

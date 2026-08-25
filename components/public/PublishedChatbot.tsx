@@ -15,7 +15,15 @@ import {
   readImageDataUrl,
 } from "@/lib/chat-input/client";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
+import ChatPrivacyControls from "./ChatPrivacyControls";
 import { createPublicChatRecording } from "./chat-recording";
+import {
+  applyOptOutResult,
+  applySharingTransition,
+  buildSharingRequest,
+  isSharingToggleDisabled,
+  optOutResultFromHttpStatus,
+} from "./chat-sharing";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -49,9 +57,12 @@ export default function PublishedChatbot({
   const [visualFullscreen, setVisualFullscreen] = useState(false);
   const [visualizationState, setVisualizationState] =
     useState<VisualizationState | null>(null);
+  const [sharing, setSharing] = useState(true);
+  const [sharingError, setSharingError] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const sharingRef = useRef(true);
   const recording = useMemo(() => createPublicChatRecording(), []);
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
@@ -113,7 +124,9 @@ export default function PublishedChatbot({
           appId,
           messages: nextMessages,
           visualizationState,
-          recording: recording.buildPayload(nextMessages),
+          recording: recording.buildPayload(nextMessages, {
+            ownerSharing: sharingRef.current,
+          }),
         }),
       });
 
@@ -136,6 +149,31 @@ export default function PublishedChatbot({
       ]);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleTurnOffSharing() {
+    if (isSharingToggleDisabled(sharing)) return;
+
+    const request = buildSharingRequest(recording.sessionId);
+    try {
+      const res = await fetch(request.url, { method: request.method });
+      await res.json().catch(() => ({}));
+      const next = applySharingTransition(
+        sharing,
+        optOutResultFromHttpStatus(res.status)
+      );
+      sharingRef.current = next.sharing;
+      setSharing(next.sharing);
+      setSharingError(next.error ?? "");
+      if (next.sharing === false) {
+        recording.setOwnerSharing(false);
+      }
+    } catch {
+      const next = applyOptOutResult({ ok: false });
+      sharingRef.current = next.sharing;
+      setSharing(next.sharing);
+      setSharingError(next.error ?? "");
     }
   }
 
@@ -230,6 +268,13 @@ export default function PublishedChatbot({
             This chatbot is powered by the published version of the app&apos;s
             system prompt.
           </p>
+          <ChatPrivacyControls
+            sharing={sharing}
+            onTurnOff={() => void handleTurnOffSharing()}
+          />
+          {sharingError ? (
+            <p className="mt-2 text-xs text-red-600">{sharingError}</p>
+          ) : null}
         </div>
 
         <div
