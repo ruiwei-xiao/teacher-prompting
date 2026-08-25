@@ -28,7 +28,7 @@
   - Observable completion: a public-chat turn with a recording payload creates a session row; the same request without the payload changes nothing; a forced store failure still returns a normal reply
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 1.9_
 
-- [ ] 2.2 (P) Wire the public chat page into recording
+- [x] 2.2 (P) Wire the public chat page into recording
   - Generate a session identifier when a conversation starts and reuse it for every turn; a page reload starts a new conversation with a new identifier
   - Attach the recording payload (public surface, current sharing state, per-message timestamps) to each chat request and strip image data before sending the recording view of history
   - Observable completion: chatting on a published bot page produces one session whose transcript matches the on-screen conversation, as signed-in and as anonymous

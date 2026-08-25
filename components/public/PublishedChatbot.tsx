@@ -15,6 +15,7 @@ import {
   readImageDataUrl,
 } from "@/lib/chat-input/client";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
+import { createPublicChatRecording } from "./chat-recording";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -51,6 +52,7 @@ export default function PublishedChatbot({
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const recording = useMemo(() => createPublicChatRecording(), []);
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
     [systemPrompt]
@@ -111,6 +113,7 @@ export default function PublishedChatbot({
           appId,
           messages: nextMessages,
           visualizationState,
+          recording: recording.buildPayload(nextMessages),
         }),
       });
 
