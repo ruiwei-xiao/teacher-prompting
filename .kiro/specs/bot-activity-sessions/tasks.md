@@ -83,7 +83,7 @@
   - _Depends: 3.4_
 
 - [ ] 5. Viewing surfaces
-- [ ] 5.1 Build the shared session list and read-only transcript components
+- [x] 5.1 Build the shared session list and read-only transcript components
   - Paginated list with load-more, surface badges (public chat vs editor test), participant-or-bot name mode, "Anonymous" labeling, "not shared with owner" badge, deleted-bot indication, and a configurable empty state
   - Read-only transcript rendering with existing chat message rendering, image-omitted placeholders, and no edit/delete affordances
   - Client fetch helpers for the session APIs
