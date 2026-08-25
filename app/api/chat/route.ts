@@ -3,6 +3,10 @@ import { auth } from "@/auth";
 import { getAppById } from "@/lib/app-store/store";
 import { sendChat, type ChatMsg } from "@/lib/ai/providers";
 import { normalizeVariability } from "@/lib/app-store/model-selection";
+import {
+  recordChatTurn,
+  swallowRecordingFailure,
+} from "@/lib/chat-session-store/record-chat-turn";
 
 export const runtime = "nodejs";
 
@@ -260,12 +264,14 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { appId, system, messages, visualizationState } = (await req.json()) as {
-      appId?: string;
-      system?: string;
-      messages?: { role: "user" | "assistant"; content: string; imageUrl?: string }[];
-      visualizationState?: VisualizationState;
-    };
+    const { appId, system, messages, visualizationState, recording } =
+      (await req.json()) as {
+        appId?: string;
+        system?: string;
+        messages?: { role: "user" | "assistant"; content: string; imageUrl?: string }[];
+        visualizationState?: VisualizationState;
+        recording?: unknown;
+      };
 
     if (!appId) {
       return NextResponse.json({ error: "Missing appId" }, { status: 400 });
@@ -338,6 +344,22 @@ export async function POST(req: NextRequest) {
       system: effectiveSystem,
       variability: normalizeVariability(app.variability),
       messages: normalizedMessages,
+    });
+
+    await swallowRecordingFailure(async () => {
+      await recordChatTurn({
+        recording,
+        isPublishedRequest,
+        userId: userId ?? null,
+        userName: session?.user?.name ?? null,
+        app: {
+          id: app.id,
+          name: app.name,
+          ownerId: app.ownerId,
+        },
+        messages: rawMessages,
+        assistantReply: reply,
+      });
     });
 
     return NextResponse.json({

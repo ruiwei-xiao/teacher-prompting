@@ -19,7 +19,7 @@
   - _Requirements: 2.2, 2.8, 3.2, 3.5, 3.6, 3.7, 4.6_
 
 - [ ] 2. Recording integration across chat surfaces
-- [ ] 2.1 Add the opt-in recording step to the chat API route
+- [x] 2.1 Add the opt-in recording step to the chat API route
   - Accept an optional recording payload (session id, surface, owner-sharing flag, message timestamps) without changing behavior for requests that omit it (builder-assistant conversations stay unrecorded)
   - Validate surface claims against the existing published/editor auth branch; on mismatch skip recording, never fail the chat
   - Determine participant identity from the authenticated session (or anonymous with no personally identifying data); strip image data URLs and mark them as omitted; skip persistence entirely for anonymous turns with sharing off
@@ -130,3 +130,6 @@
   - Execute the ten manual verification scenarios from the design testing strategy (anonymous and signed-in recording, editor test recording with builder-chat exclusion, signed-in and anonymous opt-out, persistence-failure resilience, access control, deleted-bot history, pagination, chrome changes)
   - Observable completion: all scenarios pass, and the production build completes without errors
   - _Requirements: 1.8, 1.9, 2.7, 3.6, 3.8, 4.3, 4.6_
+
+## Implementation Notes
+- Recording rules live in `lib/chat-session-store/record-chat-turn.ts`; `/api/chat` calls `swallowRecordingFailure` after `sendChat`. Clients must send `recording: { sessionId, surface, ownerSharing?, messageTimes? }`.
