@@ -14,6 +14,9 @@ export async function GET(
     const result = await listOwnerSessions(userId, appId, {
       limit: url.searchParams.get("limit"),
       offset: url.searchParams.get("offset"),
+      surface: url.searchParams.get("surface"),
+      from: url.searchParams.get("from"),
+      to: url.searchParams.get("to"),
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (e: unknown) {

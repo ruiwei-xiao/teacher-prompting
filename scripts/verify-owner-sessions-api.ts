@@ -237,6 +237,59 @@ async function main() {
       },
     },
     {
+      name: "invalid surface/from/to → 400 and does not list",
+      run: async () => {
+        let listed = false;
+        const result = await listOwnerSessions(
+          ownerId,
+          appId,
+          { surface: "left-chat" },
+          {
+            getAppById: async () => ({ id: appId }),
+            listSessionsForApp: async () => {
+              listed = true;
+              return page;
+            },
+          }
+        );
+        assertEqual(result.status, 400, "status");
+        if (!result.ok) {
+          assertEqual(result.body, { error: "Invalid activity filter" }, "body");
+        }
+        assertEqual(listed, false, "listSessionsForApp not called");
+      },
+    },
+    {
+      name: "surface and date range are forwarded to listSessionsForApp",
+      run: async () => {
+        let seenOpts: unknown;
+        const result = await listOwnerSessions(
+          ownerId,
+          appId,
+          { surface: "public", from: "2026-08-01", to: "2026-08-25" },
+          {
+            getAppById: async () => ({ id: appId }),
+            listSessionsForApp: async (_id, opts) => {
+              seenOpts = opts;
+              return { items: [], hasMore: false };
+            },
+          }
+        );
+        assertEqual(result.status, 200, "status");
+        assertEqual(
+          seenOpts,
+          {
+            limit: 20,
+            offset: 0,
+            surface: "public",
+            updatedFrom: "2026-08-01T00:00:00.000Z",
+            updatedTo: "2026-08-26T00:00:00.000Z",
+          },
+          "filter opts"
+        );
+      },
+    },
+    {
       name: "route is a thin auth wrapper around listOwnerSessions",
       run: async () => {
         const routePath = path.join(
@@ -254,8 +307,11 @@ async function main() {
         );
         assert(
           source.includes("searchParams.get(\"limit\")") &&
-            source.includes("searchParams.get(\"offset\")"),
-          "route forwards limit and offset"
+            source.includes("searchParams.get(\"offset\")") &&
+            source.includes("searchParams.get(\"surface\")") &&
+            source.includes("searchParams.get(\"from\")") &&
+            source.includes("searchParams.get(\"to\")"),
+          "route forwards paging and activity filters"
         );
         assert(
           !source.includes("getAppById") &&

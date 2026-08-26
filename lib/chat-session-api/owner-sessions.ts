@@ -4,11 +4,18 @@
  *
  * GET lists shared-only summaries via listSessionsForApp after an ownership
  * check with getAppById(appId, userId). Unauthenticated → 401; missing or
- * non-owned app → 404.
+ * non-owned app → 404. Optional surface/from/to filters; invalid → 400.
  */
 import { getAppById } from "@/lib/app-store/store";
 import { listSessionsForApp } from "@/lib/chat-session-store/store";
-import type { SessionSummary } from "@/lib/chat-session-store/types";
+import type {
+  ListSessionsForAppOpts,
+  SessionSummary,
+} from "@/lib/chat-session-store/types";
+import {
+  ACTIVITY_FILTER_ERROR,
+  parseActivityFilter,
+} from "@/lib/chat-session-ui/activity-filter";
 
 export type ApiError = { error: string };
 
@@ -19,6 +26,9 @@ export type ApiResult<T> =
 export type OwnerSessionListQuery = {
   limit?: string | number | null;
   offset?: string | number | null;
+  surface?: string | null;
+  from?: string | null;
+  to?: string | null;
 };
 
 export type OwnerSessionListBody = {
@@ -35,7 +45,7 @@ export type GetAppByIdFn = (
 
 export type ListSessionsForAppFn = (
   appId: string,
-  opts: { limit: number; offset: number }
+  opts: ListSessionsForAppOpts
 ) => Promise<{ items: SessionSummary[]; hasMore: boolean }>;
 
 function unauthorized(): ApiResult<never> {
@@ -44,6 +54,10 @@ function unauthorized(): ApiResult<never> {
 
 function notFound(): ApiResult<never> {
   return { ok: false, status: 404, body: { error: "App not found" } };
+}
+
+function badRequest(): ApiResult<never> {
+  return { ok: false, status: 400, body: { error: ACTIVITY_FILTER_ERROR } };
 }
 
 function parsePagingInt(
@@ -88,9 +102,12 @@ export async function listOwnerSessions(
   const app = await loadApp(appId, userId);
   if (!app) return notFound();
 
+  const parsed = parseActivityFilter(query);
+  if (!parsed.ok) return badRequest();
+
   const paging = parseOwnerSessionPaging(query);
   const list = deps.listSessionsForApp ?? listSessionsForApp;
-  const page = await list(appId, paging);
+  const page = await list(appId, { ...paging, ...parsed.filter });
 
   return {
     ok: true,

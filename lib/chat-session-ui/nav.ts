@@ -16,3 +16,18 @@ export function isMySessionsPath(pathname: string): boolean {
 export function activityHrefForApp(appId: string): string {
   return `/app/${appId}/activity`;
 }
+
+export function activityExportHref(
+  appId: string,
+  format: "csv" | "json",
+  filter: { surface?: string; from?: string; to?: string } = {}
+): string {
+  const params = new URLSearchParams({ format });
+  const surface = filter.surface?.trim();
+  const from = filter.from?.trim();
+  const to = filter.to?.trim();
+  if (surface) params.set("surface", surface);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return `/api/apps/${encodeURIComponent(appId)}/sessions/export?${params.toString()}`;
+}

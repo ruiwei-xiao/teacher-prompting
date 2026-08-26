@@ -4,12 +4,10 @@ import type { SessionSummary } from "@/lib/chat-session-store/types";
 import {
   formatSessionStartTime,
   sessionBadges,
-  sessionDeletedBotBadge,
+  sessionBadgeClassName,
   sessionDisplayName,
   sessionListShowsLoadMore,
   sessionListViewState,
-  sessionNotSharedBadge,
-  sessionSurfaceBadge,
   type SessionNameMode,
 } from "./session-display";
 
@@ -59,14 +57,11 @@ export default function SessionList({
 
   return (
     <div>
-      <div role="listbox" aria-label="Sessions" className="space-y-2">
+      <div role="listbox" aria-label="Sessions" className="space-y-0.5">
         {sessions.map((session) => {
           const selected = session.id === selectedId;
           const name = sessionDisplayName(session, nameMode);
           const badges = sessionBadges(session, nameMode);
-          const surface = sessionSurfaceBadge(session.surface);
-          const notShared = sessionNotSharedBadge(session, nameMode);
-          const deletedBot = sessionDeletedBotBadge(session);
           return (
             <button
               key={session.id}
@@ -75,11 +70,10 @@ export default function SessionList({
               aria-selected={selected}
               onClick={() => onSelect(session.id)}
               className={[
-                "pressable w-full rounded-2xl border px-4 py-3 text-left",
-                "transition-[transform,border-color,background-color] duration-[var(--duration-ui)] ease-[var(--ease-out)]",
+                "pressable w-full rounded-xl px-3 py-2.5 text-left",
                 selected
-                  ? "border-sky-300 bg-sky-50 dark:border-sky-500/60 dark:bg-sky-950/50"
-                  : "border-slate-200 bg-white hover-ok:border-slate-300 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:hover-ok:border-zinc-500 dark:hover-ok:bg-zinc-800",
+                  ? "bg-sky-50 ring-1 ring-inset ring-sky-300 dark:bg-sky-950/50 dark:ring-sky-500/60"
+                  : "hover-ok:bg-slate-50 dark:hover-ok:bg-zinc-800",
               ].join(" ")}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -93,19 +87,7 @@ export default function SessionList({
                 </div>
                 <div className="flex flex-wrap justify-end gap-1.5">
                   {badges.map((badge) => (
-                    <span
-                      key={badge}
-                      className={[
-                        "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-                        badge === surface
-                          ? "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
-                          : badge === notShared
-                            ? "bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
-                            : badge === deletedBot
-                              ? "bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
-                              : "bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-200",
-                      ].join(" ")}
-                    >
+                    <span key={badge} className={sessionBadgeClassName(badge)}>
                       {badge}
                     </span>
                   ))}

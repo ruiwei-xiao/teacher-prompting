@@ -6,7 +6,10 @@
  * upsertSessionTurn creates on first turn and replaces the transcript later.
  * Identity (appId + participantId) must match an existing row.
  * shared follows the latest requested owner-sharing flag on each upsert.
- * listSessionsForApp is shared-only; listSessionsForUser excludes anonymous.
+ * listSessionsForApp is shared-only with optional source/date filters.
+ * listSessionsForUser excludes anonymous.
+ * listSharedSessionRecordsForApp returns full shared transcripts for owner export
+ * (same optional filters as the owner list).
  * disableSharing / enableSharing flip the flag; discardSession deletes the row.
  */
 import fs from "fs/promises";
@@ -17,6 +20,8 @@ import type {
   ChatSessionRecord,
   ChatSessionsFileData,
   ListPage,
+  ListSessionsForAppOpts,
+  SessionQueryFilter,
   SessionSummary,
   SessionSurface,
   StoredChatMessage,
@@ -27,6 +32,8 @@ export type {
   ChatSessionRecord,
   ChatSessionsFileData,
   ListPage,
+  ListSessionsForAppOpts,
+  SessionQueryFilter,
   SessionSummary,
   SessionSurface,
   StoredChatMessage,
@@ -253,6 +260,22 @@ function paginateRecords(
   };
 }
 
+function matchesQueryFilter(
+  session: Pick<ChatSessionRecord, "surface" | "updatedAt">,
+  filter: SessionQueryFilter = {}
+): boolean {
+  if (filter.surface && session.surface !== filter.surface) {
+    return false;
+  }
+  if (filter.updatedFrom && session.updatedAt < filter.updatedFrom) {
+    return false;
+  }
+  if (filter.updatedTo && session.updatedAt >= filter.updatedTo) {
+    return false;
+  }
+  return true;
+}
+
 async function ensureFileStore() {
   const filePath = sessionsFilePath();
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -341,17 +364,37 @@ async function upsertSessionTurnInFile(
 
 async function listSessionsForAppInFile(
   appId: string,
-  opts: { limit: number; offset: number }
+  opts: ListSessionsForAppOpts
 ): Promise<ListPage<SessionSummary>> {
   const data = await readFileData();
   const matched = data.sessions
-    .filter((session) => session.appId === appId && session.shared)
+    .filter(
+      (session) =>
+        session.appId === appId &&
+        session.shared &&
+        matchesQueryFilter(session, opts)
+    )
     .sort(compareRecency);
   const page = paginateRecords(matched, opts);
   return {
     items: await toSummaries(page.items),
     hasMore: page.hasMore,
   };
+}
+
+async function listSharedSessionRecordsForAppInFile(
+  appId: string,
+  filter: SessionQueryFilter = {}
+): Promise<ChatSessionRecord[]> {
+  const data = await readFileData();
+  return data.sessions
+    .filter(
+      (session) =>
+        session.appId === appId &&
+        session.shared &&
+        matchesQueryFilter(session, filter)
+    )
+    .sort(compareRecency);
 }
 
 async function listSessionsForUserInFile(
@@ -470,19 +513,47 @@ async function pageFromRows(
 
 async function listSessionsForAppInPostgres(
   appId: string,
-  opts: { limit: number; offset: number }
+  opts: ListSessionsForAppOpts
 ): Promise<ListPage<SessionSummary>> {
   await ensurePostgresStore();
+  const surface = opts.surface ?? null;
+  const updatedFrom = opts.updatedFrom ?? null;
+  const updatedTo = opts.updatedTo ?? null;
   const result = await sql<ChatSessionRow>`
     SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
       surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE app_id = ${appId} AND shared = TRUE
+      AND (${surface}::text IS NULL OR surface = ${surface})
+      AND (${updatedFrom}::timestamptz IS NULL OR updated_at >= ${updatedFrom})
+      AND (${updatedTo}::timestamptz IS NULL OR updated_at < ${updatedTo})
     ORDER BY updated_at DESC
     LIMIT ${opts.limit + 1} OFFSET ${opts.offset}
   `;
   return pageFromRows(result.rows, opts.limit);
+}
+
+async function listSharedSessionRecordsForAppInPostgres(
+  appId: string,
+  filter: SessionQueryFilter = {}
+): Promise<ChatSessionRecord[]> {
+  await ensurePostgresStore();
+  const surface = filter.surface ?? null;
+  const updatedFrom = filter.updatedFrom ?? null;
+  const updatedTo = filter.updatedTo ?? null;
+  const result = await sql<ChatSessionRow>`
+    SELECT
+      id, app_id, app_name, owner_id, participant_id, participant_name,
+      surface, shared, messages, created_at, updated_at
+    FROM chat_sessions
+    WHERE app_id = ${appId} AND shared = TRUE
+      AND (${surface}::text IS NULL OR surface = ${surface})
+      AND (${updatedFrom}::timestamptz IS NULL OR updated_at >= ${updatedFrom})
+      AND (${updatedTo}::timestamptz IS NULL OR updated_at < ${updatedTo})
+    ORDER BY updated_at DESC
+  `;
+  return result.rows.map(rowToSession);
 }
 
 async function listSessionsForUserInPostgres(
@@ -550,12 +621,22 @@ export async function upsertSessionTurn(
 
 export async function listSessionsForApp(
   appId: string,
-  opts: { limit: number; offset: number }
+  opts: ListSessionsForAppOpts
 ): Promise<ListPage<SessionSummary>> {
   if (shouldUsePostgres()) {
     return listSessionsForAppInPostgres(appId, opts);
   }
   return listSessionsForAppInFile(appId, opts);
+}
+
+export async function listSharedSessionRecordsForApp(
+  appId: string,
+  filter: SessionQueryFilter = {}
+): Promise<ChatSessionRecord[]> {
+  if (shouldUsePostgres()) {
+    return listSharedSessionRecordsForAppInPostgres(appId, filter);
+  }
+  return listSharedSessionRecordsForAppInFile(appId, filter);
 }
 
 export async function listSessionsForUser(

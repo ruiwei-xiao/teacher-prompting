@@ -15,7 +15,10 @@ export default function SessionBrowseLayout({
 }) {
   if (isEmpty) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center" aria-label={ariaLabel}>
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center"
+        aria-label={ariaLabel}
+      >
         {empty}
       </div>
     );
@@ -23,20 +26,20 @@ export default function SessionBrowseLayout({
 
   return (
     <div
-      className="mt-5 flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-5"
+      className="mt-4 flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4"
       aria-label={ariaLabel}
     >
       <section
         aria-label="Sessions"
-        className="min-h-0 max-h-[38%] overflow-y-auto py-1 lg:max-h-none lg:w-80 lg:shrink-0"
+        className="flex min-h-0 max-h-[38%] flex-col overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white lg:max-h-none lg:w-72 lg:shrink-0 dark:border-zinc-600 dark:bg-zinc-900"
       >
-        {list}
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">{list}</div>
       </section>
       <section
         aria-label="Transcript"
-        className="pane-surface min-h-0 flex-1 overflow-y-auto rounded-[1.35rem] border border-slate-200 p-5 sm:p-6 dark:border-zinc-600"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white dark:border-zinc-600 dark:bg-zinc-900"
       >
-        {detail}
+        <div className="min-h-0 flex-1 overflow-y-auto">{detail}</div>
       </section>
     </div>
   );
@@ -63,7 +66,7 @@ export function SessionEmptyState({
 
 export function SessionDetailHint({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-[12rem] items-center justify-center">
+    <div className="flex min-h-full items-center justify-center px-6 py-16">
       <p className="max-w-xs text-center text-sm leading-6 text-slate-500 dark:text-zinc-400">
         {children}
       </p>

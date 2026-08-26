@@ -174,7 +174,9 @@ async function main() {
           'MySessionsView stays nameMode="bot"'
         );
         assert(
-          listSource.includes("sessionNotSharedBadge"),
+          listSource.includes("sessionNotSharedBadge") ||
+            listSource.includes("sessionBadges") ||
+            listSource.includes("sessionBadgeClassName"),
           "SessionList renders the not-shared badge helper"
         );
         assertEqual(
@@ -212,7 +214,8 @@ async function main() {
         );
         assert(
           listSource.includes("sessionDeletedBotBadge") ||
-            listSource.includes("appExists"),
+            listSource.includes("appExists") ||
+            listSource.includes("sessionBadges"),
           "SessionList already handles deleted-bot via appExists"
         );
       },

@@ -6,8 +6,8 @@ This feature introduces chat session recording and viewing to the platform, equi
 
 ## Boundary Context
 
-- **In scope**: Recording conversations from the public chat page and from editor test chats; creator-facing per-bot activity viewing; user-facing "My sessions" history; anonymous session handling and a recording notice; a participant-controlled toggle to stop sharing a conversation with the bot's owner (default on); renaming the existing "Activities" navigation item; cleaning up My bots card actions (labels, icons, activity entry point).
-- **Out of scope**: AI-powered conversation analysis against goals/success paths (Playlab's "analyze conversation"); session deletion by any role (view-only in this release); data retention/expiry policies; aggregated usage analytics or metrics dashboards; exporting transcripts; changes to the rubric calibration feature beyond its navigation label.
+- **In scope**: Recording conversations from the public chat page and from editor test chats; creator-facing per-bot activity viewing; owner download of shared activity transcripts (CSV and JSON) for research use; user-facing "My sessions" history; anonymous session handling and a recording notice; a participant-controlled toggle to stop sharing a conversation with the bot's owner (default on); renaming the existing "Activities" navigation item; cleaning up My bots card actions (labels, icons, activity entry point).
+- **Out of scope**: AI-powered conversation analysis against goals/success paths (Playlab's "analyze conversation"); session deletion by any role (view-only in this release); data retention/expiry policies; aggregated usage analytics or metrics dashboards; participant-facing My sessions download; changes to the rubric calibration feature beyond its navigation label.
 - **Adjacent expectations**: The existing rubric calibration feature keeps its current behavior and routes; only its navigation label changes. Authentication continues to provide signed-in user identity; this feature does not add new sign-in flows. Publishing and sharing flows are unchanged; recording applies to existing chat surfaces.
 
 ## Requirements
@@ -42,6 +42,9 @@ This feature introduces chat session recording and viewing to the platform, equi
 6. If a bot has no recorded sessions, the activity view shall display an empty state explaining that sessions will appear once the bot is used.
 7. If a user who does not own the bot attempts to access the bot's activity view, the system shall deny access.
 8. While the session list grows large, the activity view shall remain browsable by loading sessions incrementally or in pages rather than all transcripts at once.
+9. The activity view shall let the bot owner download the bot's shared session transcripts as CSV (one row per message) and as JSON (full session records). Unshared sessions shall be omitted from both downloads.
+10. The activity view shall let the bot owner filter the session list by source (all sources, public chat, or editor test) and by a date range on last activity. When no sessions match the current filters, the system shall explain that rather than showing the unused-bot empty state.
+11. When the bot owner downloads from the activity view, the system shall apply the same source and date-range filters that are currently selected on the list.
 
 ### Requirement 3: My Sessions History
 

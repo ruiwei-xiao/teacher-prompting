@@ -155,6 +155,11 @@ async function main() {
           "Editor test",
           "editor-test"
         );
+        assert(
+          display.sessionBadgeClassName("Public chat") !==
+            display.sessionBadgeClassName("Editor test"),
+          "public and editor-test badges use different colors"
+        );
       },
     },
     {

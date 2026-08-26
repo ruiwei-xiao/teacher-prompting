@@ -30,7 +30,7 @@ export default async function MySessionsPage() {
       <main className="main-viewport flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8">
           <header className="shrink-0">
-            <h1 className="type-display text-3xl text-slate-900 md:text-4xl dark:text-zinc-100">
+            <h1 className="type-display text-2xl text-slate-900 md:text-3xl dark:text-zinc-100">
               My sessions
             </h1>
           </header>

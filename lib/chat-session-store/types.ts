@@ -38,6 +38,17 @@ export type UpsertSessionTurnInput = Omit<
 
 export type ListPage<T> = { items: T[]; hasMore: boolean };
 
+export type SessionQueryFilter = {
+  surface?: SessionSurface;
+  updatedFrom?: string;
+  updatedTo?: string;
+};
+
+export type ListSessionsForAppOpts = {
+  limit: number;
+  offset: number;
+} & SessionQueryFilter;
+
 export type ChatSessionsFileData = {
   sessions: ChatSessionRecord[];
 };

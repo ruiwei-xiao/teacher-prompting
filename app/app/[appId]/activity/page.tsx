@@ -31,19 +31,21 @@ export default async function ActivityPage({
           <header className="shrink-0">
             <Link
               href={`/app/${appId}/editor`}
-              className="pressable -ml-2 inline-flex h-9 items-center gap-1 rounded-xl px-2 text-sm font-medium text-sky-700 hover-ok:bg-sky-50 dark:text-sky-400 dark:hover-ok:bg-sky-950/40"
+              className="pressable -ml-2 inline-flex h-8 items-center gap-1 rounded-lg px-2 text-sm font-medium text-sky-700 hover-ok:bg-sky-50 dark:text-sky-400 dark:hover-ok:bg-sky-950/40"
             >
               <span aria-hidden="true" className="text-base leading-none">
                 ‹
               </span>
               Back to editor
             </Link>
-            <h1 className="type-display mt-1 text-3xl text-slate-900 md:text-4xl dark:text-zinc-100">
-              Activity
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              {appName}
-            </p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                Activity
+              </p>
+              <h1 className="type-display text-2xl text-slate-900 md:text-3xl dark:text-zinc-100">
+                {appName}
+              </h1>
+            </div>
           </header>
           <BotActivityView appId={app.id} appName={appName} />
         </div>

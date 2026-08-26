@@ -6,12 +6,12 @@
 
 **Users**: Bot creators (teachers) review sessions from the editor's activity view and the My bots card. Signed-in users browse their history from a new sidebar item. Anonymous learners on public chat pages get a recording notice and a sharing opt-out.
 
-**Impact**: Introduces the platform's first chat-persistence capability. Conversations currently exist only in client React state; this design adds a `chat-session-store` domain, a recording step inside the existing `/api/chat` route, four read/control API endpoints, two new pages, and small modifications to the sidebar, My bots cards, editor chrome, and both chat clients.
+**Impact**: Introduces the platform's first chat-persistence capability. Conversations currently exist only in client React state; this design adds a `chat-session-store` domain, a recording step inside the existing `/api/chat` route, five read/control API endpoints, two new pages, and small modifications to the sidebar, My bots cards, editor chrome, and both chat clients.
 
 ### Goals
 
 - Persist conversations from the public chat page and editor test chats as sessions, without ever blocking chat on persistence failure.
-- Give bot owners a paginated, deep-linkable activity view with read-only transcripts.
+- Give bot owners a paginated, deep-linkable activity view with read-only transcripts, source and date-range filters, and a research download (CSV / JSON of shared sessions only, honoring those filters).
 - Give signed-in users a My sessions history across all bots, resilient to bot deletion.
 - Enforce participant privacy: anonymous identity, a visible recording notice, and a participant-controlled owner-sharing toggle.
 - Clean up navigation naming ("Collaborative activities") and My bots card actions ("Edit", activity entry, icon-based Delete).
@@ -19,7 +19,7 @@
 ### Non-Goals
 
 - AI conversation analysis against goals/success paths (excluded by requirements).
-- User-facing session deletion, retention/expiry policies, transcript export, aggregated analytics.
+- User-facing session deletion, retention/expiry policies, aggregated analytics, participant-facing My sessions download.
 - Recording builder-assistant (`LeftChat`) conversations — authoring assistance is not a bot conversation.
 - Changes to rubric calibration behavior or routes (label change only).
 - Streaming chat, message-level sharing granularity, or workspace-level activity surfaces.
@@ -30,7 +30,7 @@
 
 - The `chat_sessions` data model and the `lib/chat-session-store/` façade (only writer/reader of session data).
 - The recording contract added to `/api/chat` (the `recording` request field and its validation).
-- Session read/control endpoints: owner list, participant list, transcript, sharing opt-out.
+- Session read/control endpoints: owner list, owner export, participant list, transcript, sharing opt-out.
 - The activity page (`/app/[appId]/activity`), My sessions page (`/sessions`), and their components.
 - Sidebar label changes and My bots card action changes.
 
@@ -78,6 +78,7 @@ graph TB
     subgraph Routes
         ChatRoute[POST api chat]
         OwnerList[GET api apps appId sessions]
+        OwnerExport[GET api apps appId sessions export]
         MyList[GET api sessions]
         Transcript[GET api sessions id]
         Sharing[POST api sessions id sharing]
@@ -91,6 +92,7 @@ graph TB
     LeftChat -->|messages no recording| ChatRoute
     PublishedChatbot -->|opt out| Sharing
     ActivityView --> OwnerList
+    ActivityView --> OwnerExport
     ActivityView --> Transcript
     MySessionsView --> MyList
     MySessionsView --> Transcript
@@ -98,10 +100,12 @@ graph TB
     ChatRoute --> Store
     ChatRoute --> AppStore
     OwnerList --> Store
+    OwnerExport --> Store
     MyList --> Store
     Transcript --> Store
     Sharing --> Store
     OwnerList --> AppStore
+    OwnerExport --> AppStore
 ```
 
 **Key decisions** (rationale in `research.md`):
@@ -116,7 +120,7 @@ graph TB
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
 | Frontend | Next.js 16 App Router, React 19, Tailwind CSS 4 | New pages, list/transcript components, toggle UI | No new dependencies |
-| Backend | Next.js route handlers (Node.js runtime) | Recording step + 4 new endpoints | Follows existing `auth()`/ownership conventions |
+| Backend | Next.js route handlers (Node.js runtime) | Recording step + 5 new endpoints | Follows existing `auth()`/ownership conventions |
 | Data | Vercel Postgres (tagged SQL) with `.data/chat-sessions.json` fallback | `chat_sessions` table via store façade | `CREATE TABLE IF NOT EXISTS`; no migration framework |
 
 ## File Structure Plan
@@ -127,11 +131,15 @@ graph TB
 lib/chat-session-store/
 ├── types.ts                    # ChatSessionRecord, StoredChatMessage, SessionSurface, list/query input types
 └── store.ts                    # Postgres/JSON façade: upsertSessionTurn, listSessionsForApp,
-                                #   listSessionsForUser, getSessionById, disableSharing, discardSession
+                                #   listSharedSessionRecordsForApp, listSessionsForUser,
+                                #   getSessionById, disableSharing, enableSharing, discardSession
+lib/chat-session-api/
+└── export.ts                   # Owner CSV/JSON export handler (shared sessions only)
 lib/chat-session-ui/
-└── nav.ts                      # MY_SESSIONS_HREF, isMySessionsPath, activityHrefForApp helpers
+└── nav.ts                      # MY_SESSIONS_HREF, isMySessionsPath, activityHrefForApp, activityExportHref
 app/api/apps/[appId]/sessions/
-└── route.ts                    # GET owner-scoped session list (shared only, paginated)
+├── route.ts                    # GET owner-scoped session list (shared only, paginated)
+└── export/route.ts             # GET owner CSV/JSON download of shared transcripts
 app/api/sessions/
 ├── route.ts                    # GET participant-scoped session list (paginated)
 └── [sessionId]/
@@ -217,6 +225,9 @@ Flow decisions: recording happens after the model reply so failed inference neve
 | 2.6 | Empty state | SessionList | `emptyMessage` prop |
 | 2.7 | Non-owner access denied | ActivityPage, OwnerSessionsAPI | ownership check → 404/403 |
 | 2.8 | Incremental loading | OwnerSessionsAPI, SessionList | `limit`/`offset` + Load more |
+| 2.9 | Owner download of shared transcripts | ActivityPage, ExportAPI, ChatSessionStore | `GET /api/apps/[appId]/sessions/export?format=` |
+| 2.10 | Filter list by source and date range | BotActivityView, OwnerSessionsAPI, ChatSessionStore | `surface`, `from`, `to` query params |
+| 2.11 | Download uses the same filters as the list | BotActivityView, ExportAPI | export query matches list filters |
 | 3.1 | Sidebar "My sessions" for signed-in users | WorkspaceSidebar | `MY_SESSIONS_HREF` |
 | 3.2 | Own sessions across bots by recency | MySessionsAPI, ChatSessionStore | `listSessionsForUser` |
 | 3.3 | Bot name, start time, surface badge | SessionList | snapshotted `app_name` |
@@ -313,16 +324,18 @@ export type ListPage<T> = { items: T[]; hasMore: boolean };
 
 // store.ts exports
 upsertSessionTurn(input: UpsertSessionTurnInput): Promise<void>;   // throws on identity mismatch
-listSessionsForApp(appId: string, opts: { limit: number; offset: number }): Promise<ListPage<SessionSummary>>;  // shared = true only
+listSessionsForApp(appId: string, opts: { limit: number; offset: number; surface?: SessionSurface; updatedFrom?: string; updatedTo?: string }): Promise<ListPage<SessionSummary>>;  // shared = true only
+listSharedSessionRecordsForApp(appId: string, filter?: { surface?: SessionSurface; updatedFrom?: string; updatedTo?: string }): Promise<ChatSessionRecord[]>;
 listSessionsForUser(userId: string, opts: { limit: number; offset: number }): Promise<ListPage<SessionSummary>>;
 getSessionById(id: string): Promise<ChatSessionRecord | null>;
 disableSharing(id: string): Promise<void>;   // signed-in opt-out: shared = false
+enableSharing(id: string): Promise<void>;    // signed-in re-enable: shared = true
 discardSession(id: string): Promise<void>;   // anonymous opt-out: delete row
 ```
 
 - Preconditions: callers (routes) have performed authentication/authorization.
 - Postconditions: `upsertSessionTurn` replaces `messages` wholesale and bumps `updatedAt`; list functions order by `updatedAt DESC`.
-- Invariants: `listSessionsForApp` filters `shared = true` — this is the single enforcement point for owner visibility.
+- Invariants: `listSessionsForApp` and `listSharedSessionRecordsForApp` filter `shared = true` — this is the single enforcement point for owner visibility.
 
 ##### State Management
 - Persistence: Postgres table `chat_sessions` (below) or `.data/chat-sessions.json`.
@@ -363,7 +376,8 @@ All follow the repo convention: `auth()` → authorization → store call → JS
 
 | Method | Endpoint | Authorization | Response | Errors |
 |--------|----------|---------------|----------|--------|
-| GET | /api/apps/[appId]/sessions?limit&offset | signed-in owner of app (`getAppById(appId, userId)`) | `{ sessions: SessionSummary[]; hasMore: boolean }` (shared only) | 401, 404 |
+| GET | /api/apps/[appId]/sessions?limit&offset&surface&from&to | signed-in owner of app (`getAppById(appId, userId)`) | `{ sessions: SessionSummary[]; hasMore: boolean }` (shared only; optional `surface=public\|editor-test`, `from`/`to` as UTC `YYYY-MM-DD` inclusive bounds on `updatedAt`) | 400, 401, 404 |
+| GET | /api/apps/[appId]/sessions/export?format=csv\|json&surface&from&to | signed-in owner of app (`getAppById(appId, userId)`) | attachment: CSV (one row per message, UTF-8 BOM) or JSON (`{ appId, appName, exportedAt, filter, sessions }`); shared transcripts only; same optional filters as the list | 400, 401, 404 |
 | GET | /api/sessions?limit&offset | signed-in; `participantId = userId` | `{ sessions: SessionSummary[]; hasMore: boolean }` | 401 |
 | GET | /api/sessions/[sessionId] | participant (`participantId === userId`), or bot owner (`ownerId === userId` AND `shared === true`) | `{ session: ChatSessionRecord }` | 401, 403, 404 |
 | POST | /api/sessions/[sessionId]/sharing | signed-in participant → `disableSharing` / `enableSharing` from `{ shared }`; anonymous request on an anonymous session → `discardSession` when turning off (UUID knowledge = capability) | `{ ok: true }` | 403 (signed-in session, non-participant caller), 404 |
@@ -379,7 +393,8 @@ UI components are summary-only (no new boundaries beyond fetching the APIs above
 - **SessionList**: presentational paginated list; props include `sessions: SessionSummary[]`, `hasMore`, `onLoadMore`, `onSelect`, `emptyMessage`, `nameMode: "participant" | "bot"` (owner view shows participant names, My sessions shows bot names). Renders surface badges ("Public chat" / "Editor test"), "Anonymous" for null participants, "Not shared with owner" badge when `shared === false` in participant mode, and "Bot no longer available" when `appExists === false` (2.3, 2.6, 3.3, 4.2, 4.7, 3.6).
 - **SessionTranscript**: read-only transcript rendered with `ChatMessageBody`; shows `(image attached)` placeholders for `imageOmitted` messages; no mutation affordances (2.4, 3.4, 4.4).
 - **BotActivityView / MySessionsView**: client master-detail views composing SessionList + SessionTranscript over their respective APIs via `session-client.ts` helpers.
-- **ActivityPage** (`app/app/[appId]/activity/page.tsx`): server page; `auth()` + `getAppById(appId, userId)`; unauthenticated or non-owner → `notFound()` (2.7). Renders app name header + BotActivityView.
+- **ActivityPage** (`app/app/[appId]/activity/page.tsx`): server page; `auth()` + `getAppById(appId, userId)`; unauthenticated or non-owner → `notFound()` (2.7). Renders app name header and BotActivityView.
+- **BotActivityView**: source filter (all / public chat / editor test) and last-activity date range (All time, last 7/14/30 days, or custom `from`/`to`). Filters live in the activity URL (`surface`, `from`, `to`) alongside `session`. List fetch and CSV/JSON downloads use the same query. Dates are UTC calendar days inclusive on `updatedAt` (2.10, 2.11).
 - **MySessionsPage** (`app/sessions/page.tsx`): server page; unauthenticated → redirect to sign-in (3.8).
 - **Chrome modifications**: `EditorChrome` gains an "Activity" link (2.1); `WorkspaceSidebar` renames "Activities" → "Collaborative activities" and adds "My sessions" (3.1, 5.1, 5.3); `AppCard`/`AppGrid` relabel CTA to "Edit", add an Activity action, and convert Delete to an icon button with `aria-label` and tooltip while reusing `DeleteBotDialog` (6.1-6.5).
 
@@ -435,6 +450,8 @@ No automated test runner exists in this repository (per steering); verification 
 8. Bot deletion: delete a bot after chatting → session still listed in My sessions with "Bot no longer available" (3.6).
 9. Pagination: >20 sessions → Load more works and ordering is by recency (2.8, 2.2).
 10. Chrome: sidebar shows "Collaborative activities" + "My sessions"; card shows Edit / Activity / Share / icon Delete with tooltip; delete confirmation still required (5.1-5.3, 6.1-6.5).
+11. Owner export: from Activity, Download CSV / Download JSON returns only shared sessions; unshared conversations are absent; CSV has one row per message (2.9, 4.3).
+12. Activity filters: source Public chat hides editor tests; last 7 days hides older activity; download of the filtered view omits excluded sessions (2.10, 2.11).
 
 ## Security Considerations
 

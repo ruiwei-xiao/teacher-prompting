@@ -44,6 +44,7 @@ async function main() {
     upsertSessionTurn,
     getSessionById,
     listSessionsForApp,
+    listSharedSessionRecordsForApp,
     listSessionsForUser,
     disableSharing,
     enableSharing,
@@ -53,6 +54,7 @@ async function main() {
     MY_SESSIONS_HREF,
     isMySessionsPath,
     activityHrefForApp,
+    activityExportHref,
   } = await import("../lib/chat-session-ui/nav");
 
   const messages = [
@@ -118,6 +120,16 @@ async function main() {
           activityHrefForApp("bot-42"),
           "/app/bot-42/activity",
           "activityHrefForApp"
+        );
+        assertEqual(
+          activityExportHref("bot-42", "csv"),
+          "/api/apps/bot-42/sessions/export?format=csv",
+          "activityExportHref csv"
+        );
+        assertEqual(
+          activityExportHref("bot 42", "json"),
+          "/api/apps/bot%2042/sessions/export?format=json",
+          "activityExportHref encodes appId"
         );
       },
     },
@@ -364,6 +376,107 @@ async function main() {
         const session = await getSessionById("lookup-full");
         assert(session, "expected the recorded session");
         assertEqual(session.messages, longerMessages, "full transcript");
+      },
+    },
+    {
+      name: "listSharedSessionRecordsForApp returns full shared transcripts only",
+      run: async () => {
+        await upsertSessionTurn({
+          id: "export-shared",
+          ...botA,
+          ...user1,
+          surface: "public",
+          shared: true,
+          messages: longerMessages,
+        });
+        await upsertSessionTurn({
+          id: "export-unshared",
+          ...botA,
+          ...user1,
+          surface: "public",
+          shared: false,
+          messages,
+        });
+        await upsertSessionTurn({
+          id: "export-other-bot",
+          ...botB,
+          ...user1,
+          surface: "public",
+          shared: true,
+          messages,
+        });
+
+        const records = await listSharedSessionRecordsForApp(botA.appId);
+        const ids = records.map((item) => item.id);
+        assertEqual(
+          ids.includes("export-unshared"),
+          false,
+          "export excludes unshared"
+        );
+        assertEqual(
+          ids.includes("export-other-bot"),
+          false,
+          "export excludes other bots"
+        );
+        const shared = records.find((item) => item.id === "export-shared");
+        assert(shared, "export includes the shared session");
+        assertEqual(shared.messages, longerMessages, "export keeps transcript");
+        assertEqual(shared.shared, true, "export rows are shared");
+      },
+    },
+    {
+      name: "owner list and export honor source and last-activity date filters",
+      run: async () => {
+        await upsertSessionTurn({
+          id: "filter-public",
+          ...botA,
+          ...user1,
+          surface: "public",
+          shared: true,
+          messages,
+        });
+        await sleep(15);
+        await upsertSessionTurn({
+          id: "filter-editor",
+          ...botA,
+          ...user1,
+          surface: "editor-test",
+          shared: true,
+          messages,
+        });
+
+        const publicOnly = await listSessionsForApp(botA.appId, {
+          limit: 50,
+          offset: 0,
+          surface: "editor-test",
+        });
+        const publicIds = publicOnly.items.map((item) => item.id);
+        assert(
+          publicIds.includes("filter-editor"),
+          "editor-test filter includes editor session"
+        );
+        assertEqual(
+          publicIds.includes("filter-public"),
+          false,
+          "editor-test filter excludes public"
+        );
+
+        const editorRecord = await getSessionById("filter-editor");
+        assert(editorRecord, "editor session exists");
+        const afterEditor = editorRecord.updatedAt;
+        const olderOnly = await listSharedSessionRecordsForApp(botA.appId, {
+          updatedTo: afterEditor,
+        });
+        const olderIds = olderOnly.map((item) => item.id);
+        assertEqual(
+          olderIds.includes("filter-editor"),
+          false,
+          "updatedTo exclusive of the editor session's timestamp"
+        );
+        assert(
+          olderIds.includes("filter-public"),
+          "earlier public session remains when bounded by later updatedTo"
+        );
       },
     },
     {

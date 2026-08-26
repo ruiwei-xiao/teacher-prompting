@@ -120,7 +120,7 @@ function MySessionsViewInner() {
     detail = <SessionDetailHint>Loading transcript…</SessionDetailHint>;
   } else if (transcriptError) {
     detail = (
-      <div className="space-y-3">
+      <div className="space-y-3 px-5 py-4">
         <p className="text-sm text-red-700 dark:text-red-300" role="alert">
           {transcriptError}
         </p>
@@ -134,7 +134,7 @@ function MySessionsViewInner() {
       </div>
     );
   } else if (transcript) {
-    detail = <SessionTranscript session={transcript} />;
+    detail = <SessionTranscript session={transcript} nameMode="bot" />;
   }
 
   const isBare = sessions.length === 0 && !listError && !selectedId;

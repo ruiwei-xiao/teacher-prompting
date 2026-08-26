@@ -162,6 +162,16 @@ Research Needed (carry into design):
 - **Selected Approach**: `limit`/`offset` query params (default limit 20) on list endpoints; transcripts fetched per session on selection.
 - **Rationale**: Simplest correct approach at expected volumes; cursor pagination deferred until scale demands it.
 
+### Decision: Activity filters are source + last-activity date range (not Playlab user picker)
+- **Context**: Playlab Activity filters by user and date (plus builder/app). This product's public chat is often anonymous, and owner editor tests share the activity list with real learners.
+- **Selected Approach**: First filters are **source** (`public` / `editor-test` / all) and **UTC date range on `updatedAt`** (presets 7/14/30 days or custom `from`/`to`). Participant/user picker is deferred. List and export share the same query params. Invalid `surface`/`from`/`to` → 400.
+- **Trade-offs**: UTC calendar days can disagree with the teacher's local midnight; accepted for v1 because timestamps in export are already ISO UTC.
+
+### Decision: Owner activity download (CSV + JSON, shared sessions only)
+- **Context**: Session data is intended for research analysis. Spreadsheet tools need a flat table; programmatic analysis needs the nested transcript.
+- **Selected Approach**: Owner-only `GET /api/apps/[appId]/sessions/export?format=csv|json`, gated with the same `getAppById(appId, userId)` check as the owner list. CSV is one row per message (UTF-8 BOM for Excel). JSON is `{ appId, appName, exportedAt, sessions }` with full `ChatSessionRecord`s. Both omit unshared sessions. Editor-test conversations are included and distinguished by `surface` so researchers can filter. Anonymous participants export as empty `participantId` and name `Anonymous`.
+- **Trade-offs**: Export is unpaged (research needs the full shared set). My sessions download is out of scope.
+
 ### Synthesis outcomes
 - **Generalization**: Owner activity list and My sessions list are the same underlying capability (query sessions by dimension + view transcript); one store, one list component, one transcript component, two thin views.
 - **Build vs adopt**: No new dependencies. Persistence follows the in-repo store façade pattern; no ORM/queue/library introduced.
@@ -169,6 +179,6 @@ Research Needed (carry into design):
 
 ## Risks & Mitigations
 - `/api/chat` contract change touches three callers — mitigation: recording is opt-in; untouched callers behave exactly as before.
-- Sharing rules enforced in every owner-facing query — mitigation: single store function (`listSessionsForApp`) owns the `shared = true` filter; owner transcript access re-checks `shared`.
+- Sharing rules enforced in every owner-facing query — mitigation: `listSessionsForApp` and `listSharedSessionRecordsForApp` own the `shared = true` filter; owner transcript access re-checks `shared`; export drops any leaked unshared rows.
 - AssistantPanel is very large — mitigation: change confined to the two fetch call sites plus session-ID state per test case.
 - No automated test suite (per steering) — mitigation: manual verification scenarios + production build check defined in design Testing Strategy.

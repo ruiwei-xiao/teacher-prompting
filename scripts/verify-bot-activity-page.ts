@@ -156,6 +156,65 @@ async function main() {
       },
     },
     {
+      name: "BotActivityView offers CSV/JSON downloads and source/date filters",
+      run: async () => {
+        const source = await readSource(
+          "components/sessions/BotActivityView.tsx"
+        );
+        assert(
+          source.includes("activityExportHref"),
+          "uses activityExportHref"
+        );
+        assert(source.includes("Download CSV"), "CSV label");
+        assert(source.includes("Download JSON"), "JSON label");
+        assert(
+          source.includes("ActivityFilters"),
+          "renders ActivityFilters"
+        );
+        assert(
+          source.includes("buildActivitySearch"),
+          "keeps filters in the activity URL"
+        );
+        assert(
+          source.includes("No sessions match these filters"),
+          "filtered empty copy"
+        );
+        assert(
+          source.includes("Shared sessions only"),
+          "export is labeled as shared-only"
+        );
+      },
+    },
+    {
+      name: "Activity filters use a source dropdown and a date-range calendar",
+      run: async () => {
+        const filters = await readSource(
+          "components/sessions/ActivityFilters.tsx"
+        );
+        const picker = await readSource(
+          "components/sessions/DateRangePicker.tsx"
+        );
+        assert(
+          !filters.includes('type="date"'),
+          "native date inputs are not the custom-range UI"
+        );
+        assert(filters.includes("<select"), "source is a dropdown");
+        assert(filters.includes("DateRangePicker"), "composes DateRangePicker");
+        assert(filters.includes("All sources"), "source: All sources");
+        assert(filters.includes("Public chat"), "source: Public chat");
+        assert(filters.includes("Editor test"), "source: Editor test");
+        assert(!filters.includes("All time"), "no last-N-days presets");
+        assert(!filters.includes("7d"), "no 7d preset");
+        assert(picker.includes("Select date range"), "empty range copy");
+        assert(picker.includes("role=\"dialog\""), "calendar is a dialog");
+        assert(
+          picker.includes("Select the start date, then the end date"),
+          "start-then-end instructions"
+        );
+        assert(picker.includes("Clear date range"), "clear control");
+      },
+    },
+    {
       name: "BotActivityView opens transcripts at a stable session URL",
       run: async () => {
         const source = await readSource(

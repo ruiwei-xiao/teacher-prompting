@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -12,7 +13,14 @@ import type {
   ChatSessionRecord,
   SessionSummary,
 } from "@/lib/chat-session-store/types";
-import { activityHrefForApp } from "@/lib/chat-session-ui/nav";
+import {
+  activityFilterQueryFromSearchParams,
+  buildActivitySearch,
+  isActivityFilterActive,
+  parseActivityFilter,
+} from "@/lib/chat-session-ui/activity-filter";
+import { activityExportHref, activityHrefForApp } from "@/lib/chat-session-ui/nav";
+import ActivityFilters from "./ActivityFilters";
 import SessionBrowseLayout, {
   SessionDetailHint,
   SessionEmptyState,
@@ -26,6 +34,7 @@ import {
 } from "./session-client";
 
 const EMPTY_MESSAGE = "Sessions will appear once the bot is used.";
+const FILTER_EMPTY_MESSAGE = "No sessions match these filters.";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
@@ -41,6 +50,10 @@ function BotActivityViewInner({
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = (searchParams.get("session") ?? "").trim() || null;
+  const filterValue = activityFilterQueryFromSearchParams(searchParams);
+  const parsedFilter = parseActivityFilter(filterValue);
+  const filterActive =
+    parsedFilter.ok && isActivityFilterActive(parsedFilter.filter);
 
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -51,6 +64,15 @@ function BotActivityViewInner({
   const [transcriptError, setTranscriptError] = useState("");
   const [transcriptNonce, setTranscriptNonce] = useState(0);
 
+  const listOpts = useMemo(
+    () => ({
+      surface: filterValue.surface || undefined,
+      from: filterValue.from || undefined,
+      to: filterValue.to || undefined,
+    }),
+    [filterValue.from, filterValue.surface, filterValue.to]
+  );
+
   const loadList = useCallback(
     async (offset: number, append: boolean) => {
       setListLoading(true);
@@ -59,6 +81,7 @@ function BotActivityViewInner({
         const page = await fetchOwnerSessions(appId, {
           limit: DEFAULT_SESSION_PAGE_LIMIT,
           offset,
+          ...listOpts,
         });
         setSessions((prev) =>
           append ? [...prev, ...page.sessions] : page.sessions
@@ -74,7 +97,7 @@ function BotActivityViewInner({
         setListLoading(false);
       }
     },
-    [appId]
+    [appId, listOpts]
   );
 
   useEffect(() => {
@@ -116,12 +139,32 @@ function BotActivityViewInner({
     };
   }, [appId, selectedId, transcriptNonce]);
 
-  function selectSession(sessionId: string) {
+  function replaceParams(next: {
+    session?: string | null;
+    surface?: string;
+    from?: string;
+    to?: string;
+  }) {
     router.replace(
-      `${activityHrefForApp(appId)}?session=${encodeURIComponent(sessionId)}`,
+      `${activityHrefForApp(appId)}${buildActivitySearch({
+        session: next.session === undefined ? selectedId : next.session,
+        surface: next.surface ?? filterValue.surface,
+        from: next.from ?? filterValue.from,
+        to: next.to ?? filterValue.to,
+      })}`,
       { scroll: false }
     );
   }
+
+  function selectSession(sessionId: string) {
+    replaceParams({ session: sessionId });
+  }
+
+  const exportFilter = {
+    surface: filterValue.surface,
+    from: filterValue.from,
+    to: filterValue.to,
+  };
 
   let detail: ReactNode;
   if (!selectedId) {
@@ -132,7 +175,7 @@ function BotActivityViewInner({
     detail = <SessionDetailHint>Loading transcript…</SessionDetailHint>;
   } else if (transcriptError) {
     detail = (
-      <div className="space-y-3">
+      <div className="space-y-3 px-5 py-4">
         <p className="text-sm text-red-700 dark:text-red-300" role="alert">
           {transcriptError}
         </p>
@@ -146,10 +189,12 @@ function BotActivityViewInner({
       </div>
     );
   } else if (transcript) {
-    detail = <SessionTranscript session={transcript} />;
+    detail = <SessionTranscript session={transcript} nameMode="participant" />;
   }
 
-  const isBare = sessions.length === 0 && !listError && !selectedId;
+  const isBare =
+    sessions.length === 0 && !listError && !selectedId && !filterActive;
+  const emptyMessage = filterActive ? FILTER_EMPTY_MESSAGE : EMPTY_MESSAGE;
 
   const list =
     listError && sessions.length === 0 && !listLoading ? (
@@ -173,30 +218,69 @@ function BotActivityViewInner({
         selectedId={selectedId}
         onLoadMore={() => void loadList(sessions.length, true)}
         onSelect={selectSession}
-        emptyMessage={EMPTY_MESSAGE}
+        emptyMessage={emptyMessage}
         nameMode="participant"
       />
     );
 
+  const downloadClassName =
+    "pressable inline-flex h-9 items-center rounded-lg px-2 text-sm font-medium text-sky-700 hover-ok:bg-sky-50 dark:text-sky-400 dark:hover-ok:bg-sky-950/40";
+
   return (
-    <SessionBrowseLayout
-      ariaLabel={`${appName} activity`}
-      isEmpty={isBare}
-      empty={
-        listLoading ? (
-          <p className="py-16 text-center text-sm text-slate-500 dark:text-zinc-400">
-            Loading sessions…
-          </p>
-        ) : (
-          <SessionEmptyState
-            title="No sessions yet"
-            message={EMPTY_MESSAGE}
-          />
-        )
-      }
-      list={list}
-      detail={detail}
-    />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="relative z-20 mt-3 shrink-0">
+        <ActivityFilters
+          value={filterValue}
+          onChange={(next) =>
+            replaceParams({
+              surface: next.surface,
+              from: next.from,
+              to: next.to,
+            })
+          }
+          trailing={
+            <div className="flex items-center gap-1">
+              <a
+                href={activityExportHref(appId, "csv", exportFilter)}
+                download
+                className={downloadClassName}
+              >
+                Download CSV
+              </a>
+              <a
+                href={activityExportHref(appId, "json", exportFilter)}
+                download
+                className={downloadClassName}
+              >
+                Download JSON
+              </a>
+              <span className="hidden pl-1 text-xs text-slate-500 sm:inline dark:text-zinc-400">
+                Shared sessions only
+                {filterActive ? " · filtered" : ""}
+              </span>
+            </div>
+          }
+        />
+      </div>
+      <SessionBrowseLayout
+        ariaLabel={`${appName} activity`}
+        isEmpty={isBare}
+        empty={
+          listLoading ? (
+            <p className="py-16 text-center text-sm text-slate-500 dark:text-zinc-400">
+              Loading sessions…
+            </p>
+          ) : (
+            <SessionEmptyState
+              title="No sessions yet"
+              message={EMPTY_MESSAGE}
+            />
+          )
+        }
+        list={list}
+        detail={detail}
+      />
+    </div>
   );
 }
 

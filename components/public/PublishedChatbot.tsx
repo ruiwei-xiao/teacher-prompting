@@ -259,9 +259,9 @@ export default function PublishedChatbot({
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-amber-50 via-rose-50/60 to-sky-50 px-4 py-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white/90 shadow-[0_16px_48px_rgba(251,113,133,0.12)] backdrop-blur-sm">
-        <div className="shrink-0 bg-white/70 px-6 py-4">
+    <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-amber-50 via-rose-50 to-sky-50 px-4 py-4 scheme-light">
+      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white shadow-[0_16px_48px_rgba(251,113,133,0.12)]">
+        <div className="shrink-0 bg-white px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
               Published chatbot
@@ -288,7 +288,7 @@ export default function PublishedChatbot({
 
         <div
           ref={listRef}
-          className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 px-6 py-5"
+          className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-gradient-to-b from-white via-rose-50 to-sky-50 px-6 py-5"
         >
           {visualizationMode && visualizationMode !== "spacing-testing" && (
             <div
@@ -401,7 +401,7 @@ export default function PublishedChatbot({
           )}
         </div>
 
-        <div className="shrink-0 bg-white/70 px-6 py-4">
+        <div className="shrink-0 bg-white px-6 py-4">
           <div className="flex gap-2">
             <button
               type="button"

@@ -21,6 +21,9 @@ export type SessionFetch = (
 type PagingOpts = {
   limit?: number;
   offset?: number;
+  surface?: string;
+  from?: string;
+  to?: string;
 };
 
 function pagingQuery(opts: PagingOpts = {}): string {
@@ -30,6 +33,12 @@ function pagingQuery(opts: PagingOpts = {}): string {
     limit: String(limit),
     offset: String(offset),
   });
+  const surface = opts.surface?.trim();
+  const from = opts.from?.trim();
+  const to = opts.to?.trim();
+  if (surface) params.set("surface", surface);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
   return params.toString();
 }
 

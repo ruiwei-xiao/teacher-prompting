@@ -37,6 +37,24 @@ export function sessionSurfaceBadge(surface: SessionSurface): string {
   return surface === "editor-test" ? EDITOR_TEST_BADGE : PUBLIC_CHAT_BADGE;
 }
 
+export function sessionBadgeClassName(badge: string): string {
+  const base =
+    "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset";
+  if (badge === EDITOR_TEST_BADGE) {
+    return `${base} bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/70 dark:text-violet-200 dark:ring-violet-800`;
+  }
+  if (badge === PUBLIC_CHAT_BADGE) {
+    return `${base} bg-white text-slate-600 ring-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-600`;
+  }
+  if (badge === NOT_SHARED_LABEL) {
+    return `${base} bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/70 dark:text-amber-200 dark:ring-amber-800`;
+  }
+  if (badge === DELETED_BOT_LABEL) {
+    return `${base} bg-slate-100 text-slate-600 ring-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-600`;
+  }
+  return `${base} bg-white text-slate-700 ring-slate-200 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-600`;
+}
+
 export function sessionNotSharedBadge(
   session: Pick<SessionSummary, "shared">,
   _nameMode: SessionNameMode

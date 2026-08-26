@@ -97,6 +97,22 @@
   - _Boundary: ActivityPage, BotActivityView_
   - _Depends: 3.1, 3.3, 5.1_
 
+- [x] 5.4 Owner activity download for research (CSV and JSON)
+  - Owner-only export endpoint returns shared transcripts as CSV (one row per message, UTF-8 BOM) or JSON (full session records); unshared sessions are omitted
+  - Activity page header links to both formats; caption states shared sessions only
+  - Observable completion: the owner downloads CSV/JSON for a bot they own; a non-owner or signed-out caller cannot; unshared rows never appear in the file
+  - _Requirements: 2.9, 4.3_
+  - _Boundary: ExportAPI, ActivityPage_
+  - _Depends: 1.2, 5.2_
+
+- [x] 5.5 Activity source and date-range filters
+  - List and export accept optional `surface` and UTC `from`/`to` (inclusive last-activity bounds); pagination applies after filtering
+  - Activity URL holds the filters; UI offers All / Public chat / Editor test and All time / 7 / 14 / 30 days / custom dates; empty-match copy differs from the unused-bot empty state
+  - Observable completion: Public chat + last 7 days hides editor tests and older sessions in both the list and the download
+  - _Requirements: 2.10, 2.11_
+  - _Boundary: ActivityPage, BotActivityView, OwnerSessionsAPI, ExportAPI_
+  - _Depends: 5.2, 5.4_
+
 - [x] 5.3 (P) Create the My sessions page
   - Server-gated route requiring sign-in (redirect to sign-in when signed out); master-detail view across all of the user's sessions with bot names, surface badges, and deleted-bot labeling
   - Observable completion: a signed-in user opens past transcripts including editor tests and unshared sessions; a signed-out visitor is redirected to sign-in
