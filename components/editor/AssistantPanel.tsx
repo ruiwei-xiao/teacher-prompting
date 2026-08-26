@@ -29,6 +29,7 @@ import {
 import { extractPlottableRhs } from "@/lib/math/function-plot";
 import { isAssistedBehaviorEnabled } from "@/lib/assisted-authoring/mode-gate";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
+import { createEditorTestRecording } from "./editor-test-recording";
 
 type ChatMessage = {
   id: string;
@@ -4658,6 +4659,7 @@ export default function AssistantPanel({
   /** Bumped to invalidate in-flight assisted generation when switching to try-chat. */
   const assistedWorkEpochRef = useRef(0);
   const dialogueAbortRef = useRef<AbortController | null>(null);
+  const editorTestRecording = useMemo(() => createEditorTestRecording(), []);
 
   const visualizationMode = useMemo(
     () => detectVisualizationMode(promptMarkdown),
@@ -4864,6 +4866,10 @@ export default function AssistantPanel({
           ...(imageUrl ? { imageUrl } : {}),
         })),
         visualizationState: args.visualizationState,
+        recording: editorTestRecording.buildPayload(
+          activeTestCase?.id ?? "editor-test",
+          args.messages,
+        ),
       }),
     });
 
@@ -4976,6 +4982,7 @@ export default function AssistantPanel({
   function resetActiveTestCase() {
     const tc = activeTestCase;
     if (!tc) return;
+    editorTestRecording.resetCase(tc.id);
 
     if (tc.warmStart === "scripted") {
       updateActiveTestCase(() => ({
@@ -5818,6 +5825,10 @@ export default function AssistantPanel({
           ),
           messages: nextMessages,
           visualizationState: currentVisualizationState,
+          recording: editorTestRecording.buildPayload(
+            currentTestCaseId,
+            nextMessages,
+          ),
         }),
       });
 

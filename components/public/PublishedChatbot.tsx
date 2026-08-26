@@ -15,6 +15,13 @@ import {
   readImageDataUrl,
 } from "@/lib/chat-input/client";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
+import ChatPrivacyControls from "./ChatPrivacyControls";
+import { createPublicChatRecording } from "./chat-recording";
+import {
+  applySharingResult,
+  buildSharingRequest,
+  sharingResultFromHttpStatus,
+} from "./chat-sharing";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -48,9 +55,14 @@ export default function PublishedChatbot({
   const [visualFullscreen, setVisualFullscreen] = useState(false);
   const [visualizationState, setVisualizationState] =
     useState<VisualizationState | null>(null);
+  const [sharing, setSharing] = useState(true);
+  const [sharingBusy, setSharingBusy] = useState(false);
+  const [sharingError, setSharingError] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const sharingRef = useRef(true);
+  const recording = useMemo(() => createPublicChatRecording(), []);
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
     [systemPrompt]
@@ -111,6 +123,9 @@ export default function PublishedChatbot({
           appId,
           messages: nextMessages,
           visualizationState,
+          recording: recording.buildPayload(nextMessages, {
+            ownerSharing: sharingRef.current,
+          }),
         }),
       });
 
@@ -133,6 +148,44 @@ export default function PublishedChatbot({
       ]);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleToggleSharing() {
+    if (sharingBusy) return;
+
+    const previous = sharing;
+    const requested = !sharing;
+    sharingRef.current = requested;
+    setSharing(requested);
+    setSharingError("");
+    recording.setOwnerSharing(requested);
+    setSharingBusy(true);
+    try {
+      const request = buildSharingRequest(recording.sessionId, requested);
+      const res = await fetch(request.url, {
+        method: request.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.body),
+      });
+      await res.json().catch(() => ({}));
+      const next = applySharingResult(
+        previous,
+        requested,
+        sharingResultFromHttpStatus(res.status)
+      );
+      sharingRef.current = next.sharing;
+      setSharing(next.sharing);
+      setSharingError(next.error ?? "");
+      recording.setOwnerSharing(next.sharing);
+    } catch {
+      const next = applySharingResult(previous, requested, { ok: false });
+      sharingRef.current = next.sharing;
+      setSharing(next.sharing);
+      setSharingError(next.error ?? "");
+      recording.setOwnerSharing(next.sharing);
+    } finally {
+      setSharingBusy(false);
     }
   }
 
@@ -206,11 +259,11 @@ export default function PublishedChatbot({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-4xl flex-col bg-gradient-to-b from-amber-50 via-rose-50/60 to-sky-50 px-4 py-8">
-      <div className="overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white/90 shadow-[0_16px_48px_rgba(251,113,133,0.12)] backdrop-blur-sm">
-        <div className="border-b border-rose-100 bg-gradient-to-r from-amber-100 via-rose-100 to-sky-100 px-6 py-5">
+    <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-amber-50 via-rose-50 to-sky-50 px-4 py-4 scheme-light">
+      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white shadow-[0_16px_48px_rgba(251,113,133,0.12)]">
+        <div className="shrink-0 bg-white px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
               Published chatbot
             </div>
             <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
@@ -220,18 +273,22 @@ export default function PublishedChatbot({
               learn together
             </span>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">
+          <h1 className="type-title mt-2 text-2xl text-slate-900">
             {appName}
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            This chatbot is powered by the published version of the app&apos;s
-            system prompt.
-          </p>
+          <ChatPrivacyControls
+            sharing={sharing}
+            busy={sharingBusy}
+            onToggle={() => void handleToggleSharing()}
+          />
+          {sharingError ? (
+            <p className="mt-2 text-xs text-red-600">{sharingError}</p>
+          ) : null}
         </div>
 
         <div
           ref={listRef}
-          className="flex h-[65vh] flex-col gap-4 overflow-auto bg-gradient-to-b from-white via-rose-50/30 to-sky-50/40 px-6 py-5"
+          className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-gradient-to-b from-white via-rose-50 to-sky-50 px-6 py-5"
         >
           {visualizationMode && visualizationMode !== "spacing-testing" && (
             <div
@@ -344,13 +401,13 @@ export default function PublishedChatbot({
           )}
         </div>
 
-        <div className="border-t border-rose-100 bg-white/80 px-6 py-5">
+        <div className="shrink-0 bg-white px-6 py-4">
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={busy}
-              className="h-11 rounded-2xl border-2 border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover:bg-amber-100 disabled:opacity-50"
+              className="pressable h-11 rounded-2xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover-ok:bg-amber-100 disabled:opacity-50"
               title="Upload file or image"
               aria-label="Upload file or image"
             >
@@ -361,10 +418,10 @@ export default function PublishedChatbot({
               onClick={toggleVoiceInput}
               disabled={busy}
               className={[
-                "h-11 w-11 rounded-2xl border-2 text-slate-700 disabled:opacity-50",
+                "pressable h-11 w-11 rounded-2xl border text-slate-700 disabled:opacity-50",
                 listening
                   ? "border-red-300 bg-red-50 text-red-700"
-                  : "border-violet-200 bg-violet-50 hover:bg-violet-100",
+                  : "border-violet-200 bg-violet-50 hover-ok:bg-violet-100",
               ].join(" ")}
               title={listening ? "Stop voice input" : "Start voice input"}
               aria-label={listening ? "Stop voice input" : "Start voice input"}
@@ -372,7 +429,7 @@ export default function PublishedChatbot({
               <span aria-hidden="true">🎙️</span>
             </button>
             <input
-              className="h-11 flex-1 rounded-2xl border-2 border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400"
+              className="h-11 flex-1 rounded-2xl border border-rose-200 bg-white px-4 text-slate-800 placeholder:text-slate-400"
               placeholder={
                 listening ? "Listening..." : "Message, voice, file, or image"
               }
@@ -385,7 +442,7 @@ export default function PublishedChatbot({
               type="button"
               onClick={() => void send()}
               disabled={busy}
-              className="h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm transition hover:brightness-105 disabled:opacity-50"
+              className="pressable h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm hover-ok:brightness-105 disabled:opacity-50"
             >
               Send
             </button>

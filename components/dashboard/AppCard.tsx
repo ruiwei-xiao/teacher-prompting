@@ -5,6 +5,7 @@ type Props = {
   badge?: string;
   ctaLabel: string;
   onOpen?: () => void;
+  onActivity?: () => void;
   onShare?: () => void;
   shareDisabled?: boolean;
   onDelete?: () => void;
@@ -13,6 +14,25 @@ type Props = {
   onToggleStar?: () => void;
   starBusy?: boolean;
 };
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+      />
+    </svg>
+  );
+}
 
 function StarIcon({ filled }: { filled: boolean }) {
   return (
@@ -40,6 +60,7 @@ export default function AppCard({
   badge = "Bot",
   ctaLabel,
   onOpen,
+  onActivity,
   onShare,
   shareDisabled,
   onDelete,
@@ -91,6 +112,15 @@ export default function AppCard({
         >
           {ctaLabel}
         </button>
+        {onActivity && (
+          <button
+            type="button"
+            onClick={onActivity}
+            className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition-[colors,border-color,background-color] duration-200 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900"
+          >
+            Activity
+          </button>
+        )}
         {onShare && (
           <button
             type="button"
@@ -106,9 +136,11 @@ export default function AppCard({
           <button
             type="button"
             onClick={onDelete}
-            className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 transition-[background-color] duration-200 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
+            aria-label={`Delete ${title}`}
+            title="Delete"
+            className="pressable ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 text-rose-700 transition-[background-color] duration-200 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/60"
           >
-            Delete bot
+            <TrashIcon />
           </button>
         )}
       </div>

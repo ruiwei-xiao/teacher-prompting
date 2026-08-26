@@ -9,6 +9,7 @@ import {
   ACTIVITY_HREF,
   isCalibrationPath,
 } from "@/lib/calibration-ui/offering";
+import { isMySessionsPath, MY_SESSIONS_HREF } from "@/lib/chat-session-ui/nav";
 import {
   MY_BOTS_HREF,
   parseWorkspacesListResponse,
@@ -45,6 +46,7 @@ export default function WorkspaceSidebar({
       pathname === MY_BOTS_HREF ||
       pathname.startsWith("/create"));
   const onStarred = navReady && isStarredPath(pathname);
+  const onMySessions = navReady && isMySessionsPath(pathname);
   const onCalibration = navReady && isCalibrationPath(pathname);
 
   async function loadWorkspaces() {
@@ -104,12 +106,20 @@ export default function WorkspaceSidebar({
         Starred
       </Link>
       <Link
+        href={MY_SESSIONS_HREF}
+        onClick={() => onNavigate?.()}
+        className={navItemClass(onMySessions)}
+        aria-current={onMySessions ? "page" : undefined}
+      >
+        My sessions
+      </Link>
+      <Link
         href={ACTIVITY_HREF}
         onClick={() => onNavigate?.()}
         className={navItemClass(onCalibration)}
         aria-current={onCalibration ? "page" : undefined}
       >
-        Activities
+        Collaborative activities
       </Link>
 
       <div className="mt-6 text-xs uppercase tracking-wide text-slate-500 dark:text-zinc-500">

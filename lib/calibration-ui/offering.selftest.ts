@@ -364,8 +364,8 @@ async function main(): Promise<void> {
     "sidebar links to the calibration hub"
   );
   assert(
-    sidebarSource.includes("Activities"),
-    "sidebar shows an Activities item"
+    sidebarSource.includes("Collaborative activities"),
+    "sidebar shows a Collaborative activities item"
   );
   assert(hubSource.includes("ACTIVITY_NEW_HREF") || hubSource.includes("/activity/new"), "hub links to create");
   assert(hubSource.includes("listMyOfferings"), "hub loads created and joined offerings");
