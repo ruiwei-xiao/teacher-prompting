@@ -23,7 +23,7 @@
   - _Requirements: 3.1, 3.4_
   - _Boundary: chat-session-store_
 
-- [ ] 1.4 (P) Provide short role explanations
+- [x] 1.4 (P) Provide short role explanations
   - Keep display names Owner, Facilitator, and Participant
   - Copy states that the Owner administers, deletes, and transfers; a Facilitator does the same except delete or change/remove the Owner; a Participant uses the Workspace by building permissions and cannot change Settings, manage members, or view Activity
   - Hover or “?” surfaces can read this copy without renaming roles
