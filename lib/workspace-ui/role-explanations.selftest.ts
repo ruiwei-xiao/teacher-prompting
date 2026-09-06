@@ -149,8 +149,8 @@ async function main(): Promise<void> {
     "WorkspaceRoleHint does not add long body paragraphs"
   );
   assert(
-    !membersSource.includes("WorkspaceRoleHint"),
-    "Members does not wire WorkspaceRoleHint yet (task 3.2)"
+    membersSource.includes("WorkspaceRoleHint"),
+    "Members wires WorkspaceRoleHint on roster role labels"
   );
   assert(
     shareLinkSource.includes("WorkspaceRoleHint"),

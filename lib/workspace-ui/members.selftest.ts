@@ -4,8 +4,13 @@
  */
 import fs from "fs/promises";
 import path from "path";
-import type { WorkspaceRole } from "@/lib/workspace-store/types";
+import type {
+  WorkspaceInvite,
+  WorkspaceInviteRole,
+  WorkspaceRole,
+} from "@/lib/workspace-store/types";
 import {
+  PENDING_EMAIL_INVITE_STATUS,
   buildChangeRoleBody,
   buildRemoveMemberBody,
   buildTransferOwnershipBody,
@@ -19,6 +24,8 @@ import {
   membersApiHref,
   parseMembersListResponse,
   parseMembersMutationResponse,
+  pendingEmailInviteLabel,
+  shouldLoadMembersRoster,
   type WorkspaceMemberListItem,
 } from "./members";
 
@@ -54,6 +61,23 @@ function member(
   };
 }
 
+function pendingEmail(input: {
+  id: string;
+  email: string;
+  role?: WorkspaceInviteRole;
+}): WorkspaceInvite {
+  return {
+    id: input.id,
+    workspaceId: "ws_1",
+    kind: "email",
+    email: input.email,
+    role: input.role ?? "participant",
+    token: `tok_${input.id}`,
+    createdByUserId: "owner_1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
 async function main(): Promise<void> {
   // --- Role capabilities (Req 3.2, 3.3) ---
   assertEqual(canManageMembers("owner"), true, "Owner can manage members");
@@ -66,6 +90,22 @@ async function main(): Promise<void> {
     canManageMembers("participant"),
     false,
     "Participant cannot manage other members"
+  );
+
+  assertEqual(
+    shouldLoadMembersRoster("owner"),
+    true,
+    "Owner loads Members roster"
+  );
+  assertEqual(
+    shouldLoadMembersRoster("facilitator"),
+    true,
+    "Facilitator loads Members roster"
+  );
+  assertEqual(
+    shouldLoadMembersRoster("participant"),
+    false,
+    "Participant does not load Members roster"
   );
 
   assertEqual(
@@ -276,14 +316,85 @@ async function main(): Promise<void> {
       member("u2", "facilitator"),
       member("u3", "participant"),
     ],
+    pendingEmailInvites: [
+      pendingEmail({
+        id: "inv_pending",
+        email: "new.teacher@school.edu",
+        role: "facilitator",
+      }),
+    ],
   });
   assert(listed.ok === true, "200 members list is ok");
   if (listed.ok) {
     assertEqual(listed.members.length, 3, "parses member roster");
+    assertEqual(
+      listed.pendingEmailInvites.length,
+      1,
+      "parses pendingEmailInvites as not-yet-joined people"
+    );
+    assertEqual(
+      listed.pendingEmailInvites[0]?.email,
+      "new.teacher@school.edu",
+      "pending row keeps invitee email"
+    );
+    assertEqual(
+      listed.members.some((m) => m.email === "new.teacher@school.edu"),
+      false,
+      "pending email invitees are not mixed into joined members"
+    );
   }
+
+  const listedEmptyPending = parseMembersListResponse(200, {
+    members: [member("u1", "owner")],
+    pendingEmailInvites: [],
+  });
+  assert(
+    listedEmptyPending.ok === true,
+    "200 members list with empty pendingEmailInvites is ok"
+  );
+
+  const listedMissingPending = parseMembersListResponse(200, {
+    members: [member("u1", "owner")],
+  });
+  assert(
+    listedMissingPending.ok === false,
+    "members list without pendingEmailInvites is invalid"
+  );
+
+  const listedLinkAsPending = parseMembersListResponse(200, {
+    members: [member("u1", "owner")],
+    pendingEmailInvites: [
+      {
+        id: "link_1",
+        workspaceId: "ws_1",
+        kind: "link",
+        role: "participant",
+        token: "tok_link",
+        createdByUserId: "owner_1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  });
+  assert(
+    listedLinkAsPending.ok === false,
+    "pendingEmailInvites must be email invites, not share links"
+  );
 
   const listForbidden = parseMembersListResponse(403, { error: "Forbidden" });
   assert(listForbidden.ok === false, "403 members list fails");
+
+  assertEqual(
+    pendingEmailInviteLabel(
+      pendingEmail({ id: "p1", email: "pending@school.edu" })
+    ),
+    "pending@school.edu",
+    "pending row label is the invitee email"
+  );
+  assertEqual(
+    PENDING_EMAIL_INVITE_STATUS,
+    "Invited · not yet joined",
+    "pending rows use invited and not-yet-joined copy"
+  );
 
   const mutated = parseMembersMutationResponse(200, { ok: true });
   assert(mutated.ok === true, "200 mutation is ok");
@@ -383,6 +494,50 @@ async function main(): Promise<void> {
       hubSource.includes("members") ||
       hubSource.includes("WorkspaceMemberList"),
     "hub has members entry via tabs or list link"
+  );
+
+  // --- Members invite composition (Req 1.7, 2.1, 2.8, 6.2) ---
+  assert(
+    listSource.includes("shouldLoadMembersRoster"),
+    "list gates roster fetch with shouldLoadMembersRoster"
+  );
+  assert(
+    listSource.includes("if (!shouldLoadMembersRoster(role))"),
+    "Participant returns before fetching the members API"
+  );
+  assert(
+    listSource.includes("WorkspaceShareLinkControl"),
+    "Members hosts the share-link control"
+  );
+  assert(
+    listSource.includes("buildCreateEmailInviteBody") ||
+      listSource.includes('kind: "email"'),
+    "Members records email invites from this section"
+  );
+  assert(
+    listSource.includes("pendingEmailInvites"),
+    "Members reads pendingEmailInvites from the members payload"
+  );
+  assert(
+    /not yet joined/i.test(listSource) ||
+      listSource.includes("PENDING_EMAIL_INVITE_STATUS"),
+    "pending emails appear as not-yet-joined people"
+  );
+  assert(
+    !/Active invites/i.test(listSource),
+    "Members has no Active invites list of links"
+  );
+  assert(
+    listSource.includes("WorkspaceRoleHint"),
+    "roster role labels use WorkspaceRoleHint"
+  );
+  assert(
+    !listSource.includes("administers the Workspace"),
+    "roster does not add long role-explanation paragraphs"
+  );
+  assert(
+    !listSource.includes("WorkspaceInvitePanel"),
+    "Members hosts invite controls directly instead of an Invites panel"
   );
 
   if (failures > 0) {

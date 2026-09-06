@@ -147,9 +147,9 @@ async function main(): Promise<void> {
   );
 
   const helpersPath = path.join(process.cwd(), "lib/workspace-ui/invites.ts");
-  const panelPath = path.join(
+  const membersPath = path.join(
     process.cwd(),
-    "components/workspace/WorkspaceInvitePanel.tsx"
+    "components/workspace/WorkspaceMemberList.tsx"
   );
   const pagePath = path.join(
     process.cwd(),
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   );
 
   const helpersSource = await fs.readFile(helpersPath, "utf8").catch(() => "");
-  const panelSource = await fs.readFile(panelPath, "utf8").catch(() => "");
+  const membersSource = await fs.readFile(membersPath, "utf8").catch(() => "");
   const pageSource = await fs.readFile(pagePath, "utf8").catch(() => "");
   const hubSource = await fs.readFile(hubPath, "utf8").catch(() => "");
 
@@ -179,47 +179,43 @@ async function main(): Promise<void> {
     "POST kind:link helper is gone"
   );
   assert(
-    panelSource.includes("WorkspaceInvitePanel"),
-    "WorkspaceInvitePanel component exists"
+    membersSource.includes("WorkspaceShareLinkControl"),
+    "Members hosts the share-link control instead of an Active invites list"
   );
   assert(
-    panelSource.includes("WorkspaceShareLinkControl"),
-    "panel hosts the share-link control instead of an Active invites list"
+    !/Active invites/i.test(membersSource),
+    "Members has no Active invites list of links"
   );
   assert(
-    !/Active invites/i.test(panelSource),
-    "panel has no Active invites list of links"
+    membersSource.includes("invitesApiHref") ||
+      (membersSource.includes("/api/workspaces/") &&
+        membersSource.includes("invites")),
+    "Members calls invites API to record email invites"
   );
   assert(
-    panelSource.includes("invitesApiHref") ||
-      (panelSource.includes("/api/workspaces/") &&
-        panelSource.includes("invites")),
-    "panel calls invites API"
+    membersSource.includes("fetch") || membersSource.includes("method"),
+    "Members records email invites via fetch"
   );
   assert(
-    panelSource.includes("fetch") || panelSource.includes("method"),
-    "panel records email invites via fetch"
+    membersSource.includes("POST") || membersSource.includes('"POST"'),
+    "Members uses POST to record email invites"
   );
   assert(
-    panelSource.includes("POST") || panelSource.includes('"POST"'),
-    "panel uses POST to record email invites"
+    membersSource.includes("emailInviteRecordedMessage") ||
+      membersSource.includes("Invite recorded for") ||
+      membersSource.includes("join automatically"),
+    "Members shows email recorded success copy"
   );
   assert(
-    panelSource.includes("emailInviteRecordedMessage") ||
-      panelSource.includes("Invite recorded for") ||
-      panelSource.includes("join automatically"),
-    "panel shows email recorded success copy"
-  );
-  assert(
-    panelSource.includes("canManageInvites") ||
-      panelSource.includes("facilitator") ||
-      panelSource.includes("participant"),
-    "panel gates invite management by role"
+    membersSource.includes("shouldLoadMembersRoster") ||
+      membersSource.includes("canManageInvites") ||
+      membersSource.includes("canManageMembers"),
+    "Members gates invite management by role"
   );
   assert(
     !hubSource.includes('case "invites"') &&
       !hubSource.includes('activeTab === "invites"'),
-    "hub has no Invites tab (invites resolve onto Members later)"
+    "hub has no Invites tab (invites live on Members)"
   );
   assert(
     pageSource.includes("redirect") ||
@@ -228,11 +224,8 @@ async function main(): Promise<void> {
     "legacy settings route or hub exposes invites"
   );
   assert(
-    hubSource.includes("WorkspaceNavTabs") ||
-      hubSource.includes("Invite") ||
-      hubSource.includes("invite") ||
-      hubSource.includes("WorkspaceInvitePanel"),
-    "hub has invites entry via tabs or panel link"
+    hubSource.includes("WorkspaceMemberList"),
+    "hub renders Members, which hosts invite controls"
   );
 
   if (failures > 0) {

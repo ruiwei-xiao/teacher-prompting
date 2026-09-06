@@ -265,10 +265,6 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/workspace/WorkspaceShareLinkControl.tsx"
   );
-  const panelPath = path.join(
-    process.cwd(),
-    "components/workspace/WorkspaceInvitePanel.tsx"
-  );
   const membersPath = path.join(
     process.cwd(),
     "components/workspace/WorkspaceMemberList.tsx"
@@ -279,7 +275,6 @@ async function main(): Promise<void> {
     .readFile(shareHelpersPath, "utf8")
     .catch(() => "");
   const controlSource = await fs.readFile(controlPath, "utf8").catch(() => "");
-  const panelSource = await fs.readFile(panelPath, "utf8").catch(() => "");
   const membersSource = await fs.readFile(membersPath, "utf8").catch(() => "");
 
   assert(shareHelpersSource.length > 0, "lib/workspace-ui/share-link.ts exists");
@@ -336,12 +331,12 @@ async function main(): Promise<void> {
     "share-link control has no Active invites list"
   );
   assert(
-    !/Active invites/i.test(panelSource),
-    "InvitePanel has no Active invites list of links"
+    membersSource.includes("WorkspaceShareLinkControl"),
+    "Members mounts the share-link control"
   );
   assert(
-    !membersSource.includes("WorkspaceShareLinkControl"),
-    "Members does not mount the share-link control yet (task 3.2)"
+    !/Active invites/i.test(membersSource),
+    "Members has no Active invites list of links"
   );
 
   assert(
@@ -357,10 +352,10 @@ async function main(): Promise<void> {
     "invites.ts dropped buildCreateLinkInviteBody (POST kind:link is 400)"
   );
   assert(
-    !panelSource.includes("filterActiveInvites") &&
-      !panelSource.includes("parseInvitesListResponse") &&
-      !panelSource.includes("buildCreateLinkInviteBody"),
-    "InvitePanel no longer uses Active-list helpers"
+    !membersSource.includes("filterActiveInvites") &&
+      !membersSource.includes("parseInvitesListResponse") &&
+      !membersSource.includes("buildCreateLinkInviteBody"),
+    "Members no longer uses Active-list helpers"
   );
 
   if (failures > 0) {

@@ -65,7 +65,7 @@
   - _Requirements: 1.6, 1.7, 2.8, 2.12_
   - _Boundary: WorkspaceMembersAPI_
 
-- [ ] 3.2 Compose email invite, share link, pending rows, and role hints on Members
+- [x] 3.2 Compose email invite, share link, pending rows, and role hints on Members
   - Operators invite by email and invitation link from Members; pending emails appear as not-yet-joined people; no Active invites link list
   - Role explanations appear on roster role labels via hover or “?”; Participant hub does not show roster or invite controls
   - Members shows invite controls and pending rows for operators and neither for Participants
@@ -170,4 +170,5 @@
 - 1.2: Removing `"invites"` from `WorkspaceTab` unmounted `WorkspaceInvitePanel` from the hub; operators cannot reach invite UI until 3.2 composes it onto Members. Activity nav has no browse view until tasks 6/8.
 - 2.1: ensure/reset mint `createdByUserId` as the Workspace Owner (two-arg store signature); actor identity is task 2.2.
 - 2.2: GET invites payload is `{ linkByRole, pendingEmails }`; POST `kind:"link"` is 400. `WorkspaceInvitePanel` / `lib/workspace-ui/invites.ts` still parse the old `{ invites }` list until 2.3/3.2.
+- 3.2: `WorkspaceInvitePanel` was deleted; Members hosts email + share-link. Participant self-leave is no longer on Members (`return null` when they cannot load the roster); leave on Bots is task 8.
 - Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.
