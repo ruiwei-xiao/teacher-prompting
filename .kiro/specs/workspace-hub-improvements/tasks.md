@@ -101,7 +101,7 @@
   - _Boundary: AppsGates, Placements_
   - _Depends: 1.1_
 
-- [ ] 5.2 (P) Accept building permissions and Assisted Authoring default on Workspace write
+- [x] 5.2 (P) Accept building permissions and Assisted Authoring default on Workspace write
   - Create accepts optional building permissions (omitted stays all off, including peer bot visibility); Assisted Authoring default is always off at create and is not taken from the create body
   - PATCH can change the default without rewriting existing bots; GET includes the field; Participants cannot PATCH
   - Create without permissions overlay leaves (b) off; PATCH default succeeds for operators and is forbidden for Participants

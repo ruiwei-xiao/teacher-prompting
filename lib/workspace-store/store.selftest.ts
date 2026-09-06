@@ -181,6 +181,64 @@ async function main(): Promise<void> {
       "updateWorkspace permissions (b) stays off"
     );
 
+    const overlayWs = await createWorkspace({
+      name: "Create Overlay",
+      ownerUserId: "user_overlay",
+      buildingPermissions: {
+        canCreateBots: true,
+        canSeeOthersBots: true,
+        canShareOutside: false,
+        canManageOwnBots: true,
+      },
+    });
+    assertEqual(
+      overlayWs.buildingPermissions,
+      {
+        canCreateBots: true,
+        canSeeOthersBots: true,
+        canShareOutside: false,
+        canManageOwnBots: true,
+      },
+      "createWorkspace optional buildingPermissions overlay persists"
+    );
+    assertEqual(
+      overlayWs.assistedAuthoringModeDefault,
+      false,
+      "createWorkspace overlay still has Assisted Authoring default off"
+    );
+
+    const aaDefaultWs = await createWorkspace({
+      name: "AA Default Patch",
+      ownerUserId: "user_aa_patch",
+    });
+    assertEqual(
+      aaDefaultWs.assistedAuthoringModeDefault,
+      false,
+      "AA patch workspace starts with default off"
+    );
+    const aaTurnedOn = await updateWorkspace(aaDefaultWs.id, {
+      assistedAuthoringModeDefault: true,
+    });
+    assertEqual(
+      aaTurnedOn.assistedAuthoringModeDefault,
+      true,
+      "updateWorkspace persists assistedAuthoringModeDefault true"
+    );
+    const aaReloaded = await getWorkspace(aaDefaultWs.id);
+    assertEqual(
+      aaReloaded?.assistedAuthoringModeDefault,
+      true,
+      "getWorkspace reads patched assistedAuthoringModeDefault"
+    );
+    const aaNameOnly = await updateWorkspace(aaDefaultWs.id, {
+      name: "AA Default Patch Renamed",
+    });
+    assertEqual(
+      aaNameOnly.assistedAuthoringModeDefault,
+      true,
+      "updateWorkspace name-only leaves assistedAuthoringModeDefault"
+    );
+
     // --- membership mutations ---
     await addMember({ workspaceId: ws.id, userId: otherId, role: "participant" });
     await setMemberRole(ws.id, otherId, "facilitator");

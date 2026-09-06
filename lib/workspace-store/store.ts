@@ -479,13 +479,16 @@ function matchesMemberQuery(member: WorkspaceMembership, query?: string): boolea
 async function createWorkspaceInFile(input: {
   name: string;
   ownerUserId: string;
+  buildingPermissions?: BuildingPermissions;
 }): Promise<Workspace> {
   const data = await readFileData();
   const now = new Date().toISOString();
   const workspace: Workspace = {
     id: crypto.randomUUID(),
     name: input.name,
-    buildingPermissions: { ...DEFAULT_BUILDING_PERMISSIONS },
+    buildingPermissions: input.buildingPermissions
+      ? { ...input.buildingPermissions }
+      : { ...DEFAULT_BUILDING_PERMISSIONS },
     assistedAuthoringModeDefault: false,
     createdAt: now,
     updatedAt: now,
@@ -517,7 +520,9 @@ async function getWorkspaceInFile(workspaceId: string): Promise<Workspace | null
 
 async function updateWorkspaceInFile(
   workspaceId: string,
-  patch: Partial<Pick<Workspace, "name" | "buildingPermissions">>
+  patch: Partial<
+    Pick<Workspace, "name" | "buildingPermissions" | "assistedAuthoringModeDefault">
+  >
 ): Promise<Workspace> {
   const data = await readFileData();
   const idx = data.workspaces.findIndex((w) => w.id === workspaceId);
@@ -531,6 +536,10 @@ async function updateWorkspaceInFile(
     buildingPermissions: patch.buildingPermissions
       ? { ...patch.buildingPermissions }
       : current.buildingPermissions,
+    assistedAuthoringModeDefault:
+      patch.assistedAuthoringModeDefault !== undefined
+        ? patch.assistedAuthoringModeDefault
+        : current.assistedAuthoringModeDefault,
     updatedAt: new Date().toISOString(),
   };
   data.workspaces[idx] = updated;
@@ -902,13 +911,16 @@ async function listActivityInFile(
 async function createWorkspaceInPostgres(input: {
   name: string;
   ownerUserId: string;
+  buildingPermissions?: BuildingPermissions;
 }): Promise<Workspace> {
   await ensurePostgresStore();
   const now = new Date().toISOString();
   const workspace: Workspace = {
     id: crypto.randomUUID(),
     name: input.name,
-    buildingPermissions: { ...DEFAULT_BUILDING_PERMISSIONS },
+    buildingPermissions: input.buildingPermissions
+      ? { ...input.buildingPermissions }
+      : { ...DEFAULT_BUILDING_PERMISSIONS },
     assistedAuthoringModeDefault: false,
     createdAt: now,
     updatedAt: now,
@@ -962,7 +974,9 @@ async function getWorkspaceInPostgres(
 
 async function updateWorkspaceInPostgres(
   workspaceId: string,
-  patch: Partial<Pick<Workspace, "name" | "buildingPermissions">>
+  patch: Partial<
+    Pick<Workspace, "name" | "buildingPermissions" | "assistedAuthoringModeDefault">
+  >
 ): Promise<Workspace> {
   await ensurePostgresStore();
   const current = await getWorkspaceInPostgres(workspaceId);
@@ -975,6 +989,10 @@ async function updateWorkspaceInPostgres(
     buildingPermissions: patch.buildingPermissions
       ? { ...patch.buildingPermissions }
       : current.buildingPermissions,
+    assistedAuthoringModeDefault:
+      patch.assistedAuthoringModeDefault !== undefined
+        ? patch.assistedAuthoringModeDefault
+        : current.assistedAuthoringModeDefault,
     updatedAt: new Date().toISOString(),
   };
   const permissionsJson = JSON.stringify(updated.buildingPermissions);
@@ -983,6 +1001,7 @@ async function updateWorkspaceInPostgres(
     SET
       name = ${updated.name},
       building_permissions = ${permissionsJson},
+      assisted_authoring_mode_default = ${updated.assistedAuthoringModeDefault},
       updated_at = ${updated.updatedAt}
     WHERE id = ${workspaceId}
   `;
@@ -1468,6 +1487,7 @@ async function listActivityInPostgres(
 export async function createWorkspace(input: {
   name: string;
   ownerUserId: string;
+  buildingPermissions?: BuildingPermissions;
 }): Promise<Workspace> {
   if (shouldUsePostgres()) {
     return createWorkspaceInPostgres(input);
@@ -1491,7 +1511,9 @@ export async function getWorkspace(workspaceId: string): Promise<Workspace | nul
 
 export async function updateWorkspace(
   workspaceId: string,
-  patch: Partial<Pick<Workspace, "name" | "buildingPermissions">>
+  patch: Partial<
+    Pick<Workspace, "name" | "buildingPermissions" | "assistedAuthoringModeDefault">
+  >
 ): Promise<Workspace> {
   if (shouldUsePostgres()) {
     return updateWorkspaceInPostgres(workspaceId, patch);

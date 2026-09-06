@@ -100,14 +100,34 @@ export async function listWorkspaces(
 
 export async function createWorkspaces(
   userId: string | null,
-  body: { name?: unknown }
+  body: { name?: unknown; buildingPermissions?: unknown }
 ): Promise<ApiResult<{ workspace: Workspace }>> {
   if (!userId) return unauthorized();
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
     return badRequest("Missing workspace name");
   }
-  const workspace = await createWorkspace({ name, ownerUserId: userId });
+
+  const allOff: BuildingPermissions = {
+    canCreateBots: false,
+    canSeeOthersBots: false,
+    canShareOutside: false,
+    canManageOwnBots: false,
+  };
+  let buildingPermissions: BuildingPermissions | undefined;
+  if (body.buildingPermissions !== undefined) {
+    const parsed = parseBuildingPermissions(body.buildingPermissions, allOff);
+    if ("error" in parsed) {
+      return badRequest(parsed.error);
+    }
+    buildingPermissions = parsed;
+  }
+
+  const workspace = await createWorkspace({
+    name,
+    ownerUserId: userId,
+    ...(buildingPermissions ? { buildingPermissions } : {}),
+  });
   return { ok: true, status: 200, body: { workspace } };
 }
 
@@ -140,7 +160,11 @@ export async function getWorkspaceById(
 export async function updateWorkspaceById(
   userId: string | null,
   workspaceId: string,
-  body: { name?: unknown; buildingPermissions?: unknown }
+  body: {
+    name?: unknown;
+    buildingPermissions?: unknown;
+    assistedAuthoringModeDefault?: unknown;
+  }
 ): Promise<ApiResult<{ workspace: Workspace }>> {
   if (!userId) return unauthorized();
 
@@ -151,7 +175,9 @@ export async function updateWorkspaceById(
 
   const hasName = typeof body.name === "string";
   const hasPermissions = body.buildingPermissions !== undefined;
-  if (!hasName && !hasPermissions) {
+  const hasAssistedAuthoringDefault =
+    body.assistedAuthoringModeDefault !== undefined;
+  if (!hasName && !hasPermissions && !hasAssistedAuthoringDefault) {
     return badRequest("No settings changes provided");
   }
 
@@ -181,6 +207,18 @@ export async function updateWorkspaceById(
     if ("error" in parsed) {
       return badRequest(parsed.error);
     }
+    nextPermissions = parsed;
+  }
+
+  let nextAssistedAuthoringDefault = workspace.assistedAuthoringModeDefault;
+  if (hasAssistedAuthoringDefault) {
+    if (typeof body.assistedAuthoringModeDefault !== "boolean") {
+      return badRequest("assistedAuthoringModeDefault must be a boolean");
+    }
+    nextAssistedAuthoringDefault = body.assistedAuthoringModeDefault;
+  }
+
+  if (hasPermissions || hasAssistedAuthoringDefault) {
     const permCheck = assertWorkspaceAction({
       membership,
       permissions: workspace.buildingPermissions,
@@ -189,7 +227,6 @@ export async function updateWorkspaceById(
     if (!permCheck.ok) {
       return forbidden();
     }
-    nextPermissions = parsed;
   }
 
   const nameChanged = nextName !== workspace.name;
@@ -197,14 +234,19 @@ export async function updateWorkspaceById(
     workspace.buildingPermissions,
     nextPermissions
   );
+  const aaDefaultChanged =
+    nextAssistedAuthoringDefault !== workspace.assistedAuthoringModeDefault;
 
-  if (!nameChanged && !permsChanged) {
+  if (!nameChanged && !permsChanged && !aaDefaultChanged) {
     return { ok: true, status: 200, body: { workspace } };
   }
 
   const updated = await updateWorkspace(workspaceId, {
     ...(nameChanged ? { name: nextName } : {}),
     ...(permsChanged ? { buildingPermissions: nextPermissions } : {}),
+    ...(aaDefaultChanged
+      ? { assistedAuthoringModeDefault: nextAssistedAuthoringDefault }
+      : {}),
   });
 
   if (nameChanged) {

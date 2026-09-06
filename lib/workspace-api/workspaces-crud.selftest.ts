@@ -1,11 +1,12 @@
 /**
- * Self-test: WorkspacesAPI CRUD handlers (Task 2.1).
+ * Self-test: WorkspacesAPI CRUD handlers (Task 2.1 / 5.2).
  * Uses JSON store + handler functions (auth is injected as userId).
  *
  * Run: npx tsx lib/workspace-api/workspaces-crud.selftest.ts
  */
 import fs from "fs/promises";
 import path from "path";
+import type { AppConfig } from "@/lib/app-store/types";
 
 let failures = 0;
 
@@ -22,6 +23,49 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
     ok,
     `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
   );
+}
+
+function stubApp(
+  id: string,
+  ownerId: string,
+  assistedAuthoringMode?: boolean
+): AppConfig {
+  const now = new Date().toISOString();
+  return {
+    id,
+    ownerId,
+    name: `App ${id}`,
+    provider: "openai",
+    model: "gpt-4o",
+    apiKey: "secret-key",
+    ...(assistedAuthoringMode !== undefined ? { assistedAuthoringMode } : {}),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function withTempApps(
+  apps: AppConfig[],
+  fn: () => Promise<void>
+): Promise<void> {
+  const appsFile = path.join(process.cwd(), ".data", "apps.json");
+  await fs.mkdir(path.dirname(appsFile), { recursive: true });
+  let previous: string | null = null;
+  try {
+    previous = await fs.readFile(appsFile, "utf-8");
+  } catch {
+    previous = null;
+  }
+  await fs.writeFile(appsFile, JSON.stringify(apps, null, 2), "utf-8");
+  try {
+    await fn();
+  } finally {
+    if (previous === null) {
+      await fs.rm(appsFile, { force: true });
+    } else {
+      await fs.writeFile(appsFile, previous, "utf-8");
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -41,9 +85,9 @@ async function main(): Promise<void> {
     listWorkspaces,
     updateWorkspaceById,
   } = await import("./workspaces-crud");
-  const { addMember, listActivity, listWorkspacesForUser } = await import(
-    "../workspace-store/store"
-  );
+  const { addMember, listActivity, listWorkspacesForUser, placeApp } =
+    await import("../workspace-store/store");
+  const { getAppById } = await import("../app-store/store");
 
   try {
     // --- Unauthorized ---
@@ -92,6 +136,16 @@ async function main(): Promise<void> {
       },
       "new Workspace defaults permissions off"
     );
+    assertEqual(
+      workspace!.buildingPermissions.canSeeOthersBots,
+      false,
+      "create without permissions overlay leaves (b) off"
+    );
+    assertEqual(
+      workspace!.assistedAuthoringModeDefault,
+      false,
+      "create Assisted Authoring default is always off"
+    );
 
     const badName = await createWorkspaces(ownerId, { name: "   " });
     assertEqual(badName.status, 400, "empty name → 400");
@@ -110,6 +164,15 @@ async function main(): Promise<void> {
     assert(
       got.ok && got.body.role === "owner",
       "get returns role owner"
+    );
+    assert(
+      got.ok && "assistedAuthoringModeDefault" in got.body.workspace,
+      "GET includes assistedAuthoringModeDefault"
+    );
+    assertEqual(
+      got.ok ? got.body.workspace.assistedAuthoringModeDefault : undefined,
+      false,
+      "GET Assisted Authoring default is off"
     );
 
     // --- Non-member / missing ---
@@ -199,6 +262,162 @@ async function main(): Promise<void> {
       403,
       "Participant delete → 403"
     );
+
+    // --- Create permissions overlay + AA default ignored (4.2, 5.2, 5.3, 5.7, 5.8, 7.1) ---
+    const overlaid = await createWorkspaces(ownerId, {
+      name: "Perms Overlay",
+      buildingPermissions: {
+        canCreateBots: true,
+        canSeeOthersBots: true,
+        canShareOutside: false,
+        canManageOwnBots: true,
+      },
+    });
+    assertEqual(overlaid.status, 200, "create with permissions overlay → 200");
+    assert(
+      overlaid.ok &&
+        overlaid.body.workspace.buildingPermissions.canCreateBots === true &&
+        overlaid.body.workspace.buildingPermissions.canSeeOthersBots === true &&
+        overlaid.body.workspace.buildingPermissions.canShareOutside === false &&
+        overlaid.body.workspace.buildingPermissions.canManageOwnBots === true,
+      "create permissions overlay persists (a)(b)(d) on, (c) off"
+    );
+    assertEqual(
+      overlaid.ok ? overlaid.body.workspace.assistedAuthoringModeDefault : true,
+      false,
+      "create with permissions overlay still has AA default off"
+    );
+
+    const ignoredAaBody: {
+      name?: unknown;
+      buildingPermissions?: unknown;
+      assistedAuthoringModeDefault?: unknown;
+    } = {
+      name: "Ignore AA Body",
+      assistedAuthoringModeDefault: true,
+    };
+    const ignoredAa = await createWorkspaces(ownerId, ignoredAaBody);
+    assertEqual(ignoredAa.status, 200, "create with AA default in body → 200");
+    assertEqual(
+      ignoredAa.ok ? ignoredAa.body.workspace.assistedAuthoringModeDefault : true,
+      false,
+      "create body cannot set AA default (always false)"
+    );
+    const ignoredAaGet = ignoredAa.ok
+      ? await getWorkspaceById(ownerId, ignoredAa.body.workspace.id)
+      : { ok: false as const, status: 500 };
+    assertEqual(
+      ignoredAaGet.ok
+        ? ignoredAaGet.body.workspace.assistedAuthoringModeDefault
+        : true,
+      false,
+      "GET after create still has AA default off when body tried to set it"
+    );
+
+    const invalidCreatePerms = await createWorkspaces(ownerId, {
+      name: "Bad Perms",
+      buildingPermissions: "nope",
+    });
+    assertEqual(
+      invalidCreatePerms.status,
+      400,
+      "create with invalid buildingPermissions → 400"
+    );
+    assert(
+      invalidCreatePerms.ok === false,
+      "invalid create permissions does not create a Workspace"
+    );
+
+    if (overlaid.ok) {
+      await deleteWorkspaceById(ownerId, overlaid.body.workspace.id);
+    }
+    if (ignoredAa.ok) {
+      await deleteWorkspaceById(ownerId, ignoredAa.body.workspace.id);
+    }
+
+    // --- PATCH AA default: operators ok, Participant 403, no bot rewrite (4.5, 4.7) ---
+    const ownerAaPatch = await updateWorkspaceById(ownerId, workspace!.id, {
+      assistedAuthoringModeDefault: true,
+    });
+    assertEqual(ownerAaPatch.status, 200, "Owner PATCH AA default → 200");
+    assertEqual(
+      ownerAaPatch.ok
+        ? ownerAaPatch.body.workspace.assistedAuthoringModeDefault
+        : false,
+      true,
+      "Owner PATCH persists assistedAuthoringModeDefault true"
+    );
+    const ownerAaGet = await getWorkspaceById(ownerId, workspace!.id);
+    assertEqual(
+      ownerAaGet.ok
+        ? ownerAaGet.body.workspace.assistedAuthoringModeDefault
+        : false,
+      true,
+      "GET includes patched assistedAuthoringModeDefault"
+    );
+
+    const facAaPatch = await updateWorkspaceById(facId, workspace!.id, {
+      assistedAuthoringModeDefault: false,
+    });
+    assertEqual(facAaPatch.status, 200, "Facilitator PATCH AA default → 200");
+    assertEqual(
+      facAaPatch.ok
+        ? facAaPatch.body.workspace.assistedAuthoringModeDefault
+        : true,
+      false,
+      "Facilitator PATCH persists assistedAuthoringModeDefault false"
+    );
+
+    assertEqual(
+      (
+        await updateWorkspaceById(partId, workspace!.id, {
+          assistedAuthoringModeDefault: true,
+        })
+      ).status,
+      403,
+      "Participant PATCH AA default → 403"
+    );
+    const afterPartPatch = await getWorkspaceById(ownerId, workspace!.id);
+    assertEqual(
+      afterPartPatch.ok
+        ? afterPartPatch.body.workspace.assistedAuthoringModeDefault
+        : true,
+      false,
+      "Participant PATCH does not change AA default"
+    );
+
+    const aaBotId = "bot_crud_aa_existing";
+    await withTempApps([stubApp(aaBotId, ownerId, false)], async () => {
+      const rewriteWs = await createWorkspaces(ownerId, {
+        name: "No Rewrite Bots",
+      });
+      assertEqual(rewriteWs.status, 200, "create workspace for no-rewrite → 200");
+      if (!rewriteWs.ok) return;
+      await placeApp(rewriteWs.body.workspace.id, aaBotId, ownerId);
+      const patchedDefault = await updateWorkspaceById(
+        ownerId,
+        rewriteWs.body.workspace.id,
+        { assistedAuthoringModeDefault: true }
+      );
+      assertEqual(
+        patchedDefault.status,
+        200,
+        "PATCH AA default on placed-bot Workspace → 200"
+      );
+      assertEqual(
+        patchedDefault.ok
+          ? patchedDefault.body.workspace.assistedAuthoringModeDefault
+          : false,
+        true,
+        "PATCH default ON does not require rewriting bots"
+      );
+      assertEqual(
+        (await getAppById(aaBotId))?.assistedAuthoringMode,
+        false,
+        "PATCH default does not change existing bots' assistedAuthoringMode"
+      );
+      await deleteWorkspaceById(ownerId, rewriteWs.body.workspace.id);
+    });
 
     // --- Facilitator cannot delete ---
     assertEqual(
