@@ -6,6 +6,7 @@
  * Task 1.3: workspace + membership methods.
  * Task 1.4: invites + placements (does not mutate AppConfig / ownerId).
  * Task 1.5: activity append/list + cascade on delete (no delete append).
+ * Task 2.1: ensure/reset one current reusable link invite per join role.
  */
 import { randomBytes } from "crypto";
 import fs from "fs/promises";
@@ -256,6 +257,85 @@ function inviteRejectReason(invite: WorkspaceInvite | null | undefined): string 
     return "Invite is no longer valid (expired).";
   }
   return "Invite is no longer valid.";
+}
+
+function isActiveLinkInviteForRole(
+  invite: WorkspaceInvite,
+  workspaceId: string,
+  role: WorkspaceInviteRole,
+  now = new Date()
+): boolean {
+  return (
+    invite.workspaceId === workspaceId &&
+    invite.kind === "link" &&
+    invite.role === role &&
+    isInviteAcceptable(invite, now)
+  );
+}
+
+function pickCanonicalLinkInvite(invites: WorkspaceInvite[]): WorkspaceInvite {
+  const sorted = [...invites].sort((a, b) => {
+    const delta =
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (delta !== 0) return delta;
+    return b.id.localeCompare(a.id);
+  });
+  const first = sorted[0];
+  if (!first) {
+    throw new Error("Expected at least one link invite.");
+  }
+  return first;
+}
+
+function buildLinkInvite(
+  workspaceId: string,
+  role: WorkspaceInviteRole,
+  createdByUserId: string
+): WorkspaceInvite {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId,
+    kind: "link",
+    role,
+    token: generateInviteToken(),
+    createdByUserId,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function ownerUserIdFromMembers(
+  members: WorkspaceMembership[],
+  workspaceId: string
+): string {
+  const owner = members.find(
+    (m) => m.workspaceId === workspaceId && m.role === "owner"
+  );
+  if (!owner) {
+    throw new Error("Workspace has no Owner.");
+  }
+  return owner.userId;
+}
+
+/** Serialize ensure/reset per workspace so concurrent copy cannot stack links. */
+const workspaceInviteChains = new Map<string, Promise<unknown>>();
+
+function withWorkspaceInviteLock<T>(
+  workspaceId: string,
+  work: () => Promise<T>
+): Promise<T> {
+  const previous = workspaceInviteChains.get(workspaceId) ?? Promise.resolve();
+  const next = previous.then(work, work);
+  const tail = next.then(
+    () => undefined,
+    () => undefined
+  );
+  workspaceInviteChains.set(workspaceId, tail);
+  void tail.finally(() => {
+    if (workspaceInviteChains.get(workspaceId) === tail) {
+      workspaceInviteChains.delete(workspaceId);
+    }
+  });
+  return next;
 }
 
 async function ensureFileStore() {
@@ -612,6 +692,54 @@ async function revokeInviteInFile(
     revokedAt: new Date().toISOString(),
   };
   await writeFileData(data);
+}
+
+async function ensureActiveLinkInviteInFile(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  const data = await readFileData();
+  if (!data.workspaces.some((w) => w.id === workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
+  const active = data.invites.filter((invite) =>
+    isActiveLinkInviteForRole(invite, workspaceId, role)
+  );
+  if (active.length > 0) {
+    return pickCanonicalLinkInvite(active);
+  }
+  const invite = buildLinkInvite(
+    workspaceId,
+    role,
+    ownerUserIdFromMembers(data.members, workspaceId)
+  );
+  data.invites.push(invite);
+  await writeFileData(data);
+  return invite;
+}
+
+async function resetActiveLinkInviteInFile(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  const data = await readFileData();
+  if (!data.workspaces.some((w) => w.id === workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
+  const now = new Date().toISOString();
+  data.invites = data.invites.map((invite) =>
+    isActiveLinkInviteForRole(invite, workspaceId, role)
+      ? { ...invite, revokedAt: now }
+      : invite
+  );
+  const replacement = buildLinkInvite(
+    workspaceId,
+    role,
+    ownerUserIdFromMembers(data.members, workspaceId)
+  );
+  data.invites.push(replacement);
+  await writeFileData(data);
+  return replacement;
 }
 
 async function acceptInviteByTokenInFile(
@@ -1060,6 +1188,101 @@ async function revokeInviteInPostgres(
   }
 }
 
+async function ownerUserIdInPostgres(workspaceId: string): Promise<string> {
+  const result = await sql<MemberRow>`
+    SELECT workspace_id, user_id, role, joined_at
+    FROM workspace_members
+    WHERE workspace_id = ${workspaceId} AND role = ${"owner"}
+    LIMIT 1
+  `;
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error("Workspace has no Owner.");
+  }
+  return row.user_id;
+}
+
+async function insertLinkInviteInPostgres(
+  invite: WorkspaceInvite
+): Promise<void> {
+  await sql`
+    INSERT INTO workspace_invites (
+      id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    )
+    VALUES (
+      ${invite.id},
+      ${invite.workspaceId},
+      ${invite.kind},
+      ${null},
+      ${invite.role},
+      ${invite.token},
+      ${null},
+      ${null},
+      ${invite.createdByUserId},
+      ${invite.createdAt}
+    )
+  `;
+}
+
+async function ensureActiveLinkInviteInPostgres(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  await ensurePostgresStore();
+  const workspace = await getWorkspaceInPostgres(workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found.");
+  }
+  const existing = await sql<InviteRow>`
+    SELECT id, workspace_id, kind, email, role, token, expires_at, revoked_at, created_by, created_at
+    FROM workspace_invites
+    WHERE workspace_id = ${workspaceId}
+      AND kind = ${"link"}
+      AND role = ${role}
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > NOW())
+    ORDER BY created_at DESC, id DESC
+  `;
+  if (existing.rows.length > 0) {
+    return rowToInvite(existing.rows[0]);
+  }
+  const invite = buildLinkInvite(
+    workspaceId,
+    role,
+    await ownerUserIdInPostgres(workspaceId)
+  );
+  await insertLinkInviteInPostgres(invite);
+  return invite;
+}
+
+async function resetActiveLinkInviteInPostgres(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  await ensurePostgresStore();
+  const workspace = await getWorkspaceInPostgres(workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found.");
+  }
+  const revokedAt = new Date().toISOString();
+  await sql`
+    UPDATE workspace_invites
+    SET revoked_at = ${revokedAt}
+    WHERE workspace_id = ${workspaceId}
+      AND kind = ${"link"}
+      AND role = ${role}
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > NOW())
+  `;
+  const invite = buildLinkInvite(
+    workspaceId,
+    role,
+    await ownerUserIdInPostgres(workspaceId)
+  );
+  await insertLinkInviteInPostgres(invite);
+  return invite;
+}
+
 async function acceptInviteByTokenInPostgres(
   token: string,
   userId: string
@@ -1344,6 +1567,39 @@ export async function createInvite(
     return createInviteInPostgres(input);
   }
   return createInviteInFile(input);
+}
+
+/**
+ * Return the current reusable link invite for a role.
+ * Creates one only when that role has zero active (not revoked, not expired)
+ * kind:"link" invites. Never revokes extras. If several exist, returns newest createdAt.
+ */
+export async function ensureActiveLinkInvite(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  return withWorkspaceInviteLock(workspaceId, async () => {
+    if (shouldUsePostgres()) {
+      return ensureActiveLinkInviteInPostgres(workspaceId, role);
+    }
+    return ensureActiveLinkInviteInFile(workspaceId, role);
+  });
+}
+
+/**
+ * Revoke every active link invite for the role, then create one replacement.
+ * Pre-reset tokens are rejected by acceptInviteByToken (revoked).
+ */
+export async function resetActiveLinkInvite(
+  workspaceId: string,
+  role: WorkspaceInviteRole
+): Promise<WorkspaceInvite> {
+  return withWorkspaceInviteLock(workspaceId, async () => {
+    if (shouldUsePostgres()) {
+      return resetActiveLinkInviteInPostgres(workspaceId, role);
+    }
+    return resetActiveLinkInviteInFile(workspaceId, role);
+  });
 }
 
 export async function listInvites(workspaceId: string): Promise<WorkspaceInvite[]> {

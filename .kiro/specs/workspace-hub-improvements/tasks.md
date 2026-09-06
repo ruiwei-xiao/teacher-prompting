@@ -32,7 +32,7 @@
 
 ## 2. Reusable invitation links
 
-- [ ] 2.1 Ensure and reset one current link per join role
+- [x] 2.1 Ensure and reset one current link per join role
   - Create a link invite for a role only when that role has none; redisplay and copy never revoke extra legacy links
   - Reset revokes every active link for that role, then creates one replacement; existing email/link accept still joins at the invite role; tokens from before reset are no longer valid
   - After ensure, copying does not add a second active link; after reset, the old URL cannot join
@@ -168,4 +168,5 @@
 ## Implementation Notes
 
 - 1.2: Removing `"invites"` from `WorkspaceTab` unmounted `WorkspaceInvitePanel` from the hub; operators cannot reach invite UI until 3.2 composes it onto Members. Activity nav has no browse view until tasks 6/8.
+- 2.1: ensure/reset mint `createdByUserId` as the Workspace Owner (two-arg store signature); actor identity is task 2.2.
 - Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.
