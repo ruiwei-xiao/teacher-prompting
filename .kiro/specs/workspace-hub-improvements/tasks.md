@@ -75,7 +75,7 @@
 
 ## 4. Workspace Activity APIs
 
-- [ ] 4.1 List shared sessions for currently placed bots
+- [x] 4.1 List shared sessions for currently placed bots
   - Operators with facilitation list shared sessions for bots currently placed in that Workspace, including bots they do not own, newest first
   - Each listed session includes bot name, participant display name or Anonymous, start time, and public versus editor-test; unshared and unplaced bots are excluded; empty placements yield an empty list; membership/placement event history is not used
   - Participants and non-members are denied; an operator list matches shared sessions of current placements only
