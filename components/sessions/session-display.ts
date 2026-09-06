@@ -7,7 +7,7 @@ import type {
   StoredChatMessage,
 } from "@/lib/chat-session-store/types";
 
-export type SessionNameMode = "participant" | "bot";
+export type SessionNameMode = "participant" | "bot" | "workspace";
 
 export type SessionListViewState = "loading" | "empty" | "items";
 
@@ -29,8 +29,18 @@ export function sessionDisplayName(
   session: Pick<SessionSummary, "participantName" | "appName">,
   nameMode: SessionNameMode
 ): string {
-  if (nameMode === "bot") return session.appName;
+  if (nameMode === "bot" || nameMode === "workspace") return session.appName;
   return transcriptParticipantLabel(session.participantName);
+}
+
+/** List subtitle: participant · start time in workspace mode; start time otherwise. */
+export function sessionListSecondaryText(
+  session: Pick<SessionSummary, "participantName" | "createdAt">,
+  nameMode: SessionNameMode
+): string {
+  const start = formatSessionStartTime(session.createdAt);
+  if (nameMode !== "workspace") return start;
+  return `${transcriptParticipantLabel(session.participantName)} · ${start}`;
 }
 
 export function sessionSurfaceBadge(surface: SessionSurface): string {

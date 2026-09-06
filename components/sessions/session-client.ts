@@ -57,6 +57,20 @@ export function transcriptUrl(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}`;
 }
 
+export function workspaceSessionsUrl(
+  workspaceId: string,
+  opts: PagingOpts = {}
+): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/sessions?${pagingQuery(opts)}`;
+}
+
+export function workspaceTranscriptUrl(
+  workspaceId: string,
+  sessionId: string
+): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`;
+}
+
 async function readJson(res: Response): Promise<unknown> {
   return res.json().catch(() => ({}));
 }
@@ -120,6 +134,41 @@ export async function fetchTranscript(
   fetchImpl: SessionFetch = fetch
 ): Promise<ChatSessionRecord> {
   const body = (await getJson(transcriptUrl(sessionId), fetchImpl)) as {
+    session?: ChatSessionRecord;
+  };
+  if (!body.session) {
+    throw new Error("Session not found");
+  }
+  return body.session;
+}
+
+export async function fetchWorkspaceSessions(
+  workspaceId: string,
+  opts: PagingOpts = {},
+  fetchImpl: SessionFetch = fetch
+): Promise<SessionListPage> {
+  const body = (await getJson(
+    workspaceSessionsUrl(workspaceId, opts),
+    fetchImpl
+  )) as {
+    sessions?: SessionSummary[];
+    hasMore?: boolean;
+  };
+  return {
+    sessions: Array.isArray(body.sessions) ? body.sessions : [],
+    hasMore: Boolean(body.hasMore),
+  };
+}
+
+export async function fetchWorkspaceTranscript(
+  workspaceId: string,
+  sessionId: string,
+  fetchImpl: SessionFetch = fetch
+): Promise<ChatSessionRecord> {
+  const body = (await getJson(
+    workspaceTranscriptUrl(workspaceId, sessionId),
+    fetchImpl
+  )) as {
     session?: ChatSessionRecord;
   };
   if (!body.session) {

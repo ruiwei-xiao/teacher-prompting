@@ -119,7 +119,7 @@
 
 ## 6. Workspace Activity browse UI
 
-- [ ] 6. Show shared sessions and read-only transcripts in Activity
+- [x] 6. Show shared sessions and read-only transcripts in Activity
   - List shows bot name, participant or Anonymous, start time, and public versus editor-test; empty state explains sessions appear after placed bots are used with sharing on
   - Opening a row loads the Workspace transcript route (not the personal transcript URL); no edit or delete; this view is chat sessions, not the membership/placement event feed
   - An operator can browse the list and open a read-only transcript; sharing-off sessions never appear

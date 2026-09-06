@@ -2,10 +2,10 @@
 
 import type { SessionSummary } from "@/lib/chat-session-store/types";
 import {
-  formatSessionStartTime,
   sessionBadges,
   sessionBadgeClassName,
   sessionDisplayName,
+  sessionListSecondaryText,
   sessionListShowsLoadMore,
   sessionListViewState,
   type SessionNameMode,
@@ -61,6 +61,7 @@ export default function SessionList({
         {sessions.map((session) => {
           const selected = session.id === selectedId;
           const name = sessionDisplayName(session, nameMode);
+          const secondary = sessionListSecondaryText(session, nameMode);
           const badges = sessionBadges(session, nameMode);
           return (
             <button
@@ -82,7 +83,7 @@ export default function SessionList({
                     {name}
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
-                    {formatSessionStartTime(session.createdAt)}
+                    {secondary}
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-1.5">

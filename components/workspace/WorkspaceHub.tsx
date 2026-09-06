@@ -13,6 +13,7 @@ import {
   resolveWorkspaceTab,
   type WorkspaceTab,
 } from "@/lib/workspace-ui/tabs";
+import WorkspaceActivityView from "@/components/workspace/WorkspaceActivityView";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
 import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
 import WorkspaceNavTabs from "@/components/workspace/WorkspaceNavTabs";
@@ -172,6 +173,8 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           role={state.role}
           currentUserId={state.currentUserId}
         />
+      ) : activeTab === "activity" ? (
+        <WorkspaceActivityView workspaceId={workspaceId} />
       ) : null}
     </div>
   );

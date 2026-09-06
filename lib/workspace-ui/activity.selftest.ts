@@ -1,5 +1,5 @@
 /**
- * Self-test: Workspace activity feed UI helpers + wiring (Task 6.6).
+ * Self-test: Workspace activity helpers + Activity browse UI (Tasks 6.6 / 6).
  * Run: npx tsx lib/workspace-ui/activity.selftest.ts
  */
 import fs from "fs/promises";
@@ -298,6 +298,247 @@ async function main(): Promise<void> {
       !hubSource.includes("parseActivityListResponse"),
     "hub does not render the membership/placement event feed as Activity"
   );
+
+  // --- Workspace Activity browse view (Req 3.1–3.3, 3.5, 3.8, 3.9) ---
+  const viewPath = path.join(
+    process.cwd(),
+    "components/workspace/WorkspaceActivityView.tsx"
+  );
+  const listPath = path.join(
+    process.cwd(),
+    "components/sessions/SessionList.tsx"
+  );
+  const displayPath = path.join(
+    process.cwd(),
+    "components/sessions/session-display.ts"
+  );
+  const clientPath = path.join(
+    process.cwd(),
+    "components/sessions/session-client.ts"
+  );
+  const mySessionsPath = path.join(
+    process.cwd(),
+    "components/sessions/MySessionsView.tsx"
+  );
+  const botActivityPath = path.join(
+    process.cwd(),
+    "components/sessions/BotActivityView.tsx"
+  );
+
+  const viewSource = await fs.readFile(viewPath, "utf8").catch(() => "");
+  const listSource = await fs.readFile(listPath, "utf8").catch(() => "");
+  const displaySource = await fs.readFile(displayPath, "utf8").catch(() => "");
+  const clientSource = await fs.readFile(clientPath, "utf8").catch(() => "");
+  const mySessionsSource = await fs
+    .readFile(mySessionsPath, "utf8")
+    .catch(() => "");
+  const botActivitySource = await fs
+    .readFile(botActivityPath, "utf8")
+    .catch(() => "");
+
+  assert(viewSource.length > 0, "WorkspaceActivityView exists");
+  assert(
+    hubSource.includes("WorkspaceActivityView"),
+    "hub mounts WorkspaceActivityView on the Activity tab"
+  );
+  assert(
+    /activeTab === ["']activity["']/.test(hubSource) &&
+      hubSource.includes("<WorkspaceActivityView"),
+    "hub Activity tab renders WorkspaceActivityView"
+  );
+  assert(
+    viewSource.includes("SessionBrowseLayout"),
+    "Activity view uses SessionBrowseLayout"
+  );
+  assert(
+    viewSource.includes("SessionList") && viewSource.includes("SessionTranscript"),
+    "Activity view composes SessionList and SessionTranscript"
+  );
+  assert(
+    /nameMode=["']workspace["']/.test(viewSource) ||
+      /nameMode=\{\s*["']workspace["']\s*\}/.test(viewSource),
+    'Activity view uses nameMode="workspace"'
+  );
+  assert(
+    /sessions appear after those bots are used with sharing on/i.test(
+      viewSource
+    ),
+    "empty copy explains sessions appear after those bots are used with sharing on"
+  );
+  assert(
+    !/\bonDelete\b/.test(viewSource) &&
+      !/\bonEdit\b/.test(viewSource) &&
+      !viewSource.includes("contentEditable"),
+    "Activity view has no edit or delete"
+  );
+  assert(
+    !/\bonDelete\b/.test(listSource) && !/\bonEdit\b/.test(listSource),
+    "SessionList still has no edit or delete handlers"
+  );
+  assert(
+    !viewSource.includes("WorkspaceActivityFeed") &&
+      !viewSource.includes("activityApiHref") &&
+      !viewSource.includes("parseActivityListResponse") &&
+      !viewSource.includes("listWorkspaceActivity"),
+    "Activity view is chat sessions, not the membership/placement event feed"
+  );
+  assert(
+    !/\/api\/workspaces\/\$\{[^}]+\}\/activity\b/.test(viewSource) &&
+      !viewSource.includes("/api/workspaces/${workspaceId}/activity") &&
+      !viewSource.includes("/api/workspaces/${id}/activity"),
+    "Activity view does not fetch GET /api/workspaces/:id/activity"
+  );
+
+  const usesWorkspaceListRoute =
+    clientSource.includes("/api/workspaces/") &&
+    clientSource.includes("/sessions") &&
+    (viewSource.includes("fetchWorkspaceSessions") ||
+      viewSource.includes("workspaceSessionsUrl"));
+  const usesWorkspaceTranscriptRoute =
+    viewSource.includes("fetchWorkspaceTranscript") ||
+    viewSource.includes("workspaceTranscriptUrl");
+  assert(
+    usesWorkspaceListRoute,
+    "Activity view loads the list from workspace session routes"
+  );
+  assert(
+    usesWorkspaceTranscriptRoute,
+    "opening a row loads the Workspace transcript route"
+  );
+  assert(
+    !/\bfetchTranscript\b/.test(viewSource) &&
+      !/\btranscriptUrl\b/.test(viewSource) &&
+      !/\bfetchMySessions\b/.test(viewSource) &&
+      !/\bfetchOwnerSessions\b/.test(viewSource) &&
+      !viewSource.includes("/api/sessions/"),
+    "Activity view does not use personal /api/sessions/:id or owner session URLs"
+  );
+  assert(
+    displaySource.includes('"workspace"'),
+    'SessionNameMode includes "workspace"'
+  );
+  assert(
+    /nameMode=["']bot["']/.test(mySessionsSource),
+    "My sessions keeps nameMode bot"
+  );
+  assert(
+    /nameMode=["']participant["']/.test(botActivitySource),
+    "per-bot Activity keeps nameMode participant"
+  );
+
+  const client = await import("@/components/sessions/session-client");
+  assert(
+    typeof client.workspaceSessionsUrl === "function",
+    "workspaceSessionsUrl helper exists"
+  );
+  assert(
+    typeof client.workspaceTranscriptUrl === "function",
+    "workspaceTranscriptUrl helper exists"
+  );
+  assert(
+    typeof client.fetchWorkspaceSessions === "function",
+    "fetchWorkspaceSessions helper exists"
+  );
+  assert(
+    typeof client.fetchWorkspaceTranscript === "function",
+    "fetchWorkspaceTranscript helper exists"
+  );
+  if (typeof client.workspaceSessionsUrl === "function") {
+    assertEqual(
+      client.workspaceSessionsUrl("ws_1", { limit: 20, offset: 0 }),
+      "/api/workspaces/ws_1/sessions?limit=20&offset=0",
+      "workspace sessions list URL"
+    );
+    assertEqual(
+      client.workspaceSessionsUrl("ws/odd", { limit: 10, offset: 20 }),
+      "/api/workspaces/ws%2Fodd/sessions?limit=10&offset=20",
+      "workspace sessions list URL encodes workspace id"
+    );
+  }
+  if (typeof client.workspaceTranscriptUrl === "function") {
+    assertEqual(
+      client.workspaceTranscriptUrl("ws_1", "sess-1"),
+      "/api/workspaces/ws_1/sessions/sess-1",
+      "workspace transcript URL"
+    );
+    assertEqual(
+      client.workspaceTranscriptUrl("ws_1", "sess/1"),
+      "/api/workspaces/ws_1/sessions/sess%2F1",
+      "workspace transcript URL encodes session id"
+    );
+    assert(
+      !client
+        .workspaceTranscriptUrl("ws_1", "sess-1")
+        .includes("/api/sessions/"),
+      "workspace transcript URL is not the personal transcript URL"
+    );
+  }
+  if (typeof client.fetchWorkspaceSessions === "function") {
+    let listedUrl = "";
+    const listed = await client.fetchWorkspaceSessions(
+      "ws_1",
+      { limit: 20, offset: 0 },
+      async (input) => {
+        listedUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            sessions: [
+              {
+                id: "sess-1",
+                appName: "Tutor",
+                participantName: "Ada",
+                surface: "public",
+                shared: true,
+              },
+            ],
+            hasMore: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    );
+    assertEqual(
+      listedUrl,
+      "/api/workspaces/ws_1/sessions?limit=20&offset=0",
+      "fetchWorkspaceSessions GETs the workspace list route"
+    );
+    assertEqual(
+      listed.sessions.length,
+      1,
+      "fetchWorkspaceSessions parses sessions"
+    );
+    assertEqual(listed.hasMore, false, "fetchWorkspaceSessions parses hasMore");
+  }
+  if (typeof client.fetchWorkspaceTranscript === "function") {
+    let transcriptUrlCalled = "";
+    const record = {
+      id: "sess-1",
+      appId: "bot-1",
+      appName: "Tutor",
+      messages: [],
+    };
+    const loaded = await client.fetchWorkspaceTranscript(
+      "ws_1",
+      "sess-1",
+      async (input) => {
+        transcriptUrlCalled = String(input);
+        return new Response(JSON.stringify({ session: record }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    );
+    assertEqual(
+      transcriptUrlCalled,
+      "/api/workspaces/ws_1/sessions/sess-1",
+      "fetchWorkspaceTranscript GETs the workspace transcript route"
+    );
+    assertEqual(
+      loaded.id,
+      "sess-1",
+      "fetchWorkspaceTranscript parses the record"
+    );
+  }
 
   if (failures > 0) {
     console.error(`\nactivity.selftest: ${failures} failure(s)`);
