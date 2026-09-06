@@ -1,10 +1,17 @@
 /**
- * WorkspacesAPI shared session list for currently placed bots (Task 4.1).
- * Session is resolved by route wrappers; these accept userId for testability.
+ * WorkspacesAPI shared session list and transcript for currently placed bots
+ * (Tasks 4.1–4.2). Session is resolved by route wrappers; these accept userId
+ * for testability.
  */
 import { parseOwnerSessionPaging } from "@/lib/chat-session-api/owner-sessions";
-import { listSharedSessionsForAppIds } from "@/lib/chat-session-store/store";
-import type { SessionSummary } from "@/lib/chat-session-store/types";
+import {
+  getSessionById,
+  listSharedSessionsForAppIds,
+} from "@/lib/chat-session-store/store";
+import type {
+  ChatSessionRecord,
+  SessionSummary,
+} from "@/lib/chat-session-store/types";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
   getWorkspace,
@@ -27,6 +34,10 @@ export type WorkspaceSessionListQuery = {
 export type WorkspaceSessionListBody = {
   sessions: SessionSummary[];
   hasMore: boolean;
+};
+
+export type WorkspaceSessionTranscriptBody = {
+  session: ChatSessionRecord;
 };
 
 function unauthorized<T = never>(): ApiResult<T> {
@@ -78,5 +89,41 @@ export async function listWorkspaceSessions(
     ok: true,
     status: 200,
     body: { sessions: page.items, hasMore: page.hasMore },
+  };
+}
+
+export async function getWorkspaceSessionTranscript(
+  userId: string | null,
+  workspaceId: string,
+  sessionId: string
+): Promise<ApiResult<WorkspaceSessionTranscriptBody>> {
+  if (!userId) return unauthorized();
+
+  const workspace = await getWorkspace(workspaceId);
+  if (!workspace) return notFound();
+
+  const membership = await getMembership(workspaceId, userId);
+  if (!membership) return forbidden();
+
+  const facilitation = assertWorkspaceAction({
+    membership,
+    permissions: workspace.buildingPermissions,
+    action: "activity.viewFacilitation",
+  });
+  if (!facilitation.ok) return forbidden();
+
+  const session = await getSessionById(sessionId);
+  if (!session || session.shared !== true) return forbidden();
+
+  const placements = await listPlacements(workspaceId);
+  const placedHere = placements.some(
+    (placement) => placement.appId === session.appId
+  );
+  if (!placedHere) return forbidden();
+
+  return {
+    ok: true,
+    status: 200,
+    body: { session },
   };
 }

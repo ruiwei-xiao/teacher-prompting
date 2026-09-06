@@ -83,7 +83,7 @@
   - _Boundary: WorkspaceSessionsAPI_
   - _Depends: 1.3_
 
-- [ ] 4.2 Read a Workspace Activity transcript without widening personal transcripts
+- [x] 4.2 Read a Workspace Activity transcript without widening personal transcripts
   - Operators may open a listed session’s full transcript when it is shared and the bot is currently placed in this Workspace
   - Unshared, unplaced, or Participant access is denied; the personal session transcript route stays participant-or-bot-owner only (a Facilitator who is neither still cannot use it)
   - A shared placed session returns the record on the Workspace transcript route; the personal route is unchanged for that Facilitator

@@ -1,5 +1,5 @@
 /**
- * Self-test: WorkspacesAPI shared session list (Task 4.1).
+ * Self-test: WorkspacesAPI shared session list and transcript (Tasks 4.1–4.2).
  * Uses JSON workspace + chat-session stores (auth injected as userId).
  *
  * Run: npx tsx lib/workspace-api/workspaces-sessions.selftest.ts
@@ -89,7 +89,10 @@ async function main(): Promise<void> {
   const sessionsFile = path.join(tempDir, "chat-sessions.json");
   process.env.CHAT_SESSIONS_DATA_FILE = sessionsFile;
 
-  const { listWorkspaceSessions } = await import("./workspaces-sessions");
+  const { getWorkspaceSessionTranscript, listWorkspaceSessions } = await import(
+    "./workspaces-sessions"
+  );
+  const { getSessionTranscript } = await import("../chat-session-api/transcript");
   const {
     addMember,
     appendActivity,
@@ -322,6 +325,148 @@ async function main(): Promise<void> {
       );
     }
 
+    assertEqual(
+      (await getWorkspaceSessionTranscript(null, ws.id, "sess-owned-newest"))
+        .status,
+      401,
+      "GET workspace transcript without auth → 401"
+    );
+    assertEqual(
+      (
+        await getWorkspaceSessionTranscript(
+          ownerId,
+          "missing-id",
+          "sess-owned-newest"
+        )
+      ).status,
+      404,
+      "GET workspace transcript missing workspace → 404"
+    );
+    assertEqual(
+      (
+        await getWorkspaceSessionTranscript(
+          outsiderId,
+          ws.id,
+          "sess-owned-newest"
+        )
+      ).status,
+      403,
+      "GET workspace transcript non-member → 403"
+    );
+
+    const ownerTx = await getWorkspaceSessionTranscript(
+      ownerId,
+      ws.id,
+      "sess-owned-newest"
+    );
+    assertEqual(ownerTx.status, 200, "operator placed shared transcript → 200");
+    if (ownerTx.ok) {
+      assertEqual(
+        ownerTx.body.session.id,
+        "sess-owned-newest",
+        "workspace transcript returns the requested session"
+      );
+      assert(
+        Array.isArray(ownerTx.body.session.messages) &&
+          ownerTx.body.session.messages.length === 2,
+        "workspace transcript returns the full record including messages"
+      );
+      assertEqual(
+        ownerTx.body.session.shared,
+        true,
+        "returned workspace transcript is shared"
+      );
+    }
+
+    const facTx = await getWorkspaceSessionTranscript(
+      facId,
+      ws.id,
+      "sess-owned-newest"
+    );
+    assertEqual(
+      facTx.status,
+      200,
+      "Facilitator placed shared transcript → 200"
+    );
+    if (facTx.ok && ownerTx.ok) {
+      assertEqual(
+        facTx.body.session.id,
+        ownerTx.body.session.id,
+        "Facilitator receives the same workspace transcript as Owner"
+      );
+    }
+
+    const personalFac = await getSessionTranscript(facId, "sess-owned-newest");
+    assertEqual(
+      personalFac.status,
+      403,
+      "getSessionTranscript still 403 for Facilitator who is not bot owner or participant"
+    );
+
+    assertEqual(
+      (
+        await getWorkspaceSessionTranscript(
+          ownerId,
+          ws.id,
+          "sess-owned-unshared"
+        )
+      ).status,
+      403,
+      "operator unshared transcript → 403"
+    );
+
+    assertEqual(
+      (await getWorkspaceSessionTranscript(ownerId, ws.id, "sess-unplaced"))
+        .status,
+      403,
+      "operator unplaced-bot transcript → 403"
+    );
+
+    const participantTx = await getWorkspaceSessionTranscript(
+      partId,
+      ws.id,
+      "sess-owned-newest"
+    );
+    assertEqual(participantTx.status, 403, "Participant transcript → 403");
+    assert(
+      !participantTx.ok,
+      "Participant must not receive a workspace transcript payload"
+    );
+
+    const placedPeerTx = await getWorkspaceSessionTranscript(
+      ownerId,
+      ws.id,
+      "sess-others-middle"
+    );
+    assertEqual(
+      placedPeerTx.status,
+      200,
+      "operator can read another owner's shared placed session"
+    );
+    await removePlacement(ws.id, placedOthers);
+    assertEqual(
+      (
+        await getWorkspaceSessionTranscript(
+          ownerId,
+          ws.id,
+          "sess-others-middle"
+        )
+      ).status,
+      403,
+      "operator after unplace → 403"
+    );
+
+    const unknownTx = await getWorkspaceSessionTranscript(
+      ownerId,
+      ws.id,
+      "no-such-session"
+    );
+    assert(
+      unknownTx.status === 403 || unknownTx.status === 404,
+      "unknown session id → 403 or 404 without a transcript payload"
+    );
+    assert(!unknownTx.ok, "unknown session must not return a record");
+
     const implSource = await fs.readFile(
       path.join(process.cwd(), "lib/workspace-api/workspaces-sessions.ts"),
       "utf-8"
@@ -331,6 +476,13 @@ async function main(): Promise<void> {
         !implSource.includes("listActivity") &&
         !implSource.includes("listWorkspaceActivity"),
       "workspaces-sessions.ts must not import or list the event-feed store"
+    );
+    assert(
+      implSource.includes("getWorkspaceSessionTranscript") &&
+        implSource.includes("getSessionById") &&
+        implSource.includes("listPlacements") &&
+        !/\bgetSessionTranscript\b/.test(implSource),
+      "transcript uses getSessionById + listPlacements, not getSessionTranscript"
     );
 
     const routeSource = await fs.readFile(
@@ -345,6 +497,32 @@ async function main(): Promise<void> {
         !routeSource.includes("listWorkspaceActivity") &&
         !routeSource.includes("listActivity"),
       "sessions route is a thin wrapper around listWorkspaceSessions, not the event feed"
+    );
+
+    const transcriptRoutePath = path.join(
+      process.cwd(),
+      "app/api/workspaces/[workspaceId]/sessions/[sessionId]/route.ts"
+    );
+    let transcriptRouteSource = "";
+    try {
+      transcriptRouteSource = await fs.readFile(transcriptRoutePath, "utf-8");
+    } catch {
+      transcriptRouteSource = "";
+    }
+    assert(
+      transcriptRouteSource.includes("getWorkspaceSessionTranscript") &&
+        !/\bgetSessionTranscript\b/.test(transcriptRouteSource),
+      "workspace transcript route is a thin wrapper around getWorkspaceSessionTranscript"
+    );
+
+    const personalRouteSource = await fs.readFile(
+      path.join(process.cwd(), "app/api/sessions/[sessionId]/route.ts"),
+      "utf-8"
+    );
+    assert(
+      personalRouteSource.includes("getSessionTranscript") &&
+        !personalRouteSource.includes("getWorkspaceSessionTranscript"),
+      "GET /api/sessions/:sessionId still delegates to getSessionTranscript only"
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
