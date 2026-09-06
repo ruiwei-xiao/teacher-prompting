@@ -139,7 +139,7 @@
 
 ## 8. Hub integration
 
-- [ ] 8. Wire role-visible tabs, Activity, leave, and post-create Settings/Members
+- [x] 8. Wire role-visible tabs, Activity, leave, and post-create Settings/Members
   - The hub renders only role-visible tabs; operators see Members (with invites already on that section) and Activity, not an Invites tab; Participants see Bots and can leave without admin sections
   - After create, operators can still change building permissions and the Assisted Authoring default in Settings and invite from Members
   - Peer bot visibility listing rules stay as they are: membership alone does not reveal others’ placed bots

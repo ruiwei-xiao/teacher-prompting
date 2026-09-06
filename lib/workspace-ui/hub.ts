@@ -7,6 +7,8 @@ import type {
   WorkspacePlacement,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+import { canSelfLeave } from "@/lib/workspace-ui/members";
+import type { WorkspaceTab } from "@/lib/workspace-ui/tabs";
 
 export type HubBotSummary = {
   id: string;
@@ -72,6 +74,18 @@ export function listPlaceableOwnedBots(input: {
   placedAppIds: ReadonlySet<string>;
 }): HubBotSummary[] {
   return input.ownedBots.filter((bot) => !input.placedAppIds.has(bot.id));
+}
+
+/**
+ * Leave control on the Bots hub header (Req 1.6).
+ * Participants (and other non-owners) leave from Bots; operators also keep
+ * leave on Members when that tab is active.
+ */
+export function shouldShowHubSelfLeave(input: {
+  role: WorkspaceRole;
+  activeTab: WorkspaceTab;
+}): boolean {
+  return input.activeTab === "bots" && canSelfLeave(input.role);
 }
 
 export type ParseOk<T> = { ok: true } & T;

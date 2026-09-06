@@ -2,13 +2,21 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   BuildingPermissions,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
 import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
-import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
+import {
+  parseWorkspaceGetResponse,
+  shouldShowHubSelfLeave,
+} from "@/lib/workspace-ui/hub";
+import {
+  buildRemoveMemberBody,
+  membersApiHref,
+  parseMembersMutationResponse,
+} from "@/lib/workspace-ui/members";
 import {
   resolveWorkspaceTab,
   type WorkspaceTab,
@@ -42,6 +50,83 @@ function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
     case "activity":
       return "Shared chat sessions for bots placed in this Workspace.";
   }
+}
+
+function HubSelfLeaveControl({
+  workspaceId,
+  currentUserId,
+}: {
+  workspaceId: string;
+  currentUserId: string;
+}) {
+  const router = useRouter();
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
+
+  async function handleSelfLeave() {
+    if (!currentUserId || leaveBusy) return;
+    setLeaveBusy(true);
+    setLeaveError("");
+    try {
+      const res = await fetch(membersApiHref(workspaceId), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRemoveMemberBody(currentUserId)),
+      });
+      const body = await res.json().catch(() => ({}));
+      const parsed = parseMembersMutationResponse(res.status, body);
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      router.push(MY_BOTS_HREF);
+      router.refresh();
+    } catch (e: unknown) {
+      setLeaveError(
+        e instanceof Error ? e.message : "Failed to leave this Workspace"
+      );
+      setLeaveBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      {!confirmLeave ? (
+        <button
+          type="button"
+          onClick={() => setConfirmLeave(true)}
+          disabled={leaveBusy}
+          className="inline-flex h-10 items-center rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Leave Workspace…
+        </button>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleSelfLeave()}
+            disabled={leaveBusy}
+            className="inline-flex h-10 items-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {leaveBusy ? "Leaving…" : "Confirm leave"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmLeave(false)}
+            disabled={leaveBusy}
+            className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {leaveError ? (
+        <p className="text-sm text-red-700 dark:text-red-300" role="alert">
+          {leaveError}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
@@ -146,6 +231,12 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
           {tabDescription(activeTab, roleLabel)}
         </p>
+        {shouldShowHubSelfLeave({ role: state.role, activeTab }) ? (
+          <HubSelfLeaveControl
+            workspaceId={workspaceId}
+            currentUserId={state.currentUserId}
+          />
+        ) : null}
         <div className="mt-6">
           <WorkspaceNavTabs workspaceId={workspaceId} role={state.role} />
         </div>

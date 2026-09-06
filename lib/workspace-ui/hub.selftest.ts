@@ -8,6 +8,8 @@ import type {
   BuildingPermissions,
   WorkspacePlacement,
 } from "@/lib/workspace-store/types";
+import { canSelfLeave } from "./members";
+import { visibleWorkspaceTabs } from "./tabs";
 import {
   canPlaceIntoWorkspace,
   canUnplaceFromWorkspace,
@@ -15,6 +17,7 @@ import {
   listPlaceableOwnedBots,
   parsePlacementsListResponse,
   parseWorkspaceGetResponse,
+  shouldShowHubSelfLeave,
 } from "./hub";
 
 let failures = 0;
@@ -122,6 +125,18 @@ async function main(): Promise<void> {
     ownerAll.map((p) => p.appId).sort(),
     ["mine", "peer"],
     "Owner sees all placed bots for facilitation"
+  );
+
+  const membershipAlone = filterVisiblePlacements({
+    placements,
+    role: "participant",
+    permissions: permsOff,
+    ownedAppIds: new Set(),
+  });
+  assertEqual(
+    membershipAlone.map((p) => p.appId),
+    [],
+    "membership alone does not reveal others' placed bots (permission b off)"
   );
 
   // --- Place (permission a) ---
@@ -314,6 +329,160 @@ async function main(): Promise<void> {
   assert(
     !pageSource.toLowerCase().includes("temporary hub"),
     "hub page is no longer the temporary 6.1 placeholder"
+  );
+
+  // --- Role-visible hub tabs, Activity, Settings/Members (Req 1.1, 1.2, 1.7, 3.8, 5.6) ---
+  const navTabsPath = path.join(
+    process.cwd(),
+    "components/workspace/WorkspaceNavTabs.tsx"
+  );
+  const membersListPath = path.join(
+    process.cwd(),
+    "components/workspace/WorkspaceMemberList.tsx"
+  );
+  const navTabsSource = await fs.readFile(navTabsPath, "utf8");
+  const membersListSource = await fs.readFile(membersListPath, "utf8");
+
+  assertEqual(
+    visibleWorkspaceTabs("participant").join(","),
+    "bots",
+    "Participant hub shows only Bots"
+  );
+  assertEqual(
+    visibleWorkspaceTabs("owner").join(","),
+    "bots,settings,members,activity",
+    "Owner hub shows Bots, Settings, Members, and Activity"
+  );
+  assertEqual(
+    visibleWorkspaceTabs("facilitator").join(","),
+    "bots,settings,members,activity",
+    "Facilitator hub shows Bots, Settings, Members, and Activity"
+  );
+  assert(
+    navTabsSource.includes("visibleWorkspaceTabs"),
+    "WorkspaceNavTabs renders only role-visible tabs"
+  );
+  assert(
+    hubSource.includes("WorkspaceNavTabs") && hubSource.includes("role={state.role}"),
+    "hub passes membership role into nav tabs"
+  );
+  assert(
+    !hubSource.includes('activeTab === "invites"') &&
+      !hubSource.includes('case "invites"') &&
+      !hubSource.includes("WorkspaceInvitePanel"),
+    "hub has no Invites tab"
+  );
+  assert(
+    /activeTab === ["']activity["']/.test(hubSource) &&
+      hubSource.includes("WorkspaceActivityView"),
+    "hub mounts the Activity browse view"
+  );
+  assert(
+    !hubSource.includes("WorkspaceActivityFeed") &&
+      !hubSource.includes("activityApiHref"),
+    "hub Activity is not the membership/placement event feed"
+  );
+  assert(
+    hubSource.includes("WorkspacePermissionsForm") &&
+      hubSource.includes("initialAssistedAuthoringModeDefault"),
+    "operators can change building permissions and AA default in Settings after create"
+  );
+  assert(
+    hubSource.includes("WorkspaceMemberList") &&
+      membersListSource.includes("WorkspaceShareLinkControl") &&
+      membersListSource.includes("buildCreateEmailInviteBody"),
+    "operators invite from Members after create"
+  );
+  assert(
+    membersListSource.includes("canSelfLeave") &&
+      membersListSource.includes("Leave Workspace"),
+    "operators keep self-leave on Members"
+  );
+
+  // --- Participant leave on Bots (Req 1.6) ---
+  assertEqual(
+    canSelfLeave("participant"),
+    true,
+    "Participant may self-leave"
+  );
+  assertEqual(
+    canSelfLeave("facilitator"),
+    true,
+    "Facilitator may self-leave"
+  );
+  assertEqual(
+    canSelfLeave("owner"),
+    false,
+    "Owner cannot self-leave"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "participant", activeTab: "bots" }),
+    true,
+    "Participant leave control shows on Bots"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "facilitator", activeTab: "bots" }),
+    true,
+    "non-owner leave control shows on Bots when they are not on Members"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "owner", activeTab: "bots" }),
+    false,
+    "Owner does not get hub header leave on Bots"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "facilitator", activeTab: "members" }),
+    false,
+    "operator leave stays on Members when that tab is active"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "participant", activeTab: "settings" }),
+    false,
+    "leave control is not shown with Settings"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "participant", activeTab: "members" }),
+    false,
+    "leave control is not shown with Members"
+  );
+  assertEqual(
+    shouldShowHubSelfLeave({ role: "participant", activeTab: "activity" }),
+    false,
+    "leave control is not shown with Activity"
+  );
+  assert(
+    hubSource.includes("shouldShowHubSelfLeave"),
+    "WorkspaceHub uses shouldShowHubSelfLeave for Bots leave"
+  );
+  assert(
+    hubSource.includes("Leave Workspace"),
+    "Participant leave control is on the hub header"
+  );
+  assert(
+    hubSource.includes("buildRemoveMemberBody") &&
+      hubSource.includes("DELETE") &&
+      (hubSource.includes("membersApiHref") || hubSource.includes("/members")),
+    "hub self-leave uses existing members API DELETE"
+  );
+  assert(
+    hubSource.includes("parseMembersMutationResponse"),
+    "hub self-leave parses the members DELETE response"
+  );
+  assert(
+    !gridSource.includes("Leave Workspace") &&
+      !gridSource.includes("canSelfLeave") &&
+      !gridSource.includes("shouldShowHubSelfLeave"),
+    "leave lives on the hub header, not BotGrid"
+  );
+  assert(
+    !hubSource.includes("WorkspacePermissionsForm") ||
+      hubSource.includes('activeTab === "settings"'),
+    "Settings content is tab-gated"
+  );
+  assert(
+    hubSource.includes('activeTab === "members"') &&
+      hubSource.includes("WorkspaceMemberList"),
+    "Members content is tab-gated"
   );
 
   if (failures > 0) {
