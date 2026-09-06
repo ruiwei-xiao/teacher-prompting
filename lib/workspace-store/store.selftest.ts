@@ -88,6 +88,11 @@ async function main(): Promise<void> {
       },
       "new Workspace defaults all building permissions off"
     );
+    assertEqual(
+      ws.assistedAuthoringModeDefault,
+      false,
+      "new Workspace Assisted Authoring default is off"
+    );
 
     const membersAfterCreate = await listMembers(ws.id);
     assertEqual(membersAfterCreate.length, 1, "createWorkspace adds exactly one membership");
@@ -99,6 +104,11 @@ async function main(): Promise<void> {
     const listed = await listWorkspacesForUser(ownerId);
     assertEqual(listed.length, 1, "owner sees created Workspace");
     assertEqual(listed[0]?.id, ws.id, "listed Workspace id matches");
+    assertEqual(
+      listed[0]?.assistedAuthoringModeDefault,
+      false,
+      "listed Workspace Assisted Authoring default is off"
+    );
 
     const emptyList = await listWorkspacesForUser("nobody");
     assertEqual(emptyList.length, 0, "non-member sees no Workspaces");
@@ -106,6 +116,46 @@ async function main(): Promise<void> {
     const fetched = await getWorkspace(ws.id);
     assert(fetched !== null, "getWorkspace returns created Workspace");
     assertEqual(fetched?.name, "Course A", "getWorkspace name");
+    assertEqual(
+      fetched?.assistedAuthoringModeDefault,
+      false,
+      "getWorkspace Assisted Authoring default is off"
+    );
+
+    // JSON record missing assistedAuthoringModeDefault loads as false
+    const missingKeyId = "ws_legacy_no_aa_default";
+    const rawBeforeLegacy = await fs.readFile(dataFile, "utf-8");
+    const parsedBeforeLegacy = JSON.parse(rawBeforeLegacy) as {
+      workspaces: Record<string, unknown>[];
+      members?: unknown[];
+      invites?: unknown[];
+      placements?: unknown[];
+      activity?: unknown[];
+    };
+    parsedBeforeLegacy.workspaces.push({
+      id: missingKeyId,
+      name: "Legacy Workspace",
+      buildingPermissions: {
+        canCreateBots: false,
+        canSeeOthersBots: false,
+        canShareOutside: false,
+        canManageOwnBots: false,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await fs.writeFile(
+      dataFile,
+      JSON.stringify(parsedBeforeLegacy, null, 2),
+      "utf-8"
+    );
+    const legacyLoaded = await getWorkspace(missingKeyId);
+    assert(legacyLoaded !== null, "JSON workspace missing AA default key still loads");
+    assertEqual(
+      legacyLoaded?.assistedAuthoringModeDefault,
+      false,
+      "JSON workspace missing assistedAuthoringModeDefault loads as false"
+    );
 
     const missing = await getWorkspace("missing-id");
     assertEqual(missing, null, "getWorkspace returns null for unknown id");
@@ -408,6 +458,14 @@ async function main(): Promise<void> {
         (w) => typeof w === "object" && w !== null && (w as { id: string }).id === wsB.id
       ),
       "second Workspace persisted after invite/placement tests"
+    );
+    const persistedCreated = parsed.workspaces.find(
+      (w) => typeof w === "object" && w !== null && (w as { id: string }).id === ws.id
+    ) as { assistedAuthoringModeDefault?: unknown } | undefined;
+    assertEqual(
+      persistedCreated?.assistedAuthoringModeDefault,
+      false,
+      "new create writes assistedAuthoringModeDefault false explicitly"
     );
 
     // =========================================================================

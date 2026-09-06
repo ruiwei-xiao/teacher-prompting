@@ -26,6 +26,7 @@ export type Workspace = {
   id: string;
   name: string;
   buildingPermissions: BuildingPermissions;
+  assistedAuthoringModeDefault: boolean;
   createdAt: string;
   updatedAt: string;
 };

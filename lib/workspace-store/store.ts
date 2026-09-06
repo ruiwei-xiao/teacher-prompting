@@ -39,6 +39,7 @@ type WorkspaceRow = {
   id: string;
   name: string;
   building_permissions: string;
+  assisted_authoring_mode_default?: boolean | null;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -139,11 +140,27 @@ function parseBuildingPermissions(raw: string): BuildingPermissions {
   }
 }
 
+function readAssistedAuthoringModeDefault(value: unknown): boolean {
+  return value === true;
+}
+
+function withAssistedAuthoringModeDefault(workspace: Workspace): Workspace {
+  return {
+    ...workspace,
+    assistedAuthoringModeDefault: readAssistedAuthoringModeDefault(
+      workspace.assistedAuthoringModeDefault
+    ),
+  };
+}
+
 function rowToWorkspace(row: WorkspaceRow): Workspace {
   return {
     id: row.id,
     name: row.name,
     buildingPermissions: parseBuildingPermissions(row.building_permissions),
+    assistedAuthoringModeDefault: readAssistedAuthoringModeDefault(
+      row.assisted_authoring_mode_default
+    ),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -256,7 +273,9 @@ async function readFileData(): Promise<WorkspaceFileData> {
   const raw = await fs.readFile(workspacesFilePath(), "utf-8");
   const parsed = JSON.parse(raw) as Partial<WorkspaceFileData>;
   return {
-    workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : [],
+    workspaces: Array.isArray(parsed.workspaces)
+      ? parsed.workspaces.map(withAssistedAuthoringModeDefault)
+      : [],
     members: Array.isArray(parsed.members) ? parsed.members : [],
     invites: Array.isArray(parsed.invites) ? parsed.invites : [],
     placements: Array.isArray(parsed.placements) ? parsed.placements : [],
@@ -281,9 +300,15 @@ async function ensurePostgresStore() {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           building_permissions TEXT NOT NULL,
+          assisted_authoring_mode_default BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
         )
+      `;
+
+      await sql`
+        ALTER TABLE workspaces
+        ADD COLUMN IF NOT EXISTS assisted_authoring_mode_default BOOLEAN NOT NULL DEFAULT FALSE
       `;
 
       await sql`
@@ -381,6 +406,7 @@ async function createWorkspaceInFile(input: {
     id: crypto.randomUUID(),
     name: input.name,
     buildingPermissions: { ...DEFAULT_BUILDING_PERMISSIONS },
+    assistedAuthoringModeDefault: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -755,17 +781,19 @@ async function createWorkspaceInPostgres(input: {
     id: crypto.randomUUID(),
     name: input.name,
     buildingPermissions: { ...DEFAULT_BUILDING_PERMISSIONS },
+    assistedAuthoringModeDefault: false,
     createdAt: now,
     updatedAt: now,
   };
   const permissionsJson = JSON.stringify(workspace.buildingPermissions);
 
   await sql`
-    INSERT INTO workspaces (id, name, building_permissions, created_at, updated_at)
+    INSERT INTO workspaces (id, name, building_permissions, assisted_authoring_mode_default, created_at, updated_at)
     VALUES (
       ${workspace.id},
       ${workspace.name},
       ${permissionsJson},
+      ${workspace.assistedAuthoringModeDefault},
       ${workspace.createdAt},
       ${workspace.updatedAt}
     )
@@ -782,7 +810,7 @@ async function createWorkspaceInPostgres(input: {
 async function listWorkspacesForUserInPostgres(userId: string): Promise<Workspace[]> {
   await ensurePostgresStore();
   const result = await sql<WorkspaceRow>`
-    SELECT w.id, w.name, w.building_permissions, w.created_at, w.updated_at
+    SELECT w.id, w.name, w.building_permissions, w.assisted_authoring_mode_default, w.created_at, w.updated_at
     FROM workspaces w
     INNER JOIN workspace_members m ON m.workspace_id = w.id
     WHERE m.user_id = ${userId}
@@ -795,7 +823,7 @@ async function getWorkspaceInPostgres(
 ): Promise<Workspace | null> {
   await ensurePostgresStore();
   const result = await sql<WorkspaceRow>`
-    SELECT id, name, building_permissions, created_at, updated_at
+    SELECT id, name, building_permissions, assisted_authoring_mode_default, created_at, updated_at
     FROM workspaces
     WHERE id = ${workspaceId}
     LIMIT 1
