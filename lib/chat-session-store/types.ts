@@ -49,6 +49,11 @@ export type ListSessionsForAppOpts = {
   offset: number;
 } & SessionQueryFilter;
 
+export type ListSharedSessionsForAppIdsOpts = {
+  limit: number;
+  offset: number;
+};
+
 export type ChatSessionsFileData = {
   sessions: ChatSessionRecord[];
 };

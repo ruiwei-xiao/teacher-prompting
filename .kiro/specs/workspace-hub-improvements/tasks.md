@@ -16,7 +16,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
   - _Boundary: WorkspaceTabs_
 
-- [ ] 1.3 (P) List shared sessions across many bots
+- [x] 1.3 (P) List shared sessions across many bots
   - Query shared chat sessions for a set of bot ids in both stores, paginated; empty id set yields an empty page
   - Order by most recent activity first (updated time descending, stable id tie-break); unshared sessions are excluded
   - The same page of shared summaries is returned for equivalent ids in both stores
