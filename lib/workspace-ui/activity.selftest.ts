@@ -289,8 +289,14 @@ async function main(): Promise<void> {
     "hub does not render activity feed"
   );
   assert(
-    !tabsSource.includes('"activity"') && !tabsSource.includes("'activity'"),
-    "nav tabs omit activity"
+    tabsSource.includes('"activity"') || tabsSource.includes("'activity'"),
+    "activity is a hub tab id"
+  );
+  assert(
+    !hubSource.includes("WorkspaceActivityFeed") &&
+      !hubSource.includes("activityApiHref") &&
+      !hubSource.includes("parseActivityListResponse"),
+    "hub does not render the membership/placement event feed as Activity"
   );
 
   if (failures > 0) {

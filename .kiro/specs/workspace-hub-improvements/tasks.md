@@ -9,7 +9,7 @@
   - _Requirements: 4.2_
   - _Boundary: WorkspaceStore_
 
-- [ ] 1.2 (P) Resolve hub tabs by membership role
+- [x] 1.2 (P) Resolve hub tabs by membership role
   - Participant-visible tabs are Bots only; Owner and Facilitator tabs are Bots, Settings, Members, and Activity; Invites is not a tab
   - The Activity tab label is “Activity”; Participant disallowed section URLs resolve to Bots; operator Invites URLs resolve to Members
   - Role helpers return those tab sets and URL resolutions without rendering the hub
@@ -164,3 +164,8 @@
   - Those flows behave as specified when exercised in the app
   - _Requirements: 1.1, 1.6, 2.5, 3.1, 3.4, 5.1_
   - _Depends: 8_
+
+## Implementation Notes
+
+- 1.2: Removing `"invites"` from `WorkspaceTab` unmounted `WorkspaceInvitePanel` from the hub; operators cannot reach invite UI until 3.2 composes it onto Members. Activity nav has no browse view until tasks 6/8.
+- Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.

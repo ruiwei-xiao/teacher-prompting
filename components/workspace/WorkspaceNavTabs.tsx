@@ -3,17 +3,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import type { WorkspaceRole } from "@/lib/workspace-store/types";
 import {
   WORKSPACE_TABS,
   resolveWorkspaceTab,
+  visibleWorkspaceTabs,
   workspaceTabHref,
   type WorkspaceTab,
 } from "@/lib/workspace-ui/tabs";
 
 export default function WorkspaceNavTabs({
   workspaceId,
+  role,
 }: {
   workspaceId: string;
+  role: WorkspaceRole;
 }) {
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
@@ -22,16 +26,19 @@ export default function WorkspaceNavTabs({
   const containerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false });
+  const tabs = WORKSPACE_TABS.filter((tab) =>
+    visibleWorkspaceTabs(role).includes(tab.id)
+  );
 
   useEffect(() => {
     setNavReady(true);
   }, []);
 
   const active = navReady
-    ? resolveWorkspaceTab(pathname, tabParam, workspaceId)
+    ? resolveWorkspaceTab(pathname, tabParam, workspaceId, role)
     : null;
   const activeIndex = active
-    ? WORKSPACE_TABS.findIndex((tab) => tab.id === active)
+    ? tabs.findIndex((tab) => tab.id === active)
     : -1;
 
   useLayoutEffect(() => {
@@ -76,7 +83,7 @@ export default function WorkspaceNavTabs({
             }}
           />
         )}
-        {WORKSPACE_TABS.map((tab, index) => {
+        {tabs.map((tab, index) => {
           const isActive = active === tab.id;
           return (
             <Link

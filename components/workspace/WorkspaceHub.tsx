@@ -14,7 +14,6 @@ import {
   type WorkspaceTab,
 } from "@/lib/workspace-ui/tabs";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
-import WorkspaceInvitePanel from "@/components/workspace/WorkspaceInvitePanel";
 import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
 import WorkspaceNavTabs from "@/components/workspace/WorkspaceNavTabs";
 import WorkspacePermissionsForm from "@/components/workspace/WorkspacePermissionsForm";
@@ -36,10 +35,10 @@ function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
       return `Your role: ${roleLabel}`;
     case "settings":
       return "Rename this Workspace, edit building permissions, or delete it if you are the Owner.";
-    case "invites":
-      return "Invite educators with a copyable link or a pending email.";
     case "members":
       return "Search the roster, change roles, remove members, transfer ownership, or leave.";
+    case "activity":
+      return "Shared chat sessions for bots placed in this Workspace.";
   }
 }
 
@@ -128,6 +127,7 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
     `/workspace/${workspaceId}`,
     tabParam,
     workspaceId,
+    state.role
   );
 
   return (
@@ -143,7 +143,7 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           {tabDescription(activeTab, roleLabel)}
         </p>
         <div className="mt-6">
-          <WorkspaceNavTabs workspaceId={workspaceId} />
+          <WorkspaceNavTabs workspaceId={workspaceId} role={state.role} />
         </div>
       </div>
 
@@ -160,15 +160,13 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           initialPermissions={state.permissions}
           role={state.role}
         />
-      ) : activeTab === "invites" ? (
-        <WorkspaceInvitePanel workspaceId={workspaceId} role={state.role} />
-      ) : (
+      ) : activeTab === "members" ? (
         <WorkspaceMemberList
           workspaceId={workspaceId}
           role={state.role}
           currentUserId={state.currentUserId}
         />
-      )}
+      ) : null}
     </div>
   );
 }

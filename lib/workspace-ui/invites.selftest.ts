@@ -288,8 +288,9 @@ async function main(): Promise<void> {
     "panel gates invite management by role"
   );
   assert(
-    hubSource.includes("WorkspaceInvitePanel"),
-    "hub renders WorkspaceInvitePanel on invites tab"
+    !hubSource.includes('case "invites"') &&
+      !hubSource.includes('activeTab === "invites"'),
+    "hub has no Invites tab (invites resolve onto Members later)"
   );
   assert(
     pageSource.includes("redirect") ||
