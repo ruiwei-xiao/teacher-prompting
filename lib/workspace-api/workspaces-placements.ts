@@ -3,6 +3,7 @@
  * Session is resolved by route wrappers; these accept userId for testability.
  */
 import { getAppById, listApps } from "@/lib/app-store/store";
+import { applyWorkspaceAssistedAuthoringDefault } from "@/lib/workspace-api/apply-assisted-authoring-default";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
   appendActivity,
@@ -100,6 +101,7 @@ export async function listWorkspacePlacements(
 /**
  * POST place — only bot owner; gated by bots.place (permission a for Participants).
  * Does not mutate AppConfig.ownerId. Appends bot.placed when newly placed.
+ * First place applies the Workspace Assisted Authoring default; re-place does not.
  */
 export async function placeWorkspaceBot(
   userId: string | null,
@@ -145,6 +147,7 @@ export async function placeWorkspaceBot(
       actorUserId: userId,
       payload: { appId },
     });
+    await applyWorkspaceAssistedAuthoringDefault(workspaceId, appId);
   }
 
   return { ok: true, status: 200, body: { ok: true } };

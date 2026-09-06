@@ -93,7 +93,7 @@
 
 ## 5. Apply Assisted Authoring default and Workspace write API
 
-- [ ] 5.1 (P) Apply the Workspace Assisted Authoring default on first add
+- [x] 5.1 (P) Apply the Workspace Assisted Authoring default on first add
   - Creating a bot into a Workspace and first placing a bot set that bot’s Assisted Authoring to the Workspace default in effect then
   - Idempotent re-place does not re-apply; changing the Workspace default later does not rewrite existing bots; per-bot Settings can still change the mode
   - A newly added bot matches the current default; a second place of the same bot and a later default change leave existing bots unchanged
@@ -171,4 +171,5 @@
 - 2.1: ensure/reset mint `createdByUserId` as the Workspace Owner (two-arg store signature); actor identity is task 2.2.
 - 2.2: GET invites payload is `{ linkByRole, pendingEmails }`; POST `kind:"link"` is 400. `WorkspaceInvitePanel` / `lib/workspace-ui/invites.ts` still parse the old `{ invites }` list until 2.3/3.2.
 - 3.2: `WorkspaceInvitePanel` was deleted; Members hosts email + share-link. Participant self-leave is no longer on Members (`return null` when they cannot load the roster); leave on Bots is task 8.
+- 5.1: `applyWorkspaceAssistedAuthoringDefault` lives in `lib/workspace-api/apply-assisted-authoring-default.ts`; first place of a bot with undefined AA into a default-OFF Workspace now writes false.
 - Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.
