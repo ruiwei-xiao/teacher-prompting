@@ -48,6 +48,7 @@ async function main(): Promise<void> {
     listActivity,
     listMembers,
     listWorkspacesForUser,
+    revokeInvite,
   } = await import("../workspace-store/store");
 
   try {
@@ -102,12 +103,23 @@ async function main(): Promise<void> {
     await addMember({ workspaceId: ws.id, userId: partId, role: "participant" });
     await addMember({ workspaceId: ws.id, userId: part2Id, role: "participant" });
 
-    // --- List as member ---
-    const listed = await listWorkspaceMembers(partId, ws.id);
-    assertEqual(listed.status, 200, "Participant list → 200");
+    // --- List requires members.manage (Req 1.7, 2.12) ---
+    const participantList = await listWorkspaceMembers(partId, ws.id);
+    assertEqual(participantList.status, 403, "Participant list → 403");
+    assert(
+      participantList.ok === false,
+      "Participant list does not return the roster"
+    );
+
+    const listed = await listWorkspaceMembers(ownerId, ws.id);
+    assertEqual(listed.status, 200, "Owner list → 200");
     assert(
       listed.ok && listed.body.members.length === 4,
-      "list returns all members"
+      "operator list returns all members"
+    );
+    assert(
+      listed.ok && Array.isArray(listed.body.pendingEmailInvites),
+      "operator body includes pendingEmailInvites"
     );
 
     const labeledSelf = await listWorkspaceMembers(ownerId, ws.id, undefined, {
@@ -130,6 +142,53 @@ async function main(): Promise<void> {
         "viewer profile does not leak onto other members"
       );
     }
+
+    // --- Operator list includes active pending emails, not revoked/expired/links (Req 2.8) ---
+    const pendingEmail = await createInvite({
+      workspaceId: ws.id,
+      kind: "email",
+      email: "pending@school.edu",
+      role: "participant",
+      createdByUserId: ownerId,
+    });
+    const revokedEmail = await createInvite({
+      workspaceId: ws.id,
+      kind: "email",
+      email: "revoked@school.edu",
+      role: "facilitator",
+      createdByUserId: ownerId,
+    });
+    await revokeInvite(ws.id, revokedEmail.id);
+    await createInvite({
+      workspaceId: ws.id,
+      kind: "email",
+      email: "expired@school.edu",
+      role: "participant",
+      createdByUserId: ownerId,
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await createInvite({
+      workspaceId: ws.id,
+      kind: "link",
+      role: "participant",
+      createdByUserId: ownerId,
+    });
+
+    const operatorWithPending = await listWorkspaceMembers(facId, ws.id);
+    assertEqual(operatorWithPending.status, 200, "Facilitator list → 200");
+    assert(
+      operatorWithPending.ok &&
+        operatorWithPending.body.pendingEmailInvites?.length === 1 &&
+        operatorWithPending.body.pendingEmailInvites?.[0]?.id ===
+          pendingEmail.id &&
+        operatorWithPending.body.pendingEmailInvites?.[0]?.kind === "email" &&
+        operatorWithPending.body.pendingEmailInvites?.[0]?.email ===
+          "pending@school.edu" &&
+        operatorWithPending.body.pendingEmailInvites?.every(
+          (invite) => invite.kind === "email"
+        ),
+      "operator pendingEmailInvites lists active email invitees only"
+    );
 
     await createInvite({
       workspaceId: ws.id,

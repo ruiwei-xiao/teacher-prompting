@@ -58,7 +58,7 @@
 
 ## 3. Members roster and pending invites
 
-- [ ] 3.1 Restrict the member list to operators and include pending emails
+- [x] 3.1 Restrict the member list to operators and include pending emails
   - Listing members requires member management; Participants receive forbidden; operators also receive pending email invites
   - A Participant can still leave via the existing self-leave path without receiving the roster
   - Participant list calls fail; operator list includes not-yet-joined email invitees; self-leave still succeeds
