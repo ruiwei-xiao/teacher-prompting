@@ -80,19 +80,38 @@ async function main(): Promise<void> {
     "Participant cannot delete Workspace"
   );
 
-  // --- Patch body (Req 1.4, 5.1) ---
+  // --- Patch body (Req 1.4, 4.1, 5.1) ---
   assertEqual(
     buildWorkspaceSettingsPatchBody({
       name: "  Period 3  ",
       buildingPermissions: permsOpen,
+      assistedAuthoringModeDefault: true,
     }),
-    { name: "Period 3", buildingPermissions: permsOpen },
-    "trims rename and includes building permissions a–d"
+    {
+      name: "Period 3",
+      buildingPermissions: permsOpen,
+      assistedAuthoringModeDefault: true,
+    },
+    "trims rename and includes building permissions a–d and assistedAuthoringModeDefault"
+  );
+  assertEqual(
+    buildWorkspaceSettingsPatchBody({
+      name: "Course",
+      buildingPermissions: permsOff,
+      assistedAuthoringModeDefault: false,
+    }),
+    {
+      name: "Course",
+      buildingPermissions: permsOff,
+      assistedAuthoringModeDefault: false,
+    },
+    "patch body includes assistedAuthoringModeDefault false"
   );
   assertEqual(
     buildWorkspaceSettingsPatchBody({
       name: "   ",
       buildingPermissions: permsOff,
+      assistedAuthoringModeDefault: true,
     }),
     null,
     "blank name is rejected"
@@ -115,6 +134,7 @@ async function main(): Promise<void> {
       id: "ws_1",
       name: "Renamed",
       buildingPermissions: permsOpen,
+      assistedAuthoringModeDefault: true,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
     },
@@ -127,12 +147,47 @@ async function main(): Promise<void> {
       permsOpen,
       "parses updated permissions for subsequent member actions"
     );
+    assertEqual(
+      patched.workspace.assistedAuthoringModeDefault,
+      true,
+      "parses saved assistedAuthoringModeDefault"
+    );
   }
 
   const patchForbidden = parseWorkspacePatchResponse(403, {
     error: "Forbidden",
   });
   assert(patchForbidden.ok === false, "403 patch fails");
+  assert(
+    patchForbidden.ok === false,
+    "failed parse does not look saved"
+  );
+
+  const patchServerError = parseWorkspacePatchResponse(500, {
+    error: "Save failed",
+  });
+  assert(patchServerError.ok === false, "500 patch does not look saved");
+  if (!patchServerError.ok) {
+    assertEqual(
+      patchServerError.error,
+      "Save failed",
+      "failed parse surfaces the error"
+    );
+  }
+
+  const patchMissingAaDefault = parseWorkspacePatchResponse(200, {
+    workspace: {
+      id: "ws_1",
+      name: "Renamed",
+      buildingPermissions: permsOpen,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    },
+  });
+  assert(
+    patchMissingAaDefault.ok === false,
+    "200 without assistedAuthoringModeDefault does not look saved"
+  );
 
   const deleted = parseWorkspaceDeleteResponse(200, { ok: true });
   assert(deleted.ok === true, "200 delete is ok");
@@ -201,6 +256,37 @@ async function main(): Promise<void> {
       formSource.includes("facilitator") ||
       formSource.includes("participant"),
     "form distinguishes edit vs read-only by role"
+  );
+  assert(
+    formSource.includes("assistedAuthoringModeDefault"),
+    "form has Assisted Authoring Mode default control"
+  );
+  assert(
+    formSource.includes("ON") && formSource.includes("OFF"),
+    "Settings control is ON or OFF"
+  );
+  assert(
+    formSource.includes("disabled={!canEdit") ||
+      formSource.includes("disabled={!canEdit ||"),
+    "Participants cannot edit the Assisted Authoring default"
+  );
+  assert(
+    formSource.includes("if (!parsed.ok)") &&
+      formSource.includes("setError") &&
+      formSource.includes("setSuccess"),
+    "form parses PATCH and can show error or success"
+  );
+  const saveCatchIdx = formSource.indexOf("} catch (e: unknown) {");
+  const saveFinallyIdx = formSource.indexOf("} finally {", saveCatchIdx);
+  const saveCatchBlock =
+    saveCatchIdx >= 0 && saveFinallyIdx > saveCatchIdx
+      ? formSource.slice(saveCatchIdx, saveFinallyIdx)
+      : "";
+  assert(
+    saveCatchBlock.includes("setError") &&
+      !saveCatchBlock.includes("setSuccess(") &&
+      saveCatchBlock.includes("setAssistedAuthoringModeDefault"),
+    "failed parse does not look saved and leaves the previous default on screen"
   );
   assert(
     hubSource.includes("WorkspacePermissionsForm"),

@@ -109,7 +109,7 @@
   - _Boundary: workspaces-crud_
   - _Depends: 1.1_
 
-- [ ] 5.3 Add the Settings control for the Assisted Authoring default
+- [x] 5.3 Add the Settings control for the Assisted Authoring default
   - Owners and Facilitators can set the Workspace default ON or OFF; Participants cannot
   - Save failure shows an error and does not present the new value as saved
   - Settings shows the control for operators; a failed save leaves the previous value on screen

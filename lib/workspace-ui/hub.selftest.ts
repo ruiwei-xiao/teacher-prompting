@@ -220,6 +220,29 @@ async function main(): Promise<void> {
   if (ws.ok) {
     assertEqual(ws.workspace.name, "Period 3", "parses workspace name");
     assertEqual(ws.role, "facilitator", "parses role");
+    assertEqual(
+      ws.workspace.assistedAuthoringModeDefault,
+      false,
+      "missing assistedAuthoringModeDefault reads as false"
+    );
+  }
+
+  const wsAaOn = parseWorkspaceGetResponse(200, {
+    workspace: {
+      id: "ws_1",
+      name: "Period 3",
+      buildingPermissions: permsOff,
+      assistedAuthoringModeDefault: true,
+    },
+    role: "owner",
+  });
+  assert(wsAaOn.ok === true, "200 workspace get with AA default is ok");
+  if (wsAaOn.ok) {
+    assertEqual(
+      wsAaOn.workspace.assistedAuthoringModeDefault,
+      true,
+      "parses assistedAuthoringModeDefault true"
+    );
   }
 
   const wsForbidden = parseWorkspaceGetResponse(403, { error: "Forbidden" });

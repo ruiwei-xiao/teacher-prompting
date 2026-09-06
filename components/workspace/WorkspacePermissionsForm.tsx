@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   BuildingPermissions,
@@ -20,11 +20,13 @@ export default function WorkspacePermissionsForm({
   workspaceId,
   initialName,
   initialPermissions,
+  initialAssistedAuthoringModeDefault = false,
   role,
 }: {
   workspaceId: string;
   initialName: string;
   initialPermissions: BuildingPermissions;
+  initialAssistedAuthoringModeDefault?: boolean;
   role: WorkspaceRole;
 }) {
   const router = useRouter();
@@ -34,6 +36,11 @@ export default function WorkspacePermissionsForm({
   const [name, setName] = useState(initialName);
   const [permissions, setPermissions] =
     useState<BuildingPermissions>(initialPermissions);
+  const [assistedAuthoringModeDefault, setAssistedAuthoringModeDefault] =
+    useState(initialAssistedAuthoringModeDefault);
+  const lastSavedAssistedAuthoringModeDefault = useRef(
+    initialAssistedAuthoringModeDefault
+  );
   const [busy, setBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [error, setError] = useState("");
@@ -46,6 +53,7 @@ export default function WorkspacePermissionsForm({
     const body = buildWorkspaceSettingsPatchBody({
       name,
       buildingPermissions: permissions,
+      assistedAuthoringModeDefault,
     });
     if (!body) {
       setError("Enter a workspace name");
@@ -70,10 +78,18 @@ export default function WorkspacePermissionsForm({
       }
       setName(parsed.workspace.name);
       setPermissions(parsed.workspace.buildingPermissions);
+      setAssistedAuthoringModeDefault(
+        parsed.workspace.assistedAuthoringModeDefault
+      );
+      lastSavedAssistedAuthoringModeDefault.current =
+        parsed.workspace.assistedAuthoringModeDefault;
       setSuccess(
         "Settings saved. New building permissions apply to subsequent member actions.",
       );
     } catch (e: unknown) {
+      setAssistedAuthoringModeDefault(
+        lastSavedAssistedAuthoringModeDefault.current
+      );
       setError(
         e instanceof Error ? e.message : "Failed to update workspace settings",
       );
@@ -172,6 +188,57 @@ export default function WorkspacePermissionsForm({
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+            Assisted Authoring Mode default
+          </h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
+            Bots created into or first placed in this Workspace start with this
+            mode. Changing the default does not change bots already in the
+            Workspace.
+          </p>
+        </div>
+        <div
+          className="flex w-full max-w-xs items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-950/60"
+          role="group"
+          aria-label="Assisted Authoring Mode default"
+        >
+          <button
+            type="button"
+            onClick={() => setAssistedAuthoringModeDefault(true)}
+            disabled={!canEdit || busy || deleteBusy}
+            aria-pressed={assistedAuthoringModeDefault}
+            className={[
+              "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              assistedAuthoringModeDefault
+                ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+            ].join(" ")}
+          >
+            ON
+          </button>
+          <button
+            type="button"
+            onClick={() => setAssistedAuthoringModeDefault(false)}
+            disabled={!canEdit || busy || deleteBusy}
+            aria-pressed={!assistedAuthoringModeDefault}
+            className={[
+              "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              !assistedAuthoringModeDefault
+                ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+            ].join(" ")}
+          >
+            OFF
+          </button>
+        </div>
       </section>
 
       {error ? (

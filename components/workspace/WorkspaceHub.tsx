@@ -26,6 +26,7 @@ type HubState =
       name: string;
       role: WorkspaceRole;
       permissions: BuildingPermissions;
+      assistedAuthoringModeDefault: boolean;
       currentUserId: string;
     };
 
@@ -83,6 +84,8 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           name: parsed.workspace.name,
           role: parsed.role,
           permissions: parsed.workspace.buildingPermissions,
+          assistedAuthoringModeDefault:
+            parsed.workspace.assistedAuthoringModeDefault,
           currentUserId,
         });
       } catch {
@@ -158,6 +161,9 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
           workspaceId={workspaceId}
           initialName={state.name}
           initialPermissions={state.permissions}
+          initialAssistedAuthoringModeDefault={
+            state.assistedAuthoringModeDefault
+          }
           role={state.role}
         />
       ) : activeTab === "members" ? (

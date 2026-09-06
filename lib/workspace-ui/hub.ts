@@ -115,6 +115,7 @@ export function parseWorkspaceGetResponse(
     id: string;
     name: string;
     buildingPermissions: BuildingPermissions;
+    assistedAuthoringModeDefault: boolean;
   };
   role: WorkspaceRole;
 }> {
@@ -147,6 +148,7 @@ export function parseWorkspaceGetResponse(
       id: w.id,
       name: w.name,
       buildingPermissions: w.buildingPermissions,
+      assistedAuthoringModeDefault: w.assistedAuthoringModeDefault === true,
     },
     role,
   };
