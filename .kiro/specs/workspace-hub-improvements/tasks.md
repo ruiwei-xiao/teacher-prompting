@@ -129,7 +129,7 @@
 
 ## 7. Viewport create dialog
 
-- [ ] 7. Create a Workspace with permissions and optional invite in a viewport dialog
+- [x] 7. Create a Workspace with permissions and optional invite in a viewport dialog
   - The dialog is not clipped to the sidebar; it requires a name and shows the four building-permission toggles starting all off, with no Assisted Authoring control
   - After successful create, inviting is optional using the same email and share-link pattern as Members; skipping invite is allowed; create failure does not create a Workspace; success makes the creator Owner and opens the hub
   - The overlay is readable at viewport size; create with toggled permissions persists those values; invite skip still lands on the new Workspace

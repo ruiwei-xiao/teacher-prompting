@@ -4,6 +4,7 @@
  */
 import fs from "fs/promises";
 import path from "path";
+import type { BuildingPermissions } from "@/lib/workspace-store/types";
 import {
   buildCreateWorkspaceBody,
   MY_BOTS_HREF,
@@ -70,6 +71,19 @@ async function main(): Promise<void> {
   assert(malformed.ok === false, "malformed list body fails");
 
   // --- Create helpers (POST /api/workspaces) ---
+  const allOff: BuildingPermissions = {
+    canCreateBots: false,
+    canSeeOthersBots: false,
+    canShareOutside: false,
+    canManageOwnBots: false,
+  };
+  const overlayOn: BuildingPermissions = {
+    canCreateBots: true,
+    canSeeOthersBots: true,
+    canShareOutside: false,
+    canManageOwnBots: true,
+  };
+
   assertEqual(
     buildCreateWorkspaceBody("  Course Hub  "),
     { name: "Course Hub" },
@@ -79,6 +93,34 @@ async function main(): Promise<void> {
     buildCreateWorkspaceBody("   "),
     null,
     "rejects blank create name"
+  );
+  assert(
+    !("buildingPermissions" in (buildCreateWorkspaceBody("Course Hub") ?? {})),
+    "omitted permissions stay off the create body (API all-off including (b))"
+  );
+  assertEqual(
+    buildCreateWorkspaceBody("Course Hub", allOff),
+    { name: "Course Hub" },
+    "explicit all-off overlay is omitted from create body"
+  );
+  const overlaid = buildCreateWorkspaceBody("Course Hub", overlayOn);
+  assert(overlaid !== null, "toggled permissions still require a name");
+  if (overlaid) {
+    assertEqual(
+      overlaid.buildingPermissions,
+      overlayOn,
+      "create body includes toggled buildingPermissions overlay"
+    );
+    assertEqual(overlaid.name, "Course Hub", "overlaid create keeps trimmed name");
+    assert(
+      !("assistedAuthoringModeDefault" in overlaid),
+      "create body has no Assisted Authoring field"
+    );
+  }
+  assertEqual(
+    buildCreateWorkspaceBody("   ", overlayOn),
+    null,
+    "blank name is rejected even when permissions are toggled"
   );
 
   const created = parseCreateWorkspaceResponse(200, {
@@ -141,6 +183,39 @@ async function main(): Promise<void> {
   assert(
     dialogSource.includes("method") && dialogSource.includes("POST"),
     "CreateWorkspaceDialog uses POST"
+  );
+  assert(
+    dialogSource.includes("createPortal") && dialogSource.includes("document.body"),
+    "CreateWorkspaceDialog portals to document.body so the overlay is not clipped by sidebar overflow"
+  );
+  assert(
+    /max-w-(xl|2xl|3xl|4xl)/.test(dialogSource),
+    "CreateWorkspaceDialog max-w is large enough for four permission toggles"
+  );
+  assert(
+    dialogSource.includes("BUILDING_PERMISSION_FIELDS"),
+    "CreateWorkspaceDialog shows the four building-permission fields"
+  );
+  assert(
+    !dialogSource.includes("assistedAuthoring"),
+    "CreateWorkspaceDialog has no Assisted Authoring control"
+  );
+  assert(
+    dialogSource.includes("WorkspaceShareLinkControl"),
+    "CreateWorkspaceDialog phase 2 reuses WorkspaceShareLinkControl"
+  );
+  assert(
+    dialogSource.includes("buildCreateEmailInviteBody") &&
+      dialogSource.includes("invitesApiHref"),
+    "CreateWorkspaceDialog phase 2 uses the same email-invite pattern as Members"
+  );
+  assert(
+    /skip/i.test(dialogSource),
+    "CreateWorkspaceDialog allows skipping invite after create"
+  );
+  assert(
+    dialogSource.includes("onCreated"),
+    "CreateWorkspaceDialog still calls onCreated so the sidebar can open the hub"
   );
 
   const hubPath = path.join(

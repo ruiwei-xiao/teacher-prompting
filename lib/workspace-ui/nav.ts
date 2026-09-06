@@ -1,7 +1,10 @@
 /**
  * Client-safe Workspace navigation helpers for WorkspaceSidebar / create dialog.
  */
-import type { Workspace } from "@/lib/workspace-store/types";
+import type {
+  BuildingPermissions,
+  Workspace,
+} from "@/lib/workspace-store/types";
 
 export const MY_BOTS_HREF = "/";
 
@@ -49,13 +52,54 @@ export function parseWorkspacesListResponse(
   return { ok: true, workspaces };
 }
 
-/** Build POST /api/workspaces body; null when name is blank after trim. */
+/** New-Workspace building permissions: (a)–(d) all off, including (b). */
+export const DEFAULT_CREATE_BUILDING_PERMISSIONS: BuildingPermissions = {
+  canCreateBots: false,
+  canSeeOthersBots: false,
+  canShareOutside: false,
+  canManageOwnBots: false,
+};
+
+function isAllOffBuildingPermissions(
+  permissions: BuildingPermissions
+): boolean {
+  return (
+    permissions.canCreateBots === false &&
+    permissions.canSeeOthersBots === false &&
+    permissions.canShareOutside === false &&
+    permissions.canManageOwnBots === false
+  );
+}
+
+export type CreateWorkspaceBody = {
+  name: string;
+  buildingPermissions?: BuildingPermissions;
+};
+
+/** Build POST /api/workspaces body; null when name is blank after trim.
+ * All-off permissions are omitted so the API keeps new-Workspace defaults (5.3, 7.1).
+ * Assisted Authoring is never sent (5.8). */
 export function buildCreateWorkspaceBody(
-  name: string
-): { name: string } | null {
+  name: string,
+  buildingPermissions?: BuildingPermissions
+): CreateWorkspaceBody | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
-  return { name: trimmed };
+  if (
+    !buildingPermissions ||
+    isAllOffBuildingPermissions(buildingPermissions)
+  ) {
+    return { name: trimmed };
+  }
+  return {
+    name: trimmed,
+    buildingPermissions: {
+      canCreateBots: buildingPermissions.canCreateBots,
+      canSeeOthersBots: buildingPermissions.canSeeOthersBots,
+      canShareOutside: buildingPermissions.canShareOutside,
+      canManageOwnBots: buildingPermissions.canManageOwnBots,
+    },
+  };
 }
 
 /** Parse POST /api/workspaces JSON. */
