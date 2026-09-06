@@ -559,15 +559,16 @@ async function listSharedSessionsForAppIdsInPostgres(
 ): Promise<ListPage<SessionSummary>> {
   await ensurePostgresStore();
   const ids = [...appIds];
-  const result = await sql<ChatSessionRow>`
-    SELECT
+  const result = await sql.query<ChatSessionRow>(
+    `SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
       surface, shared, messages, created_at, updated_at
     FROM chat_sessions
-    WHERE shared = TRUE AND app_id = ANY(${ids})
+    WHERE shared = TRUE AND app_id = ANY($1::text[])
     ORDER BY updated_at DESC, id DESC
-    LIMIT ${opts.limit + 1} OFFSET ${opts.offset}
-  `;
+    LIMIT $2 OFFSET $3`,
+    [ids, opts.limit + 1, opts.offset]
+  );
   return pageFromRows(result.rows, opts.limit);
 }
 

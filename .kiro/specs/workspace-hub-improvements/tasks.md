@@ -158,7 +158,7 @@
   - _Requirements: 1.4, 2.6, 2.9, 3.7, 4.3, 4.4, 7.2, 7.3, 7.4_
   - _Depends: 8_
 
-- [ ] 9.2 Verify the operator and Participant hub flows
+- [x] 9.2 Verify the operator and Participant hub flows
   - Participant hub is Bots plus leave; operator Members copy of the shown share link works; create dialog is not clipped by the sidebar
   - Activity lists shared sessions across two placed bots; a session with sharing off is hidden
   - Those flows behave as specified when exercised in the app
@@ -172,4 +172,5 @@
 - 2.2: GET invites payload is `{ linkByRole, pendingEmails }`; POST `kind:"link"` is 400. `WorkspaceInvitePanel` / `lib/workspace-ui/invites.ts` still parse the old `{ invites }` list until 2.3/3.2.
 - 3.2: `WorkspaceInvitePanel` was deleted; Members hosts email + share-link. Participant self-leave is no longer on Members (`return null` when they cannot load the roster); leave on Bots is task 8.
 - 5.1: `applyWorkspaceAssistedAuthoringDefault` lives in `lib/workspace-api/apply-assisted-authoring-default.ts`; first place of a bot with undefined AA into a default-OFF Workspace now writes false.
+- 9.2: Postgres `listSharedSessionsForAppIds` uses `sql.query` with `ANY($1::text[])` because tagged `sql` cannot interpolate `string[]` (`Primitive` only).
 - Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.
