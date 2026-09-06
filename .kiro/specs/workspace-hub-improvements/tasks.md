@@ -150,7 +150,7 @@
 
 ## 9. Validation
 
-- [ ] 9.1 Cover hub, invite, Activity, default-apply, and visibility selftests
+- [x] 9.1 Cover hub, invite, Activity, default-apply, and visibility selftests
   - Tab resolve (including Invites → Members and Participant admin URLs → Bots); ensure does not stack; GET does not revoke extras; reset invalidates all prior active tokens for that role
   - Members list forbidden for Participants; Workspace session list/transcript gates; personal transcript still denied for a Facilitator who is not owner or participant
   - Assisted Authoring apply on create-into and first place, no rewrite on re-place or PATCH default; create permissions overlay; existing placement listing with peer visibility off and on
