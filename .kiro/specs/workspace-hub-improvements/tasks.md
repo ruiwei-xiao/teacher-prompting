@@ -40,7 +40,7 @@
   - _Boundary: WorkspaceStore_
   - _Depends: 1.1_
 
-- [ ] 2.2 Expose operator invite APIs for share links and pending email
+- [x] 2.2 Expose operator invite APIs for share links and pending email
   - Operators receive one current URL per Facilitator and Participant role plus pending emails; POST records email invites or resets a role’s link; DELETE revokes a pending email
   - Participants cannot create, copy as operators, reset, or revoke; GET/copy does not stack links or revoke extras
   - An operator GET shows one URL per role; reset returns a new URL; Participant calls are forbidden
@@ -169,4 +169,5 @@
 
 - 1.2: Removing `"invites"` from `WorkspaceTab` unmounted `WorkspaceInvitePanel` from the hub; operators cannot reach invite UI until 3.2 composes it onto Members. Activity nav has no browse view until tasks 6/8.
 - 2.1: ensure/reset mint `createdByUserId` as the Workspace Owner (two-arg store signature); actor identity is task 2.2.
+- 2.2: GET invites payload is `{ linkByRole, pendingEmails }`; POST `kind:"link"` is 400. `WorkspaceInvitePanel` / `lib/workspace-ui/invites.ts` still parse the old `{ invites }` list until 2.3/3.2.
 - Workspace selftests use `npx tsx`; this environment needs unrestricted sandbox (`all`) due to IPC pipe EPERM.

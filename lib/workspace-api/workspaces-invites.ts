@@ -1,5 +1,5 @@
 /**
- * WorkspacesAPI invite + join handlers (Task 2.3).
+ * WorkspacesAPI invite + join handlers (Task 2.2).
  * Session is resolved by route wrappers; these accept userId for testability.
  */
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
@@ -7,10 +7,12 @@ import {
   acceptInviteByToken,
   appendActivity,
   createInvite,
+  ensureActiveLinkInvite,
   getWorkspace,
   listInvites,
   listMembers,
   listWorkspacesForUser,
+  resetActiveLinkInvite,
   revokeInvite,
 } from "@/lib/workspace-store/store";
 import type {
@@ -54,10 +56,37 @@ async function getMembership(
 }
 
 const INVITE_ROLES = new Set(["facilitator", "participant"]);
-const INVITE_KINDS = new Set(["email", "link"]);
+const INVITE_KINDS = new Set(["email", "resetLink"]);
 
-function inviteUrlForToken(token: string): string {
-  return `/workspace/invite/${token}`;
+export type WorkspaceInvitesListBody = {
+  linkByRole: {
+    facilitator: WorkspaceInvite;
+    participant: WorkspaceInvite;
+  };
+  pendingEmails: WorkspaceInvite[];
+};
+
+function isPendingEmailInvite(
+  invite: WorkspaceInvite,
+  now = new Date()
+): boolean {
+  if (invite.kind !== "email") return false;
+  if (invite.revokedAt) return false;
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= now.getTime()) {
+    return false;
+  }
+  return true;
+}
+
+function parseInviteRole(role: unknown): WorkspaceInviteRole | ApiResult<never> {
+  if (typeof role !== "string" || !INVITE_ROLES.has(role)) {
+    return badRequest(
+      role === "owner"
+        ? "Owner cannot be granted by ordinary invite"
+        : "role must be facilitator or participant"
+    );
+  }
+  return role as WorkspaceInviteRole;
 }
 
 function mapJoinError(message: string): ApiResult<never> {
@@ -82,7 +111,7 @@ function mapJoinError(message: string): ApiResult<never> {
 export async function listWorkspaceInvites(
   userId: string | null,
   workspaceId: string
-): Promise<ApiResult<{ invites: WorkspaceInvite[] }>> {
+): Promise<ApiResult<WorkspaceInvitesListBody>> {
   if (!userId) return unauthorized();
 
   const workspace = await getWorkspace(workspaceId);
@@ -98,8 +127,18 @@ export async function listWorkspaceInvites(
     return forbidden();
   }
 
+  const facilitator = await ensureActiveLinkInvite(workspaceId, "facilitator");
+  const participant = await ensureActiveLinkInvite(workspaceId, "participant");
   const invites = await listInvites(workspaceId);
-  return { ok: true, status: 200, body: { invites } };
+  const pendingEmails = invites.filter((invite) => isPendingEmailInvite(invite));
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      linkByRole: { facilitator, participant },
+      pendingEmails,
+    },
+  };
 }
 
 export async function createWorkspaceInvite(
@@ -111,7 +150,7 @@ export async function createWorkspaceInvite(
     role?: unknown;
     expiresAt?: unknown;
   }
-): Promise<ApiResult<{ invite: WorkspaceInvite; inviteUrl?: string }>> {
+): Promise<ApiResult<{ invite: WorkspaceInvite }>> {
   if (!userId) return unauthorized();
 
   const workspace = await getWorkspace(workspaceId);
@@ -128,31 +167,24 @@ export async function createWorkspaceInvite(
   }
 
   if (typeof body.kind !== "string" || !INVITE_KINDS.has(body.kind)) {
-    return badRequest("kind must be email or link");
+    return badRequest("kind must be email or resetLink");
   }
-  const kind = body.kind as "email" | "link";
 
-  if (typeof body.role !== "string" || !INVITE_ROLES.has(body.role)) {
-    return badRequest(
-      body.role === "owner"
-        ? "Owner cannot be granted by ordinary invite"
-        : "role must be facilitator or participant"
-    );
+  const roleOrError = parseInviteRole(body.role);
+  if (typeof roleOrError !== "string") {
+    return roleOrError;
   }
-  const role = body.role as WorkspaceInviteRole;
+  const role = roleOrError;
 
-  let email: string | undefined;
-  if (kind === "email") {
-    if (typeof body.email !== "string" || !body.email.trim()) {
-      return badRequest("Email invite requires an email address");
-    }
-    email = body.email.trim();
-  } else if (body.email !== undefined && body.email !== null) {
-    if (typeof body.email !== "string") {
-      return badRequest("email must be a string");
-    }
-    email = body.email.trim() || undefined;
+  if (body.kind === "resetLink") {
+    const invite = await resetActiveLinkInvite(workspaceId, role);
+    return { ok: true, status: 200, body: { invite } };
   }
+
+  if (typeof body.email !== "string" || !body.email.trim()) {
+    return badRequest("Email invite requires an email address");
+  }
+  const email = body.email.trim();
 
   let expiresAt: string | undefined;
   if (body.expiresAt !== undefined && body.expiresAt !== null) {
@@ -168,20 +200,13 @@ export async function createWorkspaceInvite(
 
   const invite = await createInvite({
     workspaceId,
-    kind,
+    kind: "email",
     role,
     createdByUserId: userId,
-    ...(email ? { email } : {}),
+    email,
     ...(expiresAt ? { expiresAt } : {}),
   });
 
-  if (kind === "link") {
-    return {
-      ok: true,
-      status: 200,
-      body: { invite, inviteUrl: inviteUrlForToken(invite.token) },
-    };
-  }
   return { ok: true, status: 200, body: { invite } };
 }
 
@@ -212,7 +237,8 @@ export async function revokeWorkspaceInvite(
   }
 
   const invites = await listInvites(workspaceId);
-  if (!invites.some((i) => i.id === inviteId)) {
+  const invite = invites.find((i) => i.id === inviteId);
+  if (!invite || !isPendingEmailInvite(invite)) {
     return notFound("Invite not found");
   }
 
