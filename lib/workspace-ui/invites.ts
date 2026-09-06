@@ -1,6 +1,7 @@
 /**
- * Client-safe Workspace invite helpers: email pending invites, copyable
- * invite links, and revoke affordances (no SMTP delivery).
+ * Client-safe Workspace invite helpers: email pending invites and
+ * revoke affordances (no SMTP delivery). Share-link parsers live in
+ * `share-link.ts`.
  */
 import type {
   WorkspaceInvite,
@@ -73,58 +74,11 @@ export function buildCreateEmailInviteBody(
   return { kind: "email", email: trimmed, role };
 }
 
-export function buildCreateLinkInviteBody(
-  role: InviteRole,
-  expiresAt?: string
-): { kind: "link"; role: InviteRole; expiresAt?: string } {
-  const trimmed = expiresAt?.trim();
-  if (trimmed) {
-    return { kind: "link", role, expiresAt: trimmed };
-  }
-  return { kind: "link", role };
-}
-
 export function buildRevokeInviteBody(inviteId: string): { inviteId: string } {
   return { inviteId };
 }
 
-/** Active = not revoked and not past expiresAt (when set). */
-export function filterActiveInvites(
-  invites: WorkspaceInvite[],
-  nowMs: number = Date.now()
-): WorkspaceInvite[] {
-  return invites.filter((invite) => {
-    if (invite.revokedAt) return false;
-    if (invite.expiresAt) {
-      const exp = Date.parse(invite.expiresAt);
-      if (!Number.isNaN(exp) && exp <= nowMs) return false;
-    }
-    return true;
-  });
-}
-
-/** Parse GET /api/workspaces/:id/invites JSON. */
-export function parseInvitesListResponse(
-  status: number,
-  body: unknown
-): ParseResult<{ invites: WorkspaceInvite[] }> {
-  if (status !== 200) {
-    return {
-      ok: false,
-      error: errorFromBody(body, "Failed to load invites"),
-    };
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, error: "Invalid invites response" };
-  }
-  const invites = (body as { invites?: unknown }).invites;
-  if (!Array.isArray(invites) || !invites.every(isInvite)) {
-    return { ok: false, error: "Invalid invites response" };
-  }
-  return { ok: true, invites };
-}
-
-/** Parse POST /api/workspaces/:id/invites JSON. */
+/** Parse POST /api/workspaces/:id/invites JSON (email invite). */
 export function parseCreateInviteResponse(
   status: number,
   body: unknown

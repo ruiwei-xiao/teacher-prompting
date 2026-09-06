@@ -48,7 +48,7 @@
   - _Boundary: WorkspaceInvitesAPI_
   - _Depends: 2.1_
 
-- [ ] 2.3 Build the share-link control
+- [x] 2.3 Build the share-link control
   - Role picker (Facilitator or Participant, not Owner), shown URL, copy, and reset in one place; no Active invites list of links
   - Role explanations appear on the picker via hover or “?” only
   - Copy puts the currently shown URL on the clipboard; reset replaces the shown URL

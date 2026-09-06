@@ -1,5 +1,6 @@
 /**
- * Self-test: Workspace invite UI helpers + wiring (Task 6.5).
+ * Self-test: Workspace invite UI helpers + wiring (email + revoke).
+ * Share-link parsers live in share-link.selftest.ts (Task 2.3).
  * Run: npx tsx lib/workspace-ui/invites.selftest.ts
  */
 import fs from "fs/promises";
@@ -11,15 +12,12 @@ import type {
 } from "@/lib/workspace-store/types";
 import {
   buildCreateEmailInviteBody,
-  buildCreateLinkInviteBody,
   buildRevokeInviteBody,
   canManageInvites,
   emailInviteRecordedMessage,
-  filterActiveInvites,
   inviteUrlForToken,
   invitesApiHref,
   parseCreateInviteResponse,
-  parseInvitesListResponse,
   parseRevokeInviteResponse,
 } from "./invites";
 
@@ -64,7 +62,7 @@ function invite(input: {
 }
 
 async function main(): Promise<void> {
-  // --- Role capabilities (Req 2.1, 2.2) ---
+  // --- Role capabilities ---
   assertEqual(canManageInvites("owner"), true, "Owner can manage invites");
   assertEqual(
     canManageInvites("facilitator"),
@@ -77,7 +75,7 @@ async function main(): Promise<void> {
     "Participant cannot manage invites"
   );
 
-  // --- Email invite recording success copy (Req 2.1) ---
+  // --- Email invite recording success copy ---
   assertEqual(
     emailInviteRecordedMessage("teacher@school.edu"),
     "Invite recorded for teacher@school.edu. They join automatically when they next open Workspaces (or sign in) with that address.",
@@ -94,93 +92,23 @@ async function main(): Promise<void> {
     "blank email cannot create invite body"
   );
 
-  // --- Invite link URL + create body (Req 2.2, 9.2) ---
   assertEqual(
     inviteUrlForToken("abc123"),
     "/workspace/invite/abc123",
     "inviteUrl path matches API contract"
   );
-  assertEqual(
-    buildCreateLinkInviteBody("participant"),
-    { kind: "link", role: "participant" },
-    "link invite POST body"
-  );
-  assertEqual(
-    buildCreateLinkInviteBody("facilitator", "2026-12-31T00:00:00.000Z"),
-    {
-      kind: "link",
-      role: "facilitator",
-      expiresAt: "2026-12-31T00:00:00.000Z",
-    },
-    "link invite POST body with expiry"
-  );
 
-  // --- Revoke (Req 2.4) ---
   assertEqual(
     buildRevokeInviteBody("inv_1"),
     { inviteId: "inv_1" },
     "revoke DELETE body"
   );
 
-  const active = filterActiveInvites([
-    invite({ id: "a", kind: "link" }),
-    invite({
-      id: "b",
-      kind: "link",
-      revokedAt: "2026-02-01T00:00:00.000Z",
-    }),
-    invite({
-      id: "c",
-      kind: "email",
-      email: "x@y.com",
-      expiresAt: "2000-01-01T00:00:00.000Z",
-    }),
-    invite({ id: "d", kind: "email", email: "live@y.com" }),
-  ]);
-  assertEqual(
-    active.map((i) => i.id),
-    ["a", "d"],
-    "filterActiveInvites drops revoked and expired"
-  );
-
-  // --- API helpers ---
   assertEqual(
     invitesApiHref("ws_1"),
     "/api/workspaces/ws_1/invites",
     "invites API href"
   );
-
-  const listed = parseInvitesListResponse(200, {
-    invites: [
-      invite({ id: "1", kind: "link", token: "t1" }),
-      invite({
-        id: "2",
-        kind: "email",
-        email: "a@b.com",
-        role: "facilitator",
-      }),
-    ],
-  });
-  assert(listed.ok === true, "200 invites list is ok");
-  if (listed.ok) {
-    assertEqual(listed.invites.length, 2, "parses invite list");
-  }
-
-  const listForbidden = parseInvitesListResponse(403, { error: "Forbidden" });
-  assert(listForbidden.ok === false, "403 invites list fails");
-
-  const createdLink = parseCreateInviteResponse(200, {
-    invite: invite({ id: "3", kind: "link", token: "tok_link" }),
-    inviteUrl: "/workspace/invite/tok_link",
-  });
-  assert(createdLink.ok === true, "200 create link is ok");
-  if (createdLink.ok) {
-    assertEqual(
-      createdLink.inviteUrl,
-      "/workspace/invite/tok_link",
-      "create response exposes inviteUrl"
-    );
-  }
 
   const createdEmail = parseCreateInviteResponse(200, {
     invite: invite({
@@ -212,14 +140,12 @@ async function main(): Promise<void> {
   });
   assert(revokeForbidden.ok === false, "403 revoke fails");
 
-  // Role type guard: invite roles never include owner
   const roles: WorkspaceInviteRole[] = ["facilitator", "participant"];
   assert(
     roles.every((r) => r !== ("owner" as WorkspaceRole)),
     "ordinary invites never grant Owner"
   );
 
-  // --- UI wiring ---
   const helpersPath = path.join(process.cwd(), "lib/workspace-ui/invites.ts");
   const panelPath = path.join(
     process.cwd(),
@@ -241,8 +167,28 @@ async function main(): Promise<void> {
 
   assert(helpersSource.length > 0, "lib/workspace-ui/invites.ts exists");
   assert(
+    !helpersSource.includes("export function filterActiveInvites"),
+    "Active-list helper filterActiveInvites is gone"
+  );
+  assert(
+    !helpersSource.includes("export function parseInvitesListResponse"),
+    "old { invites } list parser is gone"
+  );
+  assert(
+    !helpersSource.includes("export function buildCreateLinkInviteBody"),
+    "POST kind:link helper is gone"
+  );
+  assert(
     panelSource.includes("WorkspaceInvitePanel"),
     "WorkspaceInvitePanel component exists"
+  );
+  assert(
+    panelSource.includes("WorkspaceShareLinkControl"),
+    "panel hosts the share-link control instead of an Active invites list"
+  );
+  assert(
+    !/Active invites/i.test(panelSource),
+    "panel has no Active invites list of links"
   );
   assert(
     panelSource.includes("invitesApiHref") ||
@@ -252,34 +198,17 @@ async function main(): Promise<void> {
   );
   assert(
     panelSource.includes("fetch") || panelSource.includes("method"),
-    "panel loads/creates invites via fetch"
+    "panel records email invites via fetch"
   );
   assert(
     panelSource.includes("POST") || panelSource.includes('"POST"'),
-    "panel uses POST to create invites"
-  );
-  assert(
-    panelSource.includes("DELETE") || panelSource.includes('"DELETE"'),
-    "panel uses DELETE to revoke invites"
-  );
-  assert(
-    panelSource.includes("clipboard") ||
-      panelSource.includes("copy") ||
-      panelSource.includes("Copy") ||
-      panelSource.includes("navigator.clipboard"),
-    "panel supports copyable invite links"
+    "panel uses POST to record email invites"
   );
   assert(
     panelSource.includes("emailInviteRecordedMessage") ||
       panelSource.includes("Invite recorded for") ||
       panelSource.includes("join automatically"),
     "panel shows email recorded success copy"
-  );
-  assert(
-    panelSource.includes("inviteUrlForToken") ||
-      panelSource.includes("/workspace/invite/") ||
-      panelSource.includes("inviteUrl"),
-    "panel uses /workspace/invite/{token} URLs"
   );
   assert(
     panelSource.includes("canManageInvites") ||

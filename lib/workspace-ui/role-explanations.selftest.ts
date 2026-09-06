@@ -116,14 +116,16 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/workspace/WorkspaceMemberList.tsx"
   );
-  const invitePath = path.join(
+  const shareLinkPath = path.join(
     process.cwd(),
-    "components/workspace/WorkspaceInvitePanel.tsx"
+    "components/workspace/WorkspaceShareLinkControl.tsx"
   );
 
   const hintSource = await fs.readFile(hintPath, "utf8").catch(() => "");
   const membersSource = await fs.readFile(membersPath, "utf8").catch(() => "");
-  const inviteSource = await fs.readFile(invitePath, "utf8").catch(() => "");
+  const shareLinkSource = await fs
+    .readFile(shareLinkPath, "utf8")
+    .catch(() => "");
 
   assert(hintSource.length > 0, "WorkspaceRoleHint.tsx exists");
   assert(
@@ -151,8 +153,8 @@ async function main(): Promise<void> {
     "Members does not wire WorkspaceRoleHint yet (task 3.2)"
   );
   assert(
-    !inviteSource.includes("WorkspaceRoleHint"),
-    "Invite picker does not wire WorkspaceRoleHint yet (task 2.3)"
+    shareLinkSource.includes("WorkspaceRoleHint"),
+    "share-link role picker wires WorkspaceRoleHint (task 2.3)"
   );
 
   if (failures > 0) {
