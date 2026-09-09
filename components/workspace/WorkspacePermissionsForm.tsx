@@ -43,7 +43,7 @@ export default function WorkspacePermissionsForm({
   const [assistedAuthoringModeDefault, setAssistedAuthoringModeDefault] =
     useState(initialAssistedAuthoringModeDefault);
   const lastSavedAssistedAuthoringModeDefault = useRef(
-    initialAssistedAuthoringModeDefault
+    initialAssistedAuthoringModeDefault,
   );
   const [busy, setBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -89,7 +89,7 @@ export default function WorkspacePermissionsForm({
       setName(parsed.workspace.name);
       setPermissions(parsed.workspace.buildingPermissions);
       setAssistedAuthoringModeDefault(
-        parsed.workspace.assistedAuthoringModeDefault
+        parsed.workspace.assistedAuthoringModeDefault,
       );
       lastSavedAssistedAuthoringModeDefault.current =
         parsed.workspace.assistedAuthoringModeDefault;
@@ -98,7 +98,7 @@ export default function WorkspacePermissionsForm({
       );
     } catch (e: unknown) {
       setAssistedAuthoringModeDefault(
-        lastSavedAssistedAuthoringModeDefault.current
+        lastSavedAssistedAuthoringModeDefault.current,
       );
       setError(
         e instanceof Error ? e.message : "Failed to update workspace settings",
@@ -143,41 +143,64 @@ export default function WorkspacePermissionsForm({
         </p>
       ) : null}
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+      <section>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2
+            id="workspace-name-heading"
+            className="text-lg font-semibold text-slate-900 dark:text-zinc-100"
+          >
             Name
           </h2>
-        </div>
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-            Workspace name:
-          </span>
-          <input
-            className="mt-1 h-11 w-full max-w-xl rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!canEdit || busy || deleteBusy}
-            aria-readonly={!canEdit}
-            aria-invalid={Boolean(name.trim() && workspaceNameError(name))}
-          />
           {canEdit ? (
-            <span className="mt-1 flex max-w-xl items-center justify-between gap-3 text-xs text-slate-500 dark:text-zinc-500">
-              <span>
-                {name.trim() && workspaceNameError(name) ? (
-                  <span className="text-red-700 dark:text-red-300" role="alert">
-                    {workspaceNameError(name)}
-                  </span>
-                ) : (
-                  `Up to ${WORKSPACE_NAME_MAX_LENGTH} characters`
-                )}
-              </span>
-              <span>
-                {name.trim().length}/{WORKSPACE_NAME_MAX_LENGTH}
-              </span>
-            </span>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={busy || deleteBusy || Boolean(workspaceNameError(name))}
+              className="pressable inline-flex h-10 items-center justify-center rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover-ok:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? "Saving…" : "Save settings"}
+            </button>
           ) : null}
-        </label>
+        </div>
+        {error ? (
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {success ? (
+          <p
+            className="mt-2 text-sm text-emerald-700 dark:text-emerald-300"
+            role="status"
+          >
+            {success}
+          </p>
+        ) : null}
+        <input
+          id="workspace-name"
+          className="mt-2 block h-11 w-full max-w-xl rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!canEdit || busy || deleteBusy}
+          aria-labelledby="workspace-name-heading"
+          aria-readonly={!canEdit}
+          aria-invalid={Boolean(name.trim() && workspaceNameError(name))}
+        />
+        {canEdit ? (
+          <div className="mt-2 flex max-w-xl items-center justify-between gap-3 text-xs text-slate-500 dark:text-zinc-500">
+            <span>
+              {name.trim() && workspaceNameError(name) ? (
+                <span className="text-red-700 dark:text-red-300" role="alert">
+                  {workspaceNameError(name)}
+                </span>
+              ) : (
+                `Up to ${WORKSPACE_NAME_MAX_LENGTH} characters`
+              )}
+            </span>
+            <span>
+              {name.trim().length}/{WORKSPACE_NAME_MAX_LENGTH}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <section className="space-y-4">
@@ -229,7 +252,7 @@ export default function WorkspacePermissionsForm({
           </p>
         </div>
         <div
-          className="flex w-full max-w-xs items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-950/60"
+          className="flex w-full max-w-xs items-center gap-0.5 rounded-full border border-slate-200 bg-slate-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-950/60"
           role="group"
           aria-label="Assisted Authoring Mode default"
         >
@@ -239,7 +262,7 @@ export default function WorkspacePermissionsForm({
             disabled={!canEdit || busy || deleteBusy}
             aria-pressed={assistedAuthoringModeDefault}
             className={[
-              "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+              "flex-1 rounded-full px-3 py-2 text-sm font-medium",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
               "disabled:cursor-not-allowed disabled:opacity-60",
               assistedAuthoringModeDefault
@@ -255,7 +278,7 @@ export default function WorkspacePermissionsForm({
             disabled={!canEdit || busy || deleteBusy}
             aria-pressed={!assistedAuthoringModeDefault}
             className={[
-              "flex-1 rounded-[10px] px-3 py-2 text-sm font-medium",
+              "flex-1 rounded-full px-3 py-2 text-sm font-medium",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
               "disabled:cursor-not-allowed disabled:opacity-60",
               !assistedAuthoringModeDefault
@@ -267,33 +290,6 @@ export default function WorkspacePermissionsForm({
           </button>
         </div>
       </section>
-
-      {error ? (
-        <p className="text-sm text-red-700 dark:text-red-300" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {success ? (
-        <p
-          className="text-sm text-emerald-700 dark:text-emerald-300"
-          role="status"
-        >
-          {success}
-        </p>
-      ) : null}
-
-      {canEdit ? (
-        <div>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={busy || deleteBusy || Boolean(workspaceNameError(name))}
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-sky-600 px-5 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? "Saving…" : "Save settings"}
-          </button>
-        </div>
-      ) : null}
 
       {canDelete ? (
         <section className="space-y-3 border-t border-slate-200 pt-8 dark:border-zinc-800">

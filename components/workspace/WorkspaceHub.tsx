@@ -74,23 +74,23 @@ function HubSelfLeaveControl({
   }
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="flex flex-wrap items-center gap-2">
       {!confirmLeave ? (
         <button
           type="button"
           onClick={() => setConfirmLeave(true)}
           disabled={leaveBusy}
-          className="inline-flex h-10 items-center rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="pressable inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover-ok:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover-ok:bg-zinc-800"
         >
           Leave Workspace…
         </button>
       ) : (
-        <div className="flex flex-wrap items-center gap-3">
+        <>
           <button
             type="button"
             onClick={() => void handleSelfLeave()}
             disabled={leaveBusy}
-            className="inline-flex h-10 items-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="pressable inline-flex h-8 items-center rounded-lg bg-red-600 px-3 text-sm font-semibold text-white hover-ok:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {leaveBusy ? "Leaving…" : "Confirm leave"}
           </button>
@@ -98,11 +98,11 @@ function HubSelfLeaveControl({
             type="button"
             onClick={() => setConfirmLeave(false)}
             disabled={leaveBusy}
-            className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="pressable inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-medium text-slate-600 hover-ok:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover-ok:bg-zinc-800"
           >
             Cancel
           </button>
-        </div>
+        </>
       )}
       {leaveError ? (
         <p className="text-sm text-red-700 dark:text-red-300" role="alert">
@@ -209,28 +209,28 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="shrink-0">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-              Workspace
-            </span>
-            <h1 className="type-display truncate text-2xl text-slate-900 md:text-3xl dark:text-zinc-100">
-              {state.name}
-            </h1>
-          </div>
-          <WorkspaceRoleHint role={state.role} align="end">
-            <span className="shrink-0 text-sm text-slate-600 dark:text-zinc-300">
+      <div className="shrink-0 space-y-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+            Workspace
+          </span>
+          <h1 className="type-display truncate text-2xl text-slate-900 md:text-3xl dark:text-zinc-100">
+            {state.name}
+          </h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <WorkspaceRoleHint role={state.role}>
+            <span className="text-sm text-slate-600 dark:text-zinc-300">
               Your role: {roleLabel}
             </span>
           </WorkspaceRoleHint>
+          {shouldShowHubSelfLeave({ role: state.role, activeTab }) ? (
+            <HubSelfLeaveControl
+              workspaceId={workspaceId}
+              currentUserId={state.currentUserId}
+            />
+          ) : null}
         </div>
-        {shouldShowHubSelfLeave({ role: state.role, activeTab }) ? (
-          <HubSelfLeaveControl
-            workspaceId={workspaceId}
-            currentUserId={state.currentUserId}
-          />
-        ) : null}
       </div>
 
       <div

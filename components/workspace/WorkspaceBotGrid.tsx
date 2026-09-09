@@ -548,7 +548,7 @@ export default function WorkspaceBotGrid({
                     <button
                       type="button"
                       onClick={() => router.push(`/app/${bot.id}/editor`)}
-                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover-ok:from-sky-600 hover-ok:to-sky-700"
                     >
                       Open bot
                     </button>
@@ -559,7 +559,7 @@ export default function WorkspaceBotGrid({
                       onClick={() =>
                         router.push(peerBotPreviewHref(workspaceId, bot.id))
                       }
-                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 px-5 text-sm font-medium text-white shadow-sm transition-[background-color] duration-200 hover-ok:from-sky-600 hover-ok:to-sky-700"
                     >
                       Inspect
                     </button>
@@ -574,7 +574,7 @@ export default function WorkspaceBotGrid({
                           ? "Publish this bot before sharing."
                           : undefined
                       }
-                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition-[colors,border-color,background-color] duration-200 hover-ok:border-slate-400 hover-ok:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-100 dark:hover-ok:border-sky-400/35 dark:hover-ok:bg-zinc-900"
                     >
                       Share
                     </button>
@@ -584,7 +584,7 @@ export default function WorkspaceBotGrid({
                       type="button"
                       onClick={() => void handleUnplace(bot.id)}
                       disabled={busyAppId === bot.id}
-                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200"
+                      className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50/40 px-5 text-sm font-medium text-rose-700 transition-[colors,border-color,background-color] duration-200 hover-ok:border-rose-300 hover-ok:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 dark:hover-ok:border-rose-800 dark:hover-ok:bg-rose-950/70"
                     >
                       {busyAppId === bot.id
                         ? "Removing…"
@@ -611,7 +611,7 @@ export default function WorkspaceBotGrid({
               <button
                 type="button"
                 onClick={openPlaceDialog}
-                className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                className="pressable inline-flex h-11 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 hover-ok:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover-ok:bg-zinc-800"
               >
                 Add from My bots
               </button>

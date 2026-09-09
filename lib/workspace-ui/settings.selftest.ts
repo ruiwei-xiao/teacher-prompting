@@ -277,6 +277,15 @@ async function main(): Promise<void> {
     "settings form validates workspace name length"
   );
   assert(
+    formSource.includes("Save settings") &&
+      formSource.indexOf("Save settings") < formSource.indexOf("Building permissions"),
+    "Save settings is at the top of the form, next to Name"
+  );
+  assert(
+    !formSource.includes("Workspace name:"),
+    "Name heading is the field label; no duplicate Workspace name: row"
+  );
+  assert(
     formSource.includes("ON") && formSource.includes("OFF"),
     "Settings control is ON or OFF"
   );

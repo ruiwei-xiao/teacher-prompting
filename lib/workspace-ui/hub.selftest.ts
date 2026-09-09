@@ -386,9 +386,8 @@ async function main(): Promise<void> {
   );
   assert(
     hubSource.includes("Your role:") &&
-      hubSource.includes("WorkspaceRoleHint") &&
-      hubSource.includes('align="end"'),
-    "hub keeps the viewer role on the title row with a right-aligned hint"
+      hubSource.includes("WorkspaceRoleHint"),
+    "hub keeps the viewer role with the workspace title"
   );
   assert(
     !hubSource.includes('activeTab === "invites"') &&
@@ -483,6 +482,17 @@ async function main(): Promise<void> {
     "Participant leave control is on the hub header"
   );
   assert(
+    hubSource.includes("border-slate-300") &&
+      hubSource.includes("hover-ok:bg-slate-50"),
+    "leave reads as a button with hover feedback"
+  );
+  assert(
+    hubSource.includes("HubSelfLeaveControl") &&
+      hubSource.includes("WorkspaceRoleHint") &&
+      hubSource.includes("Your role:"),
+    "leave sits with the role under the workspace title"
+  );
+  assert(
     hubSource.includes("buildRemoveMemberBody") &&
       hubSource.includes("DELETE") &&
       (hubSource.includes("membersApiHref") || hubSource.includes("/members")),
@@ -535,6 +545,13 @@ async function main(): Promise<void> {
       gridSource.includes("bot.resolved") &&
       gridSource.includes("Inspect"),
     "bot grid withholds Inspect when the placed bot record is missing"
+  );
+  assert(
+    gridSource.includes("Open bot") &&
+      gridSource.includes("hover-ok:from-sky-600") &&
+      gridSource.includes("hover-ok:bg-slate-50") &&
+      gridSource.includes("hover-ok:bg-rose-100"),
+    "bot card actions show hover feedback"
   );
   assert(
     pageSource.includes("main-viewport") &&
