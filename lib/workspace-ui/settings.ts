@@ -7,6 +7,7 @@ import type {
   Workspace,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+import { workspaceNameError } from "@/lib/workspace-ui/nav";
 
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
@@ -110,7 +111,7 @@ export function buildWorkspaceSettingsPatchBody(input: {
   assistedAuthoringModeDefault: boolean;
 } | null {
   const trimmed = input.name.trim();
-  if (!trimmed) return null;
+  if (workspaceNameError(input.name)) return null;
   return {
     name: trimmed,
     buildingPermissions: { ...input.buildingPermissions },

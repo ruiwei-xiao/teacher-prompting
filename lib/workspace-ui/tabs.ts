@@ -33,6 +33,30 @@ export function visibleWorkspaceTabs(
   return role === "participant" ? PARTICIPANT_TABS : OPERATOR_TABS;
 }
 
+/**
+ * Sidebar / hub section order: course work first, administration after.
+ * Distinct from WORKSPACE_TABS source order.
+ */
+export const WORKSPACE_SECTION_NAV_ORDER: readonly WorkspaceTab[] = [
+  "bots",
+  "activity",
+  "members",
+  "settings",
+];
+
+/** Role-visible sections in sidebar order. */
+export function workspaceSectionNav(
+  role: WorkspaceRole
+): readonly WorkspaceTab[] {
+  const visible = new Set(visibleWorkspaceTabs(role));
+  return WORKSPACE_SECTION_NAV_ORDER.filter((tab) => visible.has(tab));
+}
+
+/** Hide extra section links when only Bots is available (Participant). */
+export function shouldShowWorkspaceNavTabs(role: WorkspaceRole): boolean {
+  return workspaceSectionNav(role).length > 1;
+}
+
 /** All tabs share one hub URL; only the `tab` query changes. */
 export function workspaceTabHref(
   workspaceId: string,

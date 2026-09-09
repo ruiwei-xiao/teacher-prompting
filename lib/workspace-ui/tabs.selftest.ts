@@ -6,7 +6,9 @@ import {
   WORKSPACE_TABS,
   isWorkspaceTab,
   resolveWorkspaceTab,
+  shouldShowWorkspaceNavTabs,
   visibleWorkspaceTabs,
+  workspaceSectionNav,
   workspaceTabHref,
 } from "./tabs";
 
@@ -91,6 +93,32 @@ assert(
     !visibleWorkspaceTabs("facilitator").includes("invites" as never) &&
     !visibleWorkspaceTabs("participant").includes("invites" as never),
   "Invites is not a visible tab for any role"
+);
+
+assertEqual(
+  shouldShowWorkspaceNavTabs("participant"),
+  false,
+  "Participant does not get a one-item tab bar"
+);
+assertEqual(
+  shouldShowWorkspaceNavTabs("owner"),
+  true,
+  "Owner still gets the hub tab bar"
+);
+assertEqual(
+  shouldShowWorkspaceNavTabs("facilitator"),
+  true,
+  "Facilitator still gets the hub tab bar"
+);
+assertEqual(
+  workspaceSectionNav("owner").join(","),
+  "bots,activity,members,settings",
+  "operator sidebar sections are Bots, Activity, Members, Settings"
+);
+assertEqual(
+  workspaceSectionNav("participant").join(","),
+  "bots",
+  "Participant sidebar has no extra workspace sections"
 );
 
 const hub = "/workspace/ws_1";

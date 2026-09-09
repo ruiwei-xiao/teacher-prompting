@@ -17,15 +17,12 @@ import {
   membersApiHref,
   parseMembersMutationResponse,
 } from "@/lib/workspace-ui/members";
-import {
-  resolveWorkspaceTab,
-  type WorkspaceTab,
-} from "@/lib/workspace-ui/tabs";
+import { resolveWorkspaceTab } from "@/lib/workspace-ui/tabs";
 import WorkspaceActivityView from "@/components/workspace/WorkspaceActivityView";
 import WorkspaceBotGrid from "@/components/workspace/WorkspaceBotGrid";
 import WorkspaceMemberList from "@/components/workspace/WorkspaceMemberList";
-import WorkspaceNavTabs from "@/components/workspace/WorkspaceNavTabs";
 import WorkspacePermissionsForm from "@/components/workspace/WorkspacePermissionsForm";
+import WorkspaceRoleHint from "@/components/workspace/WorkspaceRoleHint";
 
 type HubState =
   | { status: "loading" }
@@ -38,19 +35,6 @@ type HubState =
       assistedAuthoringModeDefault: boolean;
       currentUserId: string;
     };
-
-function tabDescription(tab: WorkspaceTab, roleLabel: string): string {
-  switch (tab) {
-    case "bots":
-      return `Your role: ${roleLabel}`;
-    case "settings":
-      return "Rename this Workspace, edit building permissions, or delete it if you are the Owner.";
-    case "members":
-      return "Search the roster, change roles, remove members, transfer ownership, or leave.";
-    case "activity":
-      return "Shared chat sessions for bots placed in this Workspace.";
-  }
-}
 
 function HubSelfLeaveControl({
   workspaceId,
@@ -90,7 +74,7 @@ function HubSelfLeaveControl({
   }
 
   return (
-    <div className="mt-4 space-y-2">
+    <div className="mt-2 space-y-2">
       {!confirmLeave ? (
         <button
           type="button"
@@ -188,7 +172,9 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId]);
 
   if (state.status === "loading") {
-    return <p className="text-slate-600 dark:text-zinc-300">Loading…</p>;
+    return (
+      <p className="text-slate-600 dark:text-zinc-300">Loading…</p>
+    );
   }
 
   if (state.status === "error") {
@@ -219,64 +205,79 @@ function WorkspaceHubInner({ workspaceId }: { workspaceId: string }) {
     state.role
   );
 
+  const activityLayout = activeTab === "activity";
+
   return (
-    <div className="space-y-8">
-      <div>
-        <div className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-          Workspace
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+              Workspace
+            </span>
+            <h1 className="type-display truncate text-2xl text-slate-900 md:text-3xl dark:text-zinc-100">
+              {state.name}
+            </h1>
+          </div>
+          <WorkspaceRoleHint role={state.role} align="end">
+            <span className="shrink-0 text-sm text-slate-600 dark:text-zinc-300">
+              Your role: {roleLabel}
+            </span>
+          </WorkspaceRoleHint>
         </div>
-        <h1 className="type-display mt-4 text-3xl text-slate-900 dark:text-zinc-100">
-          {state.name}
-        </h1>
-        <p className="mt-2 text-sm text-slate-600 dark:text-zinc-300">
-          {tabDescription(activeTab, roleLabel)}
-        </p>
         {shouldShowHubSelfLeave({ role: state.role, activeTab }) ? (
           <HubSelfLeaveControl
             workspaceId={workspaceId}
             currentUserId={state.currentUserId}
           />
         ) : null}
-        <div className="mt-6">
-          <WorkspaceNavTabs workspaceId={workspaceId} role={state.role} />
-        </div>
       </div>
 
-      {activeTab === "bots" ? (
-        <WorkspaceBotGrid
-          workspaceId={workspaceId}
-          role={state.role}
-          permissions={state.permissions}
-        />
-      ) : activeTab === "settings" ? (
-        <WorkspacePermissionsForm
-          workspaceId={workspaceId}
-          initialName={state.name}
-          initialPermissions={state.permissions}
-          initialAssistedAuthoringModeDefault={
-            state.assistedAuthoringModeDefault
-          }
-          role={state.role}
-        />
-      ) : activeTab === "members" ? (
-        <WorkspaceMemberList
-          workspaceId={workspaceId}
-          role={state.role}
-          currentUserId={state.currentUserId}
-        />
-      ) : activeTab === "activity" ? (
-        <WorkspaceActivityView workspaceId={workspaceId} />
-      ) : null}
+      <div
+        className={
+          activityLayout
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+            : "min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        }
+      >
+        {activeTab === "bots" ? (
+          <WorkspaceBotGrid
+            workspaceId={workspaceId}
+            role={state.role}
+            permissions={state.permissions}
+          />
+        ) : activeTab === "settings" ? (
+          <WorkspacePermissionsForm
+            workspaceId={workspaceId}
+            initialName={state.name}
+            initialPermissions={state.permissions}
+            initialAssistedAuthoringModeDefault={
+              state.assistedAuthoringModeDefault
+            }
+            role={state.role}
+          />
+        ) : activeTab === "members" ? (
+          <WorkspaceMemberList
+            workspaceId={workspaceId}
+            role={state.role}
+            currentUserId={state.currentUserId}
+          />
+        ) : activeTab === "activity" ? (
+          <WorkspaceActivityView workspaceId={workspaceId} />
+        ) : null}
+      </div>
     </div>
   );
 }
 
 export default function WorkspaceHub({ workspaceId }: { workspaceId: string }) {
   return (
-    <Suspense
-      fallback={<p className="text-slate-600 dark:text-zinc-300">Loading…</p>}
-    >
-      <WorkspaceHubInner workspaceId={workspaceId} />
-    </Suspense>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Suspense
+        fallback={<p className="text-slate-600 dark:text-zinc-300">Loading…</p>}
+      >
+        <WorkspaceHubInner workspaceId={workspaceId} />
+      </Suspense>
+    </div>
   );
 }

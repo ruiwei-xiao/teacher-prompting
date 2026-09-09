@@ -32,6 +32,7 @@ import {
   type WorkspaceMemberListItem,
 } from "@/lib/workspace-ui/members";
 import WorkspaceRoleHint from "./WorkspaceRoleHint";
+import WorkspaceRoleHintGroup from "./WorkspaceRoleHintGroup";
 import WorkspaceShareLinkControl from "./WorkspaceShareLinkControl";
 
 function roleLabel(role: WorkspaceRole): string {
@@ -327,11 +328,14 @@ export default function WorkspaceMemberList({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 overflow-x-hidden">
       <div>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
           Members
         </h2>
+        <div className="mt-2">
+          <WorkspaceRoleHintGroup />
+        </div>
       </div>
 
       <form
@@ -342,13 +346,13 @@ export default function WorkspaceMemberList({
           Record email invite
         </h3>
         <div className="flex flex-wrap items-end gap-3">
-          <label className="block min-w-[14rem] flex-1">
+          <label className="block min-w-0 flex-1 basis-64">
             <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
               Email
             </span>
             <input
               type="email"
-              className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
               placeholder="educator@school.edu"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
@@ -370,11 +374,6 @@ export default function WorkspaceMemberList({
               <option value="facilitator">Facilitator</option>
             </select>
           </label>
-          <div className="flex flex-wrap items-center gap-2 pb-1">
-            <WorkspaceRoleHint role="owner" />
-            <WorkspaceRoleHint role="facilitator" />
-            <WorkspaceRoleHint role="participant" />
-          </div>
           <button
             type="submit"
             disabled={inviteBusy}

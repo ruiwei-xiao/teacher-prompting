@@ -283,8 +283,12 @@ async function main(): Promise<void> {
     "WorkspaceShareLinkControl component exists"
   );
   assert(
-    controlSource.includes("WorkspaceRoleHint"),
-    "role picker uses WorkspaceRoleHint"
+    membersSource.includes("WorkspaceRoleHintGroup"),
+    "Members hosts one shared role-hint group for invite role pickers"
+  );
+  assert(
+    !controlSource.includes("WorkspaceRoleHint"),
+    "share-link control does not duplicate role hints next to the Members invite form"
   );
   assert(
     !/<p[\s>]/.test(controlSource) ||

@@ -6,7 +6,11 @@ import type {
   BuildingPermissions,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
-import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
+import {
+  MY_BOTS_HREF,
+  WORKSPACE_NAME_MAX_LENGTH,
+  workspaceNameError,
+} from "@/lib/workspace-ui/nav";
 import {
   BUILDING_PERMISSION_FIELDS,
   buildWorkspaceSettingsPatchBody,
@@ -50,6 +54,12 @@ export default function WorkspacePermissionsForm({
   async function handleSave() {
     if (!canEdit) return;
 
+    const nameIssue = workspaceNameError(name);
+    if (nameIssue) {
+      setError(nameIssue);
+      setSuccess("");
+      return;
+    }
     const body = buildWorkspaceSettingsPatchBody({
       name,
       buildingPermissions: permissions,
@@ -149,7 +159,24 @@ export default function WorkspacePermissionsForm({
             onChange={(e) => setName(e.target.value)}
             disabled={!canEdit || busy || deleteBusy}
             aria-readonly={!canEdit}
+            aria-invalid={Boolean(name.trim() && workspaceNameError(name))}
           />
+          {canEdit ? (
+            <span className="mt-1 flex max-w-xl items-center justify-between gap-3 text-xs text-slate-500 dark:text-zinc-500">
+              <span>
+                {name.trim() && workspaceNameError(name) ? (
+                  <span className="text-red-700 dark:text-red-300" role="alert">
+                    {workspaceNameError(name)}
+                  </span>
+                ) : (
+                  `Up to ${WORKSPACE_NAME_MAX_LENGTH} characters`
+                )}
+              </span>
+              <span>
+                {name.trim().length}/{WORKSPACE_NAME_MAX_LENGTH}
+              </span>
+            </span>
+          ) : null}
         </label>
       </section>
 
@@ -260,7 +287,7 @@ export default function WorkspacePermissionsForm({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={busy || deleteBusy || !name.trim()}
+            disabled={busy || deleteBusy || Boolean(workspaceNameError(name))}
             className="inline-flex h-11 items-center justify-center rounded-xl bg-sky-600 px-5 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? "Saving…" : "Save settings"}

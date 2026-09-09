@@ -111,7 +111,9 @@ function MySessionsViewInner() {
     );
   }
 
-  let detail: ReactNode;
+  let detail: ReactNode = (
+    <SessionDetailHint>Loading transcript…</SessionDetailHint>
+  );
   if (!selectedId) {
     detail = (
       <SessionDetailHint>Select a session to read the transcript.</SessionDetailHint>

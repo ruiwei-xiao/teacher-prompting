@@ -149,6 +149,10 @@ async function main(): Promise<void> {
 
     const badName = await createWorkspaces(ownerId, { name: "   " });
     assertEqual(badName.status, 400, "empty name → 400");
+    const tooLong = await createWorkspaces(ownerId, {
+      name: "x".repeat(41),
+    });
+    assertEqual(tooLong.status, 400, "over-long create name → 400");
 
     const listed = await listWorkspaces(ownerId);
     assertEqual(listed.status, 200, "list → 200");
@@ -201,6 +205,15 @@ async function main(): Promise<void> {
     assert(
       renamed.ok && renamed.body.workspace.name === "Course Hub Renamed",
       "rename applied"
+    );
+    assertEqual(
+      (
+        await updateWorkspaceById(facId, workspace!.id, {
+          name: "x".repeat(41),
+        })
+      ).status,
+      400,
+      "over-long rename → 400"
     );
 
     const perms = await updateWorkspaceById(facId, workspace!.id, {

@@ -14,7 +14,6 @@ import {
   toShareLinkClipboardText,
   type ShareLinkByRole,
 } from "@/lib/workspace-ui/share-link";
-import WorkspaceRoleHint from "./WorkspaceRoleHint";
 
 function roleLabel(role: WorkspaceInviteRole): string {
   return role === "facilitator" ? "Facilitator" : "Participant";
@@ -134,7 +133,7 @@ export default function WorkspaceShareLinkControl({
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+    <div className="min-w-0 space-y-3 overflow-x-hidden rounded-xl border border-slate-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
       <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
         Invitation link
       </h3>
@@ -160,11 +159,6 @@ export default function WorkspaceShareLinkControl({
             ))}
           </select>
         </label>
-        <div className="flex flex-wrap items-center gap-2 pb-1">
-          <WorkspaceRoleHint role="owner" />
-          <WorkspaceRoleHint role="facilitator" />
-          <WorkspaceRoleHint role="participant" />
-        </div>
       </div>
       {loading ? (
         <p className="text-sm text-slate-600 dark:text-zinc-300">
@@ -175,14 +169,14 @@ export default function WorkspaceShareLinkControl({
           {error}
         </p>
       ) : (
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block min-w-[14rem] flex-1">
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
+          <label className="block min-w-0 flex-1 basis-64">
             <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
               Current URL ({roleLabel(role)})
             </span>
             <input
               readOnly
-              className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
               value={shownUrl}
             />
           </label>

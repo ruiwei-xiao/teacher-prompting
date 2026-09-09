@@ -532,6 +532,10 @@ async function main(): Promise<void> {
     "roster role labels use WorkspaceRoleHint"
   );
   assert(
+    listSource.includes("overflow-x-hidden") && listSource.includes("min-w-0"),
+    "Members roster does not grow a horizontal page scroll"
+  );
+  assert(
     !listSource.includes("administers the Workspace"),
     "roster does not add long role-explanation paragraphs"
   );

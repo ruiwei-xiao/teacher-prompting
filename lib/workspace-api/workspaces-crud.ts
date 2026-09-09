@@ -3,6 +3,7 @@
  * Session is resolved by route wrappers; these accept userId for testability.
  */
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
+import { WORKSPACE_NAME_MAX_LENGTH } from "@/lib/workspace-ui/nav";
 import {
   appendActivity,
   createWorkspace,
@@ -107,6 +108,11 @@ export async function createWorkspaces(
   if (!name) {
     return badRequest("Missing workspace name");
   }
+  if (name.length > WORKSPACE_NAME_MAX_LENGTH) {
+    return badRequest(
+      `Workspace name must be ${WORKSPACE_NAME_MAX_LENGTH} characters or fewer`
+    );
+  }
 
   const allOff: BuildingPermissions = {
     canCreateBots: false,
@@ -186,6 +192,11 @@ export async function updateWorkspaceById(
     const name = (body.name as string).trim();
     if (!name) {
       return badRequest("Workspace name cannot be empty");
+    }
+    if (name.length > WORKSPACE_NAME_MAX_LENGTH) {
+      return badRequest(
+        `Workspace name must be ${WORKSPACE_NAME_MAX_LENGTH} characters or fewer`
+      );
     }
     const renameCheck = assertWorkspaceAction({
       membership,

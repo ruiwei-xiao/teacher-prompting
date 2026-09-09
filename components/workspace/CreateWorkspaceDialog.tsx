@@ -13,13 +13,15 @@ import {
   buildCreateWorkspaceBody,
   DEFAULT_CREATE_BUILDING_PERMISSIONS,
   parseCreateWorkspaceResponse,
+  WORKSPACE_NAME_MAX_LENGTH,
+  workspaceNameError,
 } from "@/lib/workspace-ui/nav";
 import { BUILDING_PERMISSION_FIELDS } from "@/lib/workspace-ui/settings";
 import type {
   BuildingPermissions,
   Workspace,
 } from "@/lib/workspace-store/types";
-import WorkspaceRoleHint from "./WorkspaceRoleHint";
+import WorkspaceRoleHintGroup from "./WorkspaceRoleHintGroup";
 import WorkspaceShareLinkControl from "./WorkspaceShareLinkControl";
 
 type Phase = "create" | "invite";
@@ -72,7 +74,8 @@ export default function CreateWorkspaceDialog({
   if (!open || !mounted || typeof document === "undefined") return null;
 
   const submitting = busyProp || busy;
-  const canSubmit = Boolean(name.trim()) && !submitting;
+  const nameIssue = workspaceNameError(name);
+  const canSubmit = !nameIssue && !submitting;
 
   function finish(workspace: Workspace) {
     onCreated(workspace);
@@ -89,6 +92,10 @@ export default function CreateWorkspaceDialog({
   }
 
   async function handleCreate() {
+    if (nameIssue) {
+      setError(nameIssue);
+      return;
+    }
     const body = buildCreateWorkspaceBody(name, permissions);
     if (!body) {
       setError("Enter a workspace name");
@@ -203,6 +210,7 @@ export default function CreateWorkspaceDialog({
                 placeholder="e.g. Period 3 Algebra"
                 disabled={submitting}
                 autoFocus
+                aria-invalid={Boolean(name.trim() && nameIssue)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && canSubmit) {
                     e.preventDefault();
@@ -210,6 +218,20 @@ export default function CreateWorkspaceDialog({
                   }
                 }}
               />
+              <span className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-zinc-500">
+                <span>
+                  {name.trim() && nameIssue ? (
+                    <span className="text-red-700 dark:text-red-300" role="alert">
+                      {nameIssue}
+                    </span>
+                  ) : (
+                    `Up to ${WORKSPACE_NAME_MAX_LENGTH} characters`
+                  )}
+                </span>
+                <span>
+                  {name.trim().length}/{WORKSPACE_NAME_MAX_LENGTH}
+                </span>
+              </span>
             </label>
 
             <section className="space-y-3">
@@ -257,6 +279,7 @@ export default function CreateWorkspaceDialog({
           </div>
         ) : created ? (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <WorkspaceRoleHintGroup />
             <form
               onSubmit={(e) => void handleCreateEmail(e)}
               className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900/40"
@@ -295,11 +318,6 @@ export default function CreateWorkspaceDialog({
                     <option value="facilitator">Facilitator</option>
                   </select>
                 </label>
-                <div className="flex flex-wrap items-center gap-2 pb-1">
-                  <WorkspaceRoleHint role="owner" />
-                  <WorkspaceRoleHint role="facilitator" />
-                  <WorkspaceRoleHint role="participant" />
-                </div>
                 <button
                   type="submit"
                   disabled={inviteBusy}

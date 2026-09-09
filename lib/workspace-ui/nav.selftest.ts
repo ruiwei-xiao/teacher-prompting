@@ -7,10 +7,17 @@ import path from "path";
 import type { BuildingPermissions } from "@/lib/workspace-store/types";
 import {
   buildCreateWorkspaceBody,
+  COMMUNITY_HREF,
+  isCommunityPath,
   MY_BOTS_HREF,
   parseCreateWorkspaceResponse,
   parseWorkspacesListResponse,
+  WORKSPACE_NAME_MAX_LENGTH,
   workspaceHubHref,
+  workspaceIdFromPath,
+  workspaceInitials,
+  workspaceMarkTone,
+  workspaceNameError,
 } from "./nav";
 
 let failures = 0;
@@ -122,6 +129,26 @@ async function main(): Promise<void> {
     null,
     "blank name is rejected even when permissions are toggled"
   );
+  assertEqual(
+    workspaceNameError(""),
+    "Enter a workspace name",
+    "blank name surfaces a create error"
+  );
+  assertEqual(
+    workspaceNameError("x".repeat(WORKSPACE_NAME_MAX_LENGTH + 1)),
+    `Workspace name must be ${WORKSPACE_NAME_MAX_LENGTH} characters or fewer`,
+    "over-long name surfaces a create error"
+  );
+  assertEqual(
+    workspaceNameError("x".repeat(WORKSPACE_NAME_MAX_LENGTH)),
+    null,
+    "name at the max length is accepted"
+  );
+  assertEqual(
+    buildCreateWorkspaceBody("x".repeat(WORKSPACE_NAME_MAX_LENGTH + 1)),
+    null,
+    "create body rejects over-long names"
+  );
 
   const created = parseCreateWorkspaceResponse(200, {
     workspace: {
@@ -151,6 +178,29 @@ async function main(): Promise<void> {
   // --- Navigation targets ---
   assertEqual(workspaceHubHref("ws_1"), "/workspace/ws_1", "hub href");
   assertEqual(MY_BOTS_HREF, "/", "My bots stays on personal dashboard");
+  assertEqual(COMMUNITY_HREF, "/community", "Community has its own page");
+  assertEqual(isCommunityPath("/community"), true, "community path matches");
+  assertEqual(isCommunityPath("/"), false, "home is not community");
+  assertEqual(
+    workspaceIdFromPath("/workspace/ws_1"),
+    "ws_1",
+    "hub path exposes workspace id"
+  );
+  assertEqual(
+    workspaceIdFromPath("/workspace/invite/token"),
+    null,
+    "invite path is not a hub"
+  );
+  assertEqual(workspaceInitials("test workspace"), "TW", "two-word initials");
+  assertEqual(workspaceInitials("Biology"), "BI", "single-word initials");
+  assert(
+    workspaceMarkTone("Team Workspace").includes("ring-"),
+    "workspace mark uses a ringed monogram, not a flat chip"
+  );
+  assert(
+    workspaceMarkTone("Team Workspace") !== workspaceMarkTone("Biology"),
+    "workspace marks vary by name"
+  );
 
   // --- Sidebar must not ship placeholder Example Institute names ---
   const sidebarPath = path.join(
@@ -169,6 +219,26 @@ async function main(): Promise<void> {
   assert(
     sidebarSource.includes("CreateWorkspaceDialog"),
     "WorkspaceSidebar wires CreateWorkspaceDialog"
+  );
+  assert(
+    sidebarSource.includes("workspaceTabHref") &&
+      sidebarSource.includes("workspaceSectionNav"),
+    "sidebar lists Bots / Activity / Members / Settings under the current workspace"
+  );
+  assert(
+    sidebarSource.includes("inWorkspace ?") &&
+      sidebarSource.includes("workspaceLabelClass"),
+    "selected workspace name is a label, not a duplicate Bots link"
+  );
+  assert(
+    sidebarSource.includes("COMMUNITY_HREF") &&
+      sidebarSource.includes("lucide-react"),
+    "sidebar has a Community page link and lucide icons"
+  );
+  assert(
+    sidebarSource.includes("rounded-full") &&
+      sidebarSource.includes("workspaceMarkTone"),
+    "workspace marks are circular monograms"
   );
 
   const dialogPath = path.join(
@@ -246,6 +316,24 @@ async function main(): Promise<void> {
       homeSource.includes("WorkspaceSidebar"),
     "home dashboard wires AppShell navigation"
   );
+  assert(
+    !homeSource.includes("DashboardTabs") &&
+      !homeSource.includes("CommunityGrid"),
+    "home is My bots only; Community is not a tab on that page"
+  );
+  assert(
+    dialogSource.includes("WORKSPACE_NAME_MAX_LENGTH") &&
+      dialogSource.includes("workspaceNameError"),
+    "CreateWorkspaceDialog validates workspace name length"
+  );
+
+  const communityPath = path.join(process.cwd(), "app/community/page.tsx");
+  const communitySource = await fs.readFile(communityPath, "utf8");
+  assert(
+    communitySource.includes("CommunityGrid") &&
+      communitySource.includes("AppShell"),
+    "Community lives on its own /community page"
+  );
 
   const appShellPath = path.join(
     process.cwd(),
@@ -254,12 +342,23 @@ async function main(): Promise<void> {
   const appShellSource = await fs.readFile(appShellPath, "utf8").catch(() => "");
   assert(
     appShellSource.includes("menuButton") ||
-      appShellSource.includes("Open navigation"),
-    "AppShell exposes a header hamburger menu"
+      appShellSource.includes("Open navigation") ||
+      appShellSource.includes("Collapse sidebar"),
+    "AppShell exposes sidebar toggle chrome"
   );
   assert(
     appShellSource.includes("WorkspaceSidebar"),
-    "AppShell drawer renders WorkspaceSidebar"
+    "AppShell renders WorkspaceSidebar"
+  );
+  assert(
+    appShellSource.includes("pinned") &&
+      appShellSource.includes("peeked"),
+    "desktop sidebar stays visible and can collapse to icons"
+  );
+  assert(
+    appShellSource.includes("flex-col") &&
+      appShellSource.includes("w-[3.5rem]"),
+    "header stays full-width; pin control stays in the icon column"
   );
 
   if (failures > 0) {

@@ -120,11 +120,18 @@ async function main(): Promise<void> {
     process.cwd(),
     "components/workspace/WorkspaceShareLinkControl.tsx"
   );
+  const hintGroupPath = path.join(
+    process.cwd(),
+    "components/workspace/WorkspaceRoleHintGroup.tsx"
+  );
 
   const hintSource = await fs.readFile(hintPath, "utf8").catch(() => "");
   const membersSource = await fs.readFile(membersPath, "utf8").catch(() => "");
   const shareLinkSource = await fs
     .readFile(shareLinkPath, "utf8")
+    .catch(() => "");
+  const hintGroupSource = await fs
+    .readFile(hintGroupPath, "utf8")
     .catch(() => "");
 
   assert(hintSource.length > 0, "WorkspaceRoleHint.tsx exists");
@@ -137,8 +144,22 @@ async function main(): Promise<void> {
     "WorkspaceRoleHint uses hover or a ? control"
   );
   assert(
-    hintSource.includes("title=") || hintSource.includes('role="tooltip"'),
+    hintSource.includes('role="tooltip"'),
     "WorkspaceRoleHint exposes copy on hover or tooltip"
+  );
+  assert(
+    !hintSource.includes("title="),
+    "WorkspaceRoleHint does not stack a native title tooltip on the custom tooltip"
+  );
+  assert(
+    hintSource.includes("origin-top-right"),
+    "WorkspaceRoleHint can align to the right so hub copy is not clipped"
+  );
+  assert(
+    hintSource.includes("aria-describedby") &&
+      hintSource.includes("opacity-0") &&
+      !/\bhidden\b/.test(hintSource),
+    "role tooltip stays in the accessibility tree instead of display:none"
   );
   assert(
     !/\bAdmin\b/.test(hintSource),
@@ -153,8 +174,17 @@ async function main(): Promise<void> {
     "Members wires WorkspaceRoleHint on roster role labels"
   );
   assert(
-    shareLinkSource.includes("WorkspaceRoleHint"),
-    "share-link role picker wires WorkspaceRoleHint (task 2.3)"
+    hintGroupSource.includes("WorkspaceRoleHint") &&
+      membersSource.includes("WorkspaceRoleHintGroup"),
+    "Members shows one shared role-hint group for invite controls"
+  );
+  assert(
+    (membersSource.match(/<WorkspaceRoleHintGroup/g) || []).length === 1,
+    "Members invite surfaces share a single role-hint group"
+  );
+  assert(
+    !shareLinkSource.includes("WorkspaceRoleHint"),
+    "share-link control does not duplicate the Members role-hint row"
   );
 
   if (failures > 0) {

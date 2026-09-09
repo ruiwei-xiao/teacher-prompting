@@ -118,7 +118,9 @@ function WorkspaceActivityViewInner({
     );
   }
 
-  let detail: ReactNode;
+  let detail: ReactNode = (
+    <SessionDetailHint>Loading transcript…</SessionDetailHint>
+  );
   if (!selectedId) {
     detail = (
       <SessionDetailHint>Select a session to read the transcript.</SessionDetailHint>
@@ -177,6 +179,7 @@ function WorkspaceActivityViewInner({
     <SessionBrowseLayout
       ariaLabel="Workspace activity"
       isEmpty={isBare}
+      className="mt-0"
       empty={
         listLoading ? (
           <p className="text-center text-sm text-slate-500 dark:text-zinc-400">
@@ -198,7 +201,7 @@ export default function WorkspaceActivityView({
   workspaceId: string;
 }) {
   return (
-    <div className="flex min-h-[28rem] flex-1 flex-col lg:min-h-[36rem]">
+    <div className="flex min-h-0 flex-1 flex-col">
       <Suspense
         fallback={
           <p className="mt-10 text-center text-sm text-slate-500 dark:text-zinc-400">

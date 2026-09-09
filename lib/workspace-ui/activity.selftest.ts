@@ -351,6 +351,11 @@ async function main(): Promise<void> {
     "Activity view uses SessionBrowseLayout"
   );
   assert(
+    /let detail: ReactNode =/.test(viewSource) &&
+      viewSource.includes("Loading transcript"),
+    "transcript pane defaults to a loading hint before fetch state is set"
+  );
+  assert(
     viewSource.includes("SessionList") && viewSource.includes("SessionTranscript"),
     "Activity view composes SessionList and SessionTranscript"
   );

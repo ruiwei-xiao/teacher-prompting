@@ -6,12 +6,14 @@ export default function SessionBrowseLayout({
   empty,
   list,
   detail,
+  className,
 }: {
   ariaLabel: string;
   isEmpty: boolean;
   empty: ReactNode;
   list: ReactNode;
   detail: ReactNode;
+  className?: string;
 }) {
   if (isEmpty) {
     return (
@@ -26,7 +28,10 @@ export default function SessionBrowseLayout({
 
   return (
     <div
-      className="mt-4 flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4"
+      className={[
+        "flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4",
+        className ?? "mt-4",
+      ].join(" ")}
       aria-label={ariaLabel}
     >
       <section

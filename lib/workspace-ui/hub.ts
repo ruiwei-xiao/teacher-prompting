@@ -77,6 +77,21 @@ export function listPlaceableOwnedBots(input: {
 }
 
 /**
+ * Card copy for a placement. Missing app records must not look like a real
+ * bot name (e.g. appId "biology" must not become "Bot biology").
+ */
+export function workspaceGridBotLabel(input: {
+  appId: string;
+  summary?: Pick<HubBotSummary, "name">;
+}): { resolved: boolean; name: string } {
+  const name = input.summary?.name?.trim() ?? "";
+  if (name) {
+    return { resolved: true, name };
+  }
+  return { resolved: false, name: "Unavailable bot" };
+}
+
+/**
  * Leave control on the Bots hub header (Req 1.6).
  * Participants (and other non-owners) leave from Bots; operators also keep
  * leave on Members when that tab is active.

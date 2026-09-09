@@ -9,7 +9,7 @@ import type {
   WorkspacePlacement,
 } from "@/lib/workspace-store/types";
 import { canSelfLeave } from "./members";
-import { visibleWorkspaceTabs } from "./tabs";
+import { visibleWorkspaceTabs, shouldShowWorkspaceNavTabs } from "./tabs";
 import {
   canPlaceIntoWorkspace,
   canUnplaceFromWorkspace,
@@ -18,6 +18,7 @@ import {
   parsePlacementsListResponse,
   parseWorkspaceGetResponse,
   shouldShowHubSelfLeave,
+  workspaceGridBotLabel,
 } from "./hub";
 
 let failures = 0;
@@ -331,16 +332,16 @@ async function main(): Promise<void> {
     "hub page is no longer the temporary 6.1 placeholder"
   );
 
-  // --- Role-visible hub tabs, Activity, Settings/Members (Req 1.1, 1.2, 1.7, 3.8, 5.6) ---
-  const navTabsPath = path.join(
+  // --- Role-visible hub sections, Activity, Settings/Members (Req 1.1, 1.2, 1.7, 3.8, 5.6) ---
+  const sidebarPath = path.join(
     process.cwd(),
-    "components/workspace/WorkspaceNavTabs.tsx"
+    "components/app-shell/WorkspaceSidebar.tsx"
   );
   const membersListPath = path.join(
     process.cwd(),
     "components/workspace/WorkspaceMemberList.tsx"
   );
-  const navTabsSource = await fs.readFile(navTabsPath, "utf8");
+  const sidebarSource = await fs.readFile(sidebarPath, "utf8");
   const membersListSource = await fs.readFile(membersListPath, "utf8");
 
   assertEqual(
@@ -358,13 +359,36 @@ async function main(): Promise<void> {
     "bots,settings,members,activity",
     "Facilitator hub shows Bots, Settings, Members, and Activity"
   );
-  assert(
-    navTabsSource.includes("visibleWorkspaceTabs"),
-    "WorkspaceNavTabs renders only role-visible tabs"
+  assertEqual(
+    shouldShowWorkspaceNavTabs("participant"),
+    false,
+    "Participant hub hides extra workspace sections when only Bots is available"
+  );
+  assertEqual(
+    shouldShowWorkspaceNavTabs("owner"),
+    true,
+    "Owner still sees workspace section links"
   );
   assert(
-    hubSource.includes("WorkspaceNavTabs") && hubSource.includes("role={state.role}"),
-    "hub passes membership role into nav tabs"
+    sidebarSource.includes("workspaceSectionNav") &&
+      sidebarSource.includes("workspaceTabHref"),
+    "sidebar hosts role-visible workspace sections"
+  );
+  assert(
+    !hubSource.includes("WorkspaceNavTabs"),
+    "hub no longer renders a horizontal workspace tab bar"
+  );
+  assert(
+    !hubSource.includes("Rename this Workspace") &&
+      !hubSource.includes("Search the roster") &&
+      !hubSource.includes("Shared chat sessions"),
+    "hub does not show long tab descriptions"
+  );
+  assert(
+    hubSource.includes("Your role:") &&
+      hubSource.includes("WorkspaceRoleHint") &&
+      hubSource.includes('align="end"'),
+    "hub keeps the viewer role on the title row with a right-aligned hint"
   );
   assert(
     !hubSource.includes('activeTab === "invites"') &&
@@ -483,6 +507,46 @@ async function main(): Promise<void> {
     hubSource.includes('activeTab === "members"') &&
       hubSource.includes("WorkspaceMemberList"),
     "Members content is tab-gated"
+  );
+  assertEqual(
+    workspaceGridBotLabel({ appId: "biology" }).resolved,
+    false,
+    "missing summary is unresolved"
+  );
+  assertEqual(
+    workspaceGridBotLabel({ appId: "biology" }).name,
+    "Unavailable bot",
+    "missing summary does not look like a real bot name"
+  );
+  assertEqual(
+    workspaceGridBotLabel({
+      appId: "biology",
+      summary: { name: "Bot biology" },
+    }).name,
+    "Bot biology",
+    "resolved summary keeps the real name"
+  );
+  assert(
+    gridSource.includes("workspaceGridBotLabel"),
+    "bot grid uses workspaceGridBotLabel"
+  );
+  assert(
+    gridSource.includes("Unavailable") &&
+      gridSource.includes("bot.resolved") &&
+      gridSource.includes("Inspect"),
+    "bot grid withholds Inspect when the placed bot record is missing"
+  );
+  assert(
+    pageSource.includes("main-viewport") &&
+      hubSource.includes('activeTab === "activity"') &&
+      hubSource.includes("overflow-hidden"),
+    "Activity tab constrains height so list/transcript scroll, not the whole page"
+  );
+  assert(
+    hubSource.includes("flex-wrap items-center") &&
+      hubSource.includes("Workspace") &&
+      hubSource.includes("{state.name}"),
+    "Workspace badge sits beside the title instead of stacking above it"
   );
 
   if (failures > 0) {

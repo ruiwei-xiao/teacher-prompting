@@ -14,6 +14,7 @@ import {
   parseWorkspacePatchResponse,
   workspaceSettingsHref,
 } from "./settings";
+import { WORKSPACE_NAME_MAX_LENGTH } from "./nav";
 
 let failures = 0;
 
@@ -115,6 +116,15 @@ async function main(): Promise<void> {
     }),
     null,
     "blank name is rejected"
+  );
+  assertEqual(
+    buildWorkspaceSettingsPatchBody({
+      name: "x".repeat(WORKSPACE_NAME_MAX_LENGTH + 1),
+      buildingPermissions: permsOff,
+      assistedAuthoringModeDefault: false,
+    }),
+    null,
+    "over-long rename is rejected"
   );
 
   assertEqual(
@@ -260,6 +270,11 @@ async function main(): Promise<void> {
   assert(
     formSource.includes("assistedAuthoringModeDefault"),
     "form has Assisted Authoring Mode default control"
+  );
+  assert(
+    formSource.includes("WORKSPACE_NAME_MAX_LENGTH") &&
+      formSource.includes("workspaceNameError"),
+    "settings form validates workspace name length"
   );
   assert(
     formSource.includes("ON") && formSource.includes("OFF"),

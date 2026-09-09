@@ -18,6 +18,7 @@ import {
   filterVisiblePlacements,
   listPlaceableOwnedBots,
   parsePlacementsListResponse,
+  workspaceGridBotLabel,
   type HubBotSummary,
 } from "@/lib/workspace-ui/hub";
 import { peerBotPreviewHref } from "@/lib/workspace-ui/peer-preview";
@@ -27,6 +28,7 @@ import ShareDialog from "@/components/dashboard/ShareDialog";
 
 type GridBot = HubBotSummary & {
   isOwned: boolean;
+  resolved: boolean;
 };
 
 function StarIcon({ filled }: { filled: boolean }) {
@@ -240,9 +242,10 @@ export default function WorkspaceBotGrid({
   const gridBots: GridBot[] = visiblePlacements.map((p) => {
     const summary = botById[p.appId];
     const isOwned = ownedAppIds.has(p.appId);
+    const label = workspaceGridBotLabel({ appId: p.appId, summary });
     return {
       id: p.appId,
-      name: summary?.name || `Bot ${p.appId.slice(0, 8)}`,
+      name: label.name,
       description: summary?.description,
       updatedAt: summary?.updatedAt,
       publishedAt: summary?.publishedAt,
@@ -253,6 +256,7 @@ export default function WorkspaceBotGrid({
       communitySubject: summary?.communitySubject,
       communityTags: summary?.communityTags,
       isOwned,
+      resolved: label.resolved,
     };
   });
 
@@ -487,45 +491,60 @@ export default function WorkspaceBotGrid({
               >
                 <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-zinc-400">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-200">
-                      {bot.isOwned ? "Yours" : "Peer"}
+                    <span
+                      className={[
+                        "inline-flex rounded-full px-2.5 py-1 font-medium uppercase tracking-wide",
+                        !bot.resolved
+                          ? "bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-zinc-300"
+                          : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-200",
+                      ].join(" ")}
+                    >
+                      {!bot.resolved
+                        ? "Unavailable"
+                        : bot.isOwned
+                          ? "Yours"
+                          : "Peer"}
                     </span>
-                    {bot.updatedAt && (
+                    {bot.resolved && bot.updatedAt && (
                       <span>
                         Updated {new Date(bot.updatedAt).toLocaleDateString()}
                       </span>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleToggleStar(bot)}
-                    disabled={starBusyId === bot.id}
-                    aria-label={
-                      starred ? `Unstar ${bot.name}` : `Star ${bot.name}`
-                    }
-                    aria-pressed={starred}
-                    title={starred ? "Unstar" : "Star"}
-                    className={[
-                      "pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-[colors,border-color,background-color,opacity] duration-200 disabled:cursor-not-allowed disabled:opacity-50",
-                      starred
-                        ? "border-amber-300 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:border-amber-600 dark:hover:bg-amber-950/60"
-                        : "border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-300 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900",
-                    ].join(" ")}
-                  >
-                    <StarIcon filled={starred} />
-                  </button>
+                  {bot.resolved ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleStar(bot)}
+                      disabled={starBusyId === bot.id}
+                      aria-label={
+                        starred ? `Unstar ${bot.name}` : `Star ${bot.name}`
+                      }
+                      aria-pressed={starred}
+                      title={starred ? "Unstar" : "Star"}
+                      className={[
+                        "pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-[colors,border-color,background-color,opacity] duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+                        starred
+                          ? "border-amber-300 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:border-amber-600 dark:hover:bg-amber-950/60"
+                          : "border-slate-300 bg-white text-slate-500 hover:border-slate-400 hover:bg-slate-50 dark:border-zinc-500/70 dark:bg-zinc-900/85 dark:text-zinc-300 dark:hover:border-sky-400/35 dark:hover:bg-zinc-900",
+                      ].join(" ")}
+                    >
+                      <StarIcon filled={starred} />
+                    </button>
+                  ) : null}
                 </div>
                 <h3 className="mt-4 text-2xl font-semibold text-slate-900 dark:text-zinc-100">
                   {bot.name}
                 </h3>
                 <p className="mt-2 flex-1 text-sm leading-6 text-slate-600 dark:text-zinc-300">
-                  {bot.description ||
-                    (bot.isOwned
-                      ? "No description yet."
-                      : "Placed by another member.")}
+                  {!bot.resolved
+                    ? "This bot is no longer available. An Owner or Facilitator can remove it from the Workspace."
+                    : bot.description ||
+                      (bot.isOwned
+                        ? "No description yet."
+                        : "Placed by another member.")}
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-5 dark:border-zinc-600/60">
-                  {bot.isOwned ? (
+                  {bot.resolved && bot.isOwned ? (
                     <button
                       type="button"
                       onClick={() => router.push(`/app/${bot.id}/editor`)}
@@ -533,7 +552,8 @@ export default function WorkspaceBotGrid({
                     >
                       Open bot
                     </button>
-                  ) : (
+                  ) : null}
+                  {bot.resolved && !bot.isOwned ? (
                     <button
                       type="button"
                       onClick={() =>
@@ -543,8 +563,8 @@ export default function WorkspaceBotGrid({
                     >
                       Inspect
                     </button>
-                  )}
-                  {bot.isOwned && (
+                  ) : null}
+                  {bot.resolved && bot.isOwned && (
                     <button
                       type="button"
                       onClick={() => void handleShare(bot)}
