@@ -25,7 +25,11 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
   );
 }
 
-function stubApp(id: string, ownerId: string): AppConfig {
+function stubApp(
+  id: string,
+  ownerId: string,
+  assistedAuthoringMode?: boolean
+): AppConfig {
   const now = new Date().toISOString();
   return {
     id,
@@ -34,9 +38,33 @@ function stubApp(id: string, ownerId: string): AppConfig {
     provider: "openai",
     model: "gpt-4o",
     apiKey: "secret-key",
+    ...(assistedAuthoringMode !== undefined ? { assistedAuthoringMode } : {}),
     createdAt: now,
     updatedAt: now,
   };
+}
+
+async function writeWorkspaceAssistedAuthoringDefault(
+  workspaceId: string,
+  value: boolean | "missing"
+): Promise<void> {
+  const dataFile = process.env.WORKSPACES_DATA_FILE;
+  if (!dataFile) {
+    throw new Error("WORKSPACES_DATA_FILE is required for AA default mutation");
+  }
+  const parsed = JSON.parse(await fs.readFile(dataFile, "utf-8")) as {
+    workspaces: Array<Record<string, unknown> & { id: string }>;
+  };
+  const workspace = parsed.workspaces.find((row) => row.id === workspaceId);
+  if (!workspace) {
+    throw new Error(`workspace ${workspaceId} not found for AA default mutation`);
+  }
+  if (value === "missing") {
+    delete workspace.assistedAuthoringModeDefault;
+  } else {
+    workspace.assistedAuthoringModeDefault = value;
+  }
+  await fs.writeFile(dataFile, JSON.stringify(parsed, null, 2), "utf-8");
 }
 
 async function withTempApps(
@@ -89,7 +117,7 @@ async function main(): Promise<void> {
     listPlacements,
     updateWorkspace,
   } = await import("../workspace-store/store");
-  const { getAppById } = await import("../app-store/store");
+  const { getAppById, updateApp } = await import("../app-store/store");
 
   const ownerId = "owner_1";
   const facId = "fac_1";
@@ -99,12 +127,18 @@ async function main(): Promise<void> {
   const ownerBot = "bot_owner";
   const partBot = "bot_part";
   const facBot = "bot_fac";
+  const aaFirstBot = "bot_aa_first";
+  const aaLaterBot = "bot_aa_later";
+  const aaMissingDefaultBot = "bot_aa_missing_default";
 
   await withTempApps(
     [
       stubApp(ownerBot, ownerId),
       stubApp(partBot, partId),
       stubApp(facBot, facId),
+      stubApp(aaFirstBot, ownerId, false),
+      stubApp(aaLaterBot, ownerId, false),
+      stubApp(aaMissingDefaultBot, ownerId, true),
     ],
     async () => {
       try {
@@ -397,6 +431,81 @@ async function main(): Promise<void> {
           (await listPlacements(wsB.id)).some((p) => p.appId === ownerBot),
           true,
           "also placed in second Workspace"
+        );
+
+        // --- Assisted Authoring default on first place (4.3–4.6) ---
+        const aaWs = await createWorkspace({
+          name: "AA Place Lab",
+          ownerUserId: ownerId,
+        });
+        await writeWorkspaceAssistedAuthoringDefault(aaWs.id, true);
+
+        const firstPlaceAa = await placeWorkspaceBot(ownerId, aaWs.id, {
+          appId: aaFirstBot,
+        });
+        assertEqual(firstPlaceAa.status, 200, "first AA place → 200");
+        assertEqual(
+          (await getAppById(aaFirstBot))?.assistedAuthoringMode,
+          true,
+          "first place applies Workspace AA default ON (4.4)"
+        );
+
+        await writeWorkspaceAssistedAuthoringDefault(aaWs.id, false);
+        assertEqual(
+          (await getAppById(aaFirstBot))?.assistedAuthoringMode,
+          true,
+          "changing Workspace default later does not rewrite placed bot (4.5)"
+        );
+
+        await placeWorkspaceBot(ownerId, aaWs.id, { appId: aaFirstBot });
+        assertEqual(
+          (await getAppById(aaFirstBot))?.assistedAuthoringMode,
+          true,
+          "idempotent re-place does not re-apply AA default (4.5)"
+        );
+
+        const laterPlace = await placeWorkspaceBot(ownerId, aaWs.id, {
+          appId: aaLaterBot,
+        });
+        assertEqual(laterPlace.status, 200, "later bot place → 200");
+        assertEqual(
+          (await getAppById(aaLaterBot))?.assistedAuthoringMode,
+          false,
+          "newly placed bot matches current Workspace default OFF (4.4)"
+        );
+
+        const settingsOverride = await updateApp(aaFirstBot, {
+          assistedAuthoringMode: false,
+        });
+        assertEqual(
+          settingsOverride?.assistedAuthoringMode,
+          false,
+          "bot Settings updateApp is not blocked by Workspace default (4.6)"
+        );
+        assertEqual(
+          (await getAppById(aaFirstBot))?.assistedAuthoringMode,
+          false,
+          "per-bot Settings change persists after place"
+        );
+
+        const missingFieldWs = await createWorkspace({
+          name: "AA Missing Default",
+          ownerUserId: ownerId,
+        });
+        await writeWorkspaceAssistedAuthoringDefault(missingFieldWs.id, "missing");
+        assertEqual(
+          (
+            await placeWorkspaceBot(ownerId, missingFieldWs.id, {
+              appId: aaMissingDefaultBot,
+            })
+          ).status,
+          200,
+          "place into workspace with missing AA default → 200"
+        );
+        assertEqual(
+          (await getAppById(aaMissingDefaultBot))?.assistedAuthoringMode,
+          false,
+          "missing Workspace AA default applies as false (4.4)"
         );
 
         if (failures === 0) {

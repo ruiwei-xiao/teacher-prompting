@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { workspaceTabHref, type WorkspaceTab } from "@/lib/workspace-ui/tabs";
+import { resolveWorkspaceTab, workspaceTabHref } from "@/lib/workspace-ui/tabs";
 
 type PageProps = {
   params: Promise<{ workspaceId: string }>;
@@ -14,9 +14,12 @@ export default async function WorkspaceSettingsRedirectPage({
   const { workspaceId } = await params;
   const sp = await searchParams;
   const raw = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
-  const tab: WorkspaceTab =
-    raw === "invites" || raw === "members" || raw === "settings"
-      ? raw
-      : "settings";
+  // Operator mapping canonicalizes `invites` → members; the hub re-resolves with the real role.
+  const tab = resolveWorkspaceTab(
+    `/workspace/${workspaceId}/settings`,
+    raw ?? "",
+    workspaceId,
+    "owner"
+  );
   redirect(workspaceTabHref(workspaceId, tab));
 }

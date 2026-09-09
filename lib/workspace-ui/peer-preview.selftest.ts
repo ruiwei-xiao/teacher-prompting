@@ -47,6 +47,11 @@ async function main(): Promise<void> {
     "/api/workspaces/ws_1/bots/bot_peer/duplicate",
     "peer duplicate API href"
   );
+  assertEqual(
+    peerBotPreviewHref("ws_1", "bot/peer"),
+    "/workspace/ws_1/bots/bot%2Fpeer",
+    "peer preview href encodes app id"
+  );
 
   // --- Non-owner must not get authoring edit controls (Req 4.6) ---
   assertEqual(

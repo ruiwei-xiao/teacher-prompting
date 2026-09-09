@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     createInvite,
     createWorkspace,
     deleteWorkspace,
+    ensureActiveLinkInvite,
     getInvite,
     getWorkspace,
     listActivity,
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
     placeApp,
     removeMember,
     removePlacement,
+    resetActiveLinkInvite,
     revokeInvite,
     setMemberRole,
     transferOwnership,
@@ -88,6 +90,11 @@ async function main(): Promise<void> {
       },
       "new Workspace defaults all building permissions off"
     );
+    assertEqual(
+      ws.assistedAuthoringModeDefault,
+      false,
+      "new Workspace Assisted Authoring default is off"
+    );
 
     const membersAfterCreate = await listMembers(ws.id);
     assertEqual(membersAfterCreate.length, 1, "createWorkspace adds exactly one membership");
@@ -99,6 +106,11 @@ async function main(): Promise<void> {
     const listed = await listWorkspacesForUser(ownerId);
     assertEqual(listed.length, 1, "owner sees created Workspace");
     assertEqual(listed[0]?.id, ws.id, "listed Workspace id matches");
+    assertEqual(
+      listed[0]?.assistedAuthoringModeDefault,
+      false,
+      "listed Workspace Assisted Authoring default is off"
+    );
 
     const emptyList = await listWorkspacesForUser("nobody");
     assertEqual(emptyList.length, 0, "non-member sees no Workspaces");
@@ -106,6 +118,46 @@ async function main(): Promise<void> {
     const fetched = await getWorkspace(ws.id);
     assert(fetched !== null, "getWorkspace returns created Workspace");
     assertEqual(fetched?.name, "Course A", "getWorkspace name");
+    assertEqual(
+      fetched?.assistedAuthoringModeDefault,
+      false,
+      "getWorkspace Assisted Authoring default is off"
+    );
+
+    // JSON record missing assistedAuthoringModeDefault loads as false
+    const missingKeyId = "ws_legacy_no_aa_default";
+    const rawBeforeLegacy = await fs.readFile(dataFile, "utf-8");
+    const parsedBeforeLegacy = JSON.parse(rawBeforeLegacy) as {
+      workspaces: Record<string, unknown>[];
+      members?: unknown[];
+      invites?: unknown[];
+      placements?: unknown[];
+      activity?: unknown[];
+    };
+    parsedBeforeLegacy.workspaces.push({
+      id: missingKeyId,
+      name: "Legacy Workspace",
+      buildingPermissions: {
+        canCreateBots: false,
+        canSeeOthersBots: false,
+        canShareOutside: false,
+        canManageOwnBots: false,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await fs.writeFile(
+      dataFile,
+      JSON.stringify(parsedBeforeLegacy, null, 2),
+      "utf-8"
+    );
+    const legacyLoaded = await getWorkspace(missingKeyId);
+    assert(legacyLoaded !== null, "JSON workspace missing AA default key still loads");
+    assertEqual(
+      legacyLoaded?.assistedAuthoringModeDefault,
+      false,
+      "JSON workspace missing assistedAuthoringModeDefault loads as false"
+    );
 
     const missing = await getWorkspace("missing-id");
     assertEqual(missing, null, "getWorkspace returns null for unknown id");
@@ -127,6 +179,64 @@ async function main(): Promise<void> {
       withPerms.buildingPermissions.canSeeOthersBots,
       false,
       "updateWorkspace permissions (b) stays off"
+    );
+
+    const overlayWs = await createWorkspace({
+      name: "Create Overlay",
+      ownerUserId: "user_overlay",
+      buildingPermissions: {
+        canCreateBots: true,
+        canSeeOthersBots: true,
+        canShareOutside: false,
+        canManageOwnBots: true,
+      },
+    });
+    assertEqual(
+      overlayWs.buildingPermissions,
+      {
+        canCreateBots: true,
+        canSeeOthersBots: true,
+        canShareOutside: false,
+        canManageOwnBots: true,
+      },
+      "createWorkspace optional buildingPermissions overlay persists"
+    );
+    assertEqual(
+      overlayWs.assistedAuthoringModeDefault,
+      false,
+      "createWorkspace overlay still has Assisted Authoring default off"
+    );
+
+    const aaDefaultWs = await createWorkspace({
+      name: "AA Default Patch",
+      ownerUserId: "user_aa_patch",
+    });
+    assertEqual(
+      aaDefaultWs.assistedAuthoringModeDefault,
+      false,
+      "AA patch workspace starts with default off"
+    );
+    const aaTurnedOn = await updateWorkspace(aaDefaultWs.id, {
+      assistedAuthoringModeDefault: true,
+    });
+    assertEqual(
+      aaTurnedOn.assistedAuthoringModeDefault,
+      true,
+      "updateWorkspace persists assistedAuthoringModeDefault true"
+    );
+    const aaReloaded = await getWorkspace(aaDefaultWs.id);
+    assertEqual(
+      aaReloaded?.assistedAuthoringModeDefault,
+      true,
+      "getWorkspace reads patched assistedAuthoringModeDefault"
+    );
+    const aaNameOnly = await updateWorkspace(aaDefaultWs.id, {
+      name: "AA Default Patch Renamed",
+    });
+    assertEqual(
+      aaNameOnly.assistedAuthoringModeDefault,
+      true,
+      "updateWorkspace name-only leaves assistedAuthoringModeDefault"
     );
 
     // --- membership mutations ---
@@ -409,6 +519,14 @@ async function main(): Promise<void> {
       ),
       "second Workspace persisted after invite/placement tests"
     );
+    const persistedCreated = parsed.workspaces.find(
+      (w) => typeof w === "object" && w !== null && (w as { id: string }).id === ws.id
+    ) as { assistedAuthoringModeDefault?: unknown } | undefined;
+    assertEqual(
+      persistedCreated?.assistedAuthoringModeDefault,
+      false,
+      "new create writes assistedAuthoringModeDefault false explicitly"
+    );
 
     // =========================================================================
     // Task 1.5 — lightweight activity append/list + cascade (no delete append)
@@ -599,6 +717,257 @@ async function main(): Promise<void> {
           (e as { workspaceId?: string }).workspaceId === wsAct.id
       ),
       "cascaded activity rows gone from JSON file"
+    );
+
+    // =========================================================================
+    // Task 2.1 — one current reusable link per join role (ensure / reset)
+    // =========================================================================
+    const isActiveLinkForRole = (
+      invite: {
+        kind: string;
+        role: string;
+        revokedAt?: string;
+        expiresAt?: string;
+      },
+      role: string
+    ): boolean => {
+      if (invite.kind !== "link" || invite.role !== role || invite.revokedAt) {
+        return false;
+      }
+      if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= Date.now()) {
+        return false;
+      }
+      return true;
+    };
+
+    const wsShare = await createWorkspace({
+      name: "Share Link Lab",
+      ownerUserId: "share_owner",
+    });
+
+    const firstEnsure = await ensureActiveLinkInvite(wsShare.id, "participant");
+    assertEqual(firstEnsure.kind, "link", "ensure creates a link invite");
+    assertEqual(firstEnsure.role, "participant", "ensure uses requested role");
+    assertEqual(firstEnsure.workspaceId, wsShare.id, "ensure workspaceId");
+    assertEqual(firstEnsure.revokedAt, undefined, "ensure invite is not revoked");
+    assert(
+      typeof firstEnsure.token === "string" && firstEnsure.token.length >= 32,
+      "ensure generates high-entropy token"
+    );
+
+    const copyEnsure = await ensureActiveLinkInvite(wsShare.id, "participant");
+    assertEqual(copyEnsure.id, firstEnsure.id, "copy/redisplay returns the same invite id");
+    assertEqual(
+      copyEnsure.token,
+      firstEnsure.token,
+      "copy/redisplay does not mint a second token"
+    );
+    assertEqual(
+      (await listInvites(wsShare.id)).filter((i) =>
+        isActiveLinkForRole(i, "participant")
+      ).length,
+      1,
+      "copy/redisplay does not add a second active participant link"
+    );
+
+    const facilitatorLink = await ensureActiveLinkInvite(wsShare.id, "facilitator");
+    assertEqual(facilitatorLink.role, "facilitator", "ensure facilitator role");
+    assert(
+      facilitatorLink.id !== firstEnsure.id,
+      "facilitator link is distinct from participant"
+    );
+    const afterFacilitatorEnsure = await listInvites(wsShare.id);
+    assertEqual(
+      afterFacilitatorEnsure.filter((i) => isActiveLinkForRole(i, "facilitator")).length,
+      1,
+      "ensure facilitator does not stack"
+    );
+    assertEqual(
+      afterFacilitatorEnsure.filter((i) => isActiveLinkForRole(i, "participant")).length,
+      1,
+      "ensure facilitator leaves participant link intact"
+    );
+
+    await acceptInviteByToken(firstEnsure.token, "share_joiner_p");
+    assertEqual(
+      (await listMembers(wsShare.id)).find((m) => m.userId === "share_joiner_p")?.role,
+      "participant",
+      "current link accept joins at Participant"
+    );
+    await acceptInviteByToken(facilitatorLink.token, "share_joiner_f");
+    assertEqual(
+      (await listMembers(wsShare.id)).find((m) => m.userId === "share_joiner_f")?.role,
+      "facilitator",
+      "current link accept joins at Facilitator"
+    );
+
+    const wsLegacy = await createWorkspace({
+      name: "Legacy Links Lab",
+      ownerUserId: "share_owner",
+    });
+    const legacyOlder = await createInvite({
+      workspaceId: wsLegacy.id,
+      kind: "link",
+      role: "participant",
+      createdByUserId: "share_owner",
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    const legacyNewer = await createInvite({
+      workspaceId: wsLegacy.id,
+      kind: "link",
+      role: "participant",
+      createdByUserId: "share_owner",
+    });
+    const shownLegacy = await ensureActiveLinkInvite(wsLegacy.id, "participant");
+    assertEqual(
+      shownLegacy.id,
+      legacyNewer.id,
+      "ensure returns newest createdAt when several active links exist"
+    );
+    assertEqual(
+      shownLegacy.token,
+      legacyNewer.token,
+      "canonical shown token is the newest link"
+    );
+    assertEqual(
+      (await listInvites(wsLegacy.id)).filter((i) =>
+        isActiveLinkForRole(i, "participant")
+      ).length,
+      2,
+      "ensure does not revoke extra legacy active links"
+    );
+    await acceptInviteByToken(legacyOlder.token, "legacy_older_joiner");
+    assert(
+      (await listMembers(wsLegacy.id)).some((m) => m.userId === "legacy_older_joiner"),
+      "legacy extra link stays joinable until reset"
+    );
+
+    const wsExpired = await createWorkspace({
+      name: "Expired Link Lab",
+      ownerUserId: "share_owner",
+    });
+    const expiredOnly = await createInvite({
+      workspaceId: wsExpired.id,
+      kind: "link",
+      role: "participant",
+      createdByUserId: "share_owner",
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    const afterExpiredEnsure = await ensureActiveLinkInvite(wsExpired.id, "participant");
+    assert(
+      afterExpiredEnsure.id !== expiredOnly.id,
+      "ensure creates a link when the only existing link is expired"
+    );
+    await expectThrow(
+      () => acceptInviteByToken(expiredOnly.token, "expired_joiner"),
+      "expired invite token is still rejected after ensure"
+    );
+
+    const emailKept = await createInvite({
+      workspaceId: wsLegacy.id,
+      kind: "email",
+      email: "kept.teacher@school.edu",
+      role: "participant",
+      createdByUserId: "share_owner",
+    });
+    const extraFacilitator = await createInvite({
+      workspaceId: wsLegacy.id,
+      kind: "link",
+      role: "facilitator",
+      createdByUserId: "share_owner",
+    });
+
+    const replaced = await resetActiveLinkInvite(wsLegacy.id, "participant");
+    assertEqual(replaced.kind, "link", "reset creates a link invite");
+    assertEqual(replaced.role, "participant", "reset keeps the role");
+    assertEqual(replaced.revokedAt, undefined, "replacement is not revoked");
+    assert(
+      replaced.token !== legacyOlder.token && replaced.token !== legacyNewer.token,
+      "reset replacement token is new"
+    );
+
+    const afterReset = await listInvites(wsLegacy.id);
+    const activeParticipantAfterReset = afterReset.filter((i) =>
+      isActiveLinkForRole(i, "participant")
+    );
+    assertEqual(
+      activeParticipantAfterReset.length,
+      1,
+      "reset leaves exactly one active participant link"
+    );
+    assertEqual(
+      activeParticipantAfterReset[0]?.id,
+      replaced.id,
+      "the remaining active participant link is the replacement"
+    );
+    assert(
+      typeof afterReset.find((i) => i.id === legacyOlder.id)?.revokedAt === "string",
+      "reset revokes older legacy participant link"
+    );
+    assert(
+      typeof afterReset.find((i) => i.id === legacyNewer.id)?.revokedAt === "string",
+      "reset revokes newer legacy participant link"
+    );
+    assertEqual(
+      afterReset.find((i) => i.id === extraFacilitator.id)?.revokedAt,
+      undefined,
+      "reset of participant does not revoke facilitator links"
+    );
+    assertEqual(
+      afterReset.find((i) => i.id === emailKept.id)?.revokedAt,
+      undefined,
+      "reset of participant links does not revoke email invites"
+    );
+
+    await expectThrow(
+      () => acceptInviteByToken(legacyOlder.token, "post_reset_old"),
+      "pre-reset older token cannot join"
+    );
+    await expectThrow(
+      () => acceptInviteByToken(legacyNewer.token, "post_reset_new"),
+      "pre-reset canonical token cannot join"
+    );
+    await acceptInviteByToken(replaced.token, "post_reset_ok");
+    assertEqual(
+      (await listMembers(wsLegacy.id)).find((m) => m.userId === "post_reset_ok")?.role,
+      "participant",
+      "replacement link still joins at Participant"
+    );
+
+    const pendingAfterReset = await acceptPendingEmailInvitesForUser(
+      "email_after_reset",
+      "kept.teacher@school.edu"
+    );
+    assert(
+      pendingAfterReset.includes(wsLegacy.id),
+      "email invite still joins after link reset"
+    );
+    assertEqual(
+      (await listMembers(wsLegacy.id)).find((m) => m.userId === "email_after_reset")
+        ?.role,
+      "participant",
+      "email accept still joins at the invite role after link reset"
+    );
+
+    const wsFreshReset = await createWorkspace({
+      name: "Fresh Reset Lab",
+      ownerUserId: "share_owner",
+    });
+    const freshReset = await resetActiveLinkInvite(wsFreshReset.id, "facilitator");
+    assertEqual(freshReset.role, "facilitator", "reset with no prior link creates facilitator");
+    assertEqual(
+      (await listInvites(wsFreshReset.id)).filter((i) =>
+        isActiveLinkForRole(i, "facilitator")
+      ).length,
+      1,
+      "reset from empty yields one active link"
+    );
+    await acceptInviteByToken(freshReset.token, "fresh_reset_joiner");
+    assertEqual(
+      (await listMembers(wsFreshReset.id)).find((m) => m.userId === "fresh_reset_joiner")
+        ?.role,
+      "facilitator",
+      "reset replacement joins at Facilitator"
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

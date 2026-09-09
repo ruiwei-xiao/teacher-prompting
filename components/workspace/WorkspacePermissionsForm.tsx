@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   BuildingPermissions,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
-import { MY_BOTS_HREF } from "@/lib/workspace-ui/nav";
+import {
+  MY_BOTS_HREF,
+  WORKSPACE_NAME_MAX_LENGTH,
+  workspaceNameError,
+} from "@/lib/workspace-ui/nav";
 import {
   BUILDING_PERMISSION_FIELDS,
   buildWorkspaceSettingsPatchBody,
@@ -20,11 +24,13 @@ export default function WorkspacePermissionsForm({
   workspaceId,
   initialName,
   initialPermissions,
+  initialAssistedAuthoringModeDefault = false,
   role,
 }: {
   workspaceId: string;
   initialName: string;
   initialPermissions: BuildingPermissions;
+  initialAssistedAuthoringModeDefault?: boolean;
   role: WorkspaceRole;
 }) {
   const router = useRouter();
@@ -34,6 +40,11 @@ export default function WorkspacePermissionsForm({
   const [name, setName] = useState(initialName);
   const [permissions, setPermissions] =
     useState<BuildingPermissions>(initialPermissions);
+  const [assistedAuthoringModeDefault, setAssistedAuthoringModeDefault] =
+    useState(initialAssistedAuthoringModeDefault);
+  const lastSavedAssistedAuthoringModeDefault = useRef(
+    initialAssistedAuthoringModeDefault,
+  );
   const [busy, setBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,9 +54,16 @@ export default function WorkspacePermissionsForm({
   async function handleSave() {
     if (!canEdit) return;
 
+    const nameIssue = workspaceNameError(name);
+    if (nameIssue) {
+      setError(nameIssue);
+      setSuccess("");
+      return;
+    }
     const body = buildWorkspaceSettingsPatchBody({
       name,
       buildingPermissions: permissions,
+      assistedAuthoringModeDefault,
     });
     if (!body) {
       setError("Enter a workspace name");
@@ -70,10 +88,18 @@ export default function WorkspacePermissionsForm({
       }
       setName(parsed.workspace.name);
       setPermissions(parsed.workspace.buildingPermissions);
+      setAssistedAuthoringModeDefault(
+        parsed.workspace.assistedAuthoringModeDefault,
+      );
+      lastSavedAssistedAuthoringModeDefault.current =
+        parsed.workspace.assistedAuthoringModeDefault;
       setSuccess(
         "Settings saved. New building permissions apply to subsequent member actions.",
       );
     } catch (e: unknown) {
+      setAssistedAuthoringModeDefault(
+        lastSavedAssistedAuthoringModeDefault.current,
+      );
       setError(
         e instanceof Error ? e.message : "Failed to update workspace settings",
       );
@@ -117,24 +143,64 @@ export default function WorkspacePermissionsForm({
         </p>
       ) : null}
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+      <section>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2
+            id="workspace-name-heading"
+            className="text-lg font-semibold text-slate-900 dark:text-zinc-100"
+          >
             Name
           </h2>
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={busy || deleteBusy || Boolean(workspaceNameError(name))}
+              className="pressable inline-flex h-10 items-center justify-center rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover-ok:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? "Saving…" : "Save settings"}
+            </button>
+          ) : null}
         </div>
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-            Workspace name:
-          </span>
-          <input
-            className="mt-1 h-11 w-full max-w-xl rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!canEdit || busy || deleteBusy}
-            aria-readonly={!canEdit}
-          />
-        </label>
+        {error ? (
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {success ? (
+          <p
+            className="mt-2 text-sm text-emerald-700 dark:text-emerald-300"
+            role="status"
+          >
+            {success}
+          </p>
+        ) : null}
+        <input
+          id="workspace-name"
+          className="mt-2 block h-11 w-full max-w-xl rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!canEdit || busy || deleteBusy}
+          aria-labelledby="workspace-name-heading"
+          aria-readonly={!canEdit}
+          aria-invalid={Boolean(name.trim() && workspaceNameError(name))}
+        />
+        {canEdit ? (
+          <div className="mt-2 flex max-w-xl items-center justify-between gap-3 text-xs text-slate-500 dark:text-zinc-500">
+            <span>
+              {name.trim() && workspaceNameError(name) ? (
+                <span className="text-red-700 dark:text-red-300" role="alert">
+                  {workspaceNameError(name)}
+                </span>
+              ) : (
+                `Up to ${WORKSPACE_NAME_MAX_LENGTH} characters`
+              )}
+            </span>
+            <span>
+              {name.trim().length}/{WORKSPACE_NAME_MAX_LENGTH}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <section className="space-y-4">
@@ -174,32 +240,56 @@ export default function WorkspacePermissionsForm({
         </ul>
       </section>
 
-      {error ? (
-        <p className="text-sm text-red-700 dark:text-red-300" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {success ? (
-        <p
-          className="text-sm text-emerald-700 dark:text-emerald-300"
-          role="status"
-        >
-          {success}
-        </p>
-      ) : null}
-
-      {canEdit ? (
+      <section className="space-y-4">
         <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+            Assisted Authoring Mode default
+          </h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
+            Bots created into or first placed in this Workspace start with this
+            mode. Changing the default does not change bots already in the
+            Workspace.
+          </p>
+        </div>
+        <div
+          className="flex w-full max-w-xs items-center gap-0.5 rounded-full border border-slate-200 bg-slate-100/80 p-1 dark:border-zinc-700 dark:bg-zinc-950/60"
+          role="group"
+          aria-label="Assisted Authoring Mode default"
+        >
           <button
             type="button"
-            onClick={() => void handleSave()}
-            disabled={busy || deleteBusy || !name.trim()}
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-sky-600 px-5 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setAssistedAuthoringModeDefault(true)}
+            disabled={!canEdit || busy || deleteBusy}
+            aria-pressed={assistedAuthoringModeDefault}
+            className={[
+              "flex-1 rounded-full px-3 py-2 text-sm font-medium",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              assistedAuthoringModeDefault
+                ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+            ].join(" ")}
           >
-            {busy ? "Saving…" : "Save settings"}
+            ON
+          </button>
+          <button
+            type="button"
+            onClick={() => setAssistedAuthoringModeDefault(false)}
+            disabled={!canEdit || busy || deleteBusy}
+            aria-pressed={!assistedAuthoringModeDefault}
+            className={[
+              "flex-1 rounded-full px-3 py-2 text-sm font-medium",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              !assistedAuthoringModeDefault
+                ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                : "text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200",
+            ].join(" ")}
+          >
+            OFF
           </button>
         </div>
-      ) : null}
+      </section>
 
       {canDelete ? (
         <section className="space-y-3 border-t border-slate-200 pt-8 dark:border-zinc-800">

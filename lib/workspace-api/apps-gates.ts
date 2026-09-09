@@ -3,6 +3,7 @@
  * Playlab-scoped (c): only when request carries workspaceId; never gates publish.
  * Create-then-place (a): optional workspaceId on POST /api/apps.
  */
+import { applyWorkspaceAssistedAuthoringDefault } from "@/lib/workspace-api/apply-assisted-authoring-default";
 import { assertWorkspaceAction } from "@/lib/workspace-store/permissions";
 import {
   appendActivity,
@@ -241,6 +242,7 @@ export async function assertCreateIntoWorkspaceGate(input: {
 /**
  * After a successful createApp when create-into-Workspace was authorized:
  * place the new bot and append bot.placed activity (idempotent place).
+ * First place applies the Workspace Assisted Authoring default; re-place does not.
  */
 export async function placeAppIntoWorkspaceAfterCreate(input: {
   userId: string;
@@ -260,5 +262,6 @@ export async function placeAppIntoWorkspaceAfterCreate(input: {
       actorUserId: input.userId,
       payload: { appId: input.appId },
     });
+    await applyWorkspaceAssistedAuthoringDefault(input.workspaceId, input.appId);
   }
 }

@@ -7,6 +7,8 @@ import type {
   WorkspacePlacement,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+import { canSelfLeave } from "@/lib/workspace-ui/members";
+import type { WorkspaceTab } from "@/lib/workspace-ui/tabs";
 
 export type HubBotSummary = {
   id: string;
@@ -74,6 +76,33 @@ export function listPlaceableOwnedBots(input: {
   return input.ownedBots.filter((bot) => !input.placedAppIds.has(bot.id));
 }
 
+/**
+ * Card copy for a placement. Missing app records must not look like a real
+ * bot name (e.g. appId "biology" must not become "Bot biology").
+ */
+export function workspaceGridBotLabel(input: {
+  appId: string;
+  summary?: Pick<HubBotSummary, "name">;
+}): { resolved: boolean; name: string } {
+  const name = input.summary?.name?.trim() ?? "";
+  if (name) {
+    return { resolved: true, name };
+  }
+  return { resolved: false, name: "Unavailable bot" };
+}
+
+/**
+ * Leave control on the Bots hub header (Req 1.6).
+ * Participants (and other non-owners) leave from Bots; operators also keep
+ * leave on Members when that tab is active.
+ */
+export function shouldShowHubSelfLeave(input: {
+  role: WorkspaceRole;
+  activeTab: WorkspaceTab;
+}): boolean {
+  return input.activeTab === "bots" && canSelfLeave(input.role);
+}
+
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
 export type ParseResult<T> = ParseOk<T> | ParseErr;
@@ -115,6 +144,7 @@ export function parseWorkspaceGetResponse(
     id: string;
     name: string;
     buildingPermissions: BuildingPermissions;
+    assistedAuthoringModeDefault: boolean;
   };
   role: WorkspaceRole;
 }> {
@@ -147,6 +177,7 @@ export function parseWorkspaceGetResponse(
       id: w.id,
       name: w.name,
       buildingPermissions: w.buildingPermissions,
+      assistedAuthoringModeDefault: w.assistedAuthoringModeDefault === true,
     },
     role,
   };

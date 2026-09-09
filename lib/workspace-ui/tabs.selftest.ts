@@ -3,7 +3,12 @@
  * Run: npx tsx lib/workspace-ui/tabs.selftest.ts
  */
 import {
+  WORKSPACE_TABS,
+  isWorkspaceTab,
   resolveWorkspaceTab,
+  shouldShowWorkspaceNavTabs,
+  visibleWorkspaceTabs,
+  workspaceSectionNav,
   workspaceTabHref,
 } from "./tabs";
 
@@ -23,6 +28,14 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
   );
 }
 
+function assertTabs(
+  actual: readonly string[],
+  expected: readonly string[],
+  message: string
+): void {
+  assertEqual(actual.join(","), expected.join(","), message);
+}
+
 assertEqual(workspaceTabHref("ws_1", "bots"), "/workspace/ws_1", "bots href");
 assertEqual(
   workspaceTabHref("ws_1", "settings"),
@@ -30,45 +43,166 @@ assertEqual(
   "settings href"
 );
 assertEqual(
-  workspaceTabHref("ws_1", "invites"),
-  "/workspace/ws_1?tab=invites",
-  "invites href"
-);
-assertEqual(
   workspaceTabHref("ws_1", "members"),
   "/workspace/ws_1?tab=members",
   "members href"
 );
+assertEqual(
+  workspaceTabHref("ws_1", "activity"),
+  "/workspace/ws_1?tab=activity",
+  "activity href"
+);
+
+assert(
+  !WORKSPACE_TABS.some((tab) => tab.id === "invites"),
+  "Invites is not a WorkspaceTab"
+);
+assertEqual(
+  isWorkspaceTab("invites"),
+  false,
+  "isWorkspaceTab rejects invites"
+);
+assertEqual(
+  isWorkspaceTab("activity"),
+  true,
+  "isWorkspaceTab accepts activity"
+);
+assertEqual(
+  WORKSPACE_TABS.find((tab) => tab.id === "activity")?.label,
+  "Activity",
+  "Activity tab label is Activity, not Sessions"
+);
+
+assertTabs(
+  visibleWorkspaceTabs("participant"),
+  ["bots"],
+  "Participant-visible tabs are Bots only"
+);
+assertTabs(
+  visibleWorkspaceTabs("owner"),
+  ["bots", "settings", "members", "activity"],
+  "Owner tabs are Bots, Settings, Members, Activity"
+);
+assertTabs(
+  visibleWorkspaceTabs("facilitator"),
+  ["bots", "settings", "members", "activity"],
+  "Facilitator tabs are Bots, Settings, Members, Activity"
+);
+assert(
+  !visibleWorkspaceTabs("owner").includes("invites" as never) &&
+    !visibleWorkspaceTabs("facilitator").includes("invites" as never) &&
+    !visibleWorkspaceTabs("participant").includes("invites" as never),
+  "Invites is not a visible tab for any role"
+);
 
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1", "", "ws_1"),
-  "bots",
-  "hub default is bots"
+  shouldShowWorkspaceNavTabs("participant"),
+  false,
+  "Participant does not get a one-item tab bar"
 );
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1", "activity", "ws_1"),
-  "bots",
-  "legacy ?tab=activity falls back to bots"
+  shouldShowWorkspaceNavTabs("owner"),
+  true,
+  "Owner still gets the hub tab bar"
 );
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1", "settings", "ws_1"),
+  shouldShowWorkspaceNavTabs("facilitator"),
+  true,
+  "Facilitator still gets the hub tab bar"
+);
+assertEqual(
+  workspaceSectionNav("owner").join(","),
+  "bots,activity,members,settings",
+  "operator sidebar sections are Bots, Activity, Members, Settings"
+);
+assertEqual(
+  workspaceSectionNav("participant").join(","),
+  "bots",
+  "Participant sidebar has no extra workspace sections"
+);
+
+const hub = "/workspace/ws_1";
+const settingsPath = "/workspace/ws_1/settings";
+
+assertEqual(
+  resolveWorkspaceTab(hub, "", "ws_1", "owner"),
+  "bots",
+  "operator hub default is bots"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "", "ws_1", "participant"),
+  "bots",
+  "participant hub default is bots"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "activity", "ws_1", "owner"),
+  "activity",
+  "operator ?tab=activity resolves to Activity"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "activity", "ws_1", "facilitator"),
+  "activity",
+  "facilitator ?tab=activity resolves to Activity"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "activity", "ws_1", "participant"),
+  "bots",
+  "participant ?tab=activity resolves to Bots"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "settings", "ws_1", "owner"),
   "settings",
-  "?tab=settings"
+  "operator ?tab=settings"
 );
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1", "invites", "ws_1"),
-  "invites",
-  "?tab=invites"
+  resolveWorkspaceTab(hub, "settings", "ws_1", "participant"),
+  "bots",
+  "participant ?tab=settings resolves to Bots"
 );
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1", "members", "ws_1"),
+  resolveWorkspaceTab(hub, "members", "ws_1", "facilitator"),
   "members",
-  "?tab=members"
+  "operator ?tab=members"
 );
 assertEqual(
-  resolveWorkspaceTab("/workspace/ws_1/settings", "", "ws_1"),
+  resolveWorkspaceTab(hub, "members", "ws_1", "participant"),
+  "bots",
+  "participant ?tab=members resolves to Bots"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "invites", "ws_1", "owner"),
+  "members",
+  "operator ?tab=invites resolves to Members"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "invites", "ws_1", "facilitator"),
+  "members",
+  "facilitator ?tab=invites resolves to Members"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "invites", "ws_1", "participant"),
+  "bots",
+  "participant ?tab=invites resolves to Bots"
+);
+assertEqual(
+  resolveWorkspaceTab(settingsPath, "", "ws_1", "owner"),
   "settings",
-  "legacy settings path defaults to settings"
+  "operator legacy settings path defaults to settings"
+);
+assertEqual(
+  resolveWorkspaceTab(settingsPath, "", "ws_1", "participant"),
+  "bots",
+  "participant legacy settings path resolves to Bots"
+);
+assertEqual(
+  resolveWorkspaceTab(settingsPath, "invites", "ws_1", "owner"),
+  "members",
+  "operator legacy settings ?tab=invites resolves to Members"
+);
+assertEqual(
+  resolveWorkspaceTab(hub, "unknown", "ws_1", "owner"),
+  "bots",
+  "unknown tab falls back to bots"
 );
 
 if (failures > 0) {

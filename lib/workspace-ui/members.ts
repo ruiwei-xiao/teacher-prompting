@@ -4,6 +4,8 @@
  */
 import { userDisplayLabel } from "@/lib/auth/user-label";
 import type {
+  WorkspaceInvite,
+  WorkspaceInviteRole,
   WorkspaceMembership,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
@@ -13,6 +15,9 @@ export type ParseErr = { ok: false; error: string };
 export type ParseResult<T> = ParseOk<T> | ParseErr;
 
 export type AssignableMemberRole = "facilitator" | "participant";
+
+/** Status copy for pending email invitees on Members (Req 2.8). */
+export const PENDING_EMAIL_INVITE_STATUS = "Invited · not yet joined";
 
 /** Membership row enriched for display (from GET members). */
 export type WorkspaceMemberListItem = WorkspaceMembership & {
@@ -48,6 +53,24 @@ function isWorkspaceRole(value: unknown): value is WorkspaceRole {
   return value === "owner" || value === "facilitator" || value === "participant";
 }
 
+function isInviteRole(value: unknown): value is WorkspaceInviteRole {
+  return value === "facilitator" || value === "participant";
+}
+
+function isPendingEmailInvite(value: unknown): value is WorkspaceInvite {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const i = value as Record<string, unknown>;
+  return (
+    typeof i.id === "string" &&
+    typeof i.workspaceId === "string" &&
+    i.kind === "email" &&
+    isInviteRole(i.role) &&
+    typeof i.token === "string" &&
+    typeof i.createdByUserId === "string" &&
+    typeof i.createdAt === "string"
+  );
+}
+
 function isMembership(value: unknown): value is WorkspaceMembership {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const m = value as Record<string, unknown>;
@@ -72,6 +95,22 @@ function isMemberListItem(value: unknown): value is WorkspaceMemberListItem {
 /** Owners and Facilitators may manage members (except Owner constraints). */
 export function canManageMembers(role: WorkspaceRole): boolean {
   return isFacilitationRole(role);
+}
+
+/**
+ * Participants must not fetch the roster or invite payload (Req 1.7).
+ * Operators load members plus pending email invitees.
+ */
+export function shouldLoadMembersRoster(role: WorkspaceRole): boolean {
+  return canManageMembers(role);
+}
+
+/** Prefer the invite email; fall back when the payload omitted it. */
+export function pendingEmailInviteLabel(
+  invite: Pick<WorkspaceInvite, "email">
+): string {
+  const email = invite.email?.trim();
+  return email || "Invited";
 }
 
 /**
@@ -165,7 +204,10 @@ export function buildRemoveMemberBody(userId: string): { userId: string } {
 export function parseMembersListResponse(
   status: number,
   body: unknown
-): ParseResult<{ members: WorkspaceMemberListItem[] }> {
+): ParseResult<{
+  members: WorkspaceMemberListItem[];
+  pendingEmailInvites: WorkspaceInvite[];
+}> {
   if (status !== 200) {
     return {
       ok: false,
@@ -175,11 +217,22 @@ export function parseMembersListResponse(
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Invalid members response" };
   }
-  const members = (body as { members?: unknown }).members;
+  const record = body as {
+    members?: unknown;
+    pendingEmailInvites?: unknown;
+  };
+  const members = record.members;
   if (!Array.isArray(members) || !members.every(isMemberListItem)) {
     return { ok: false, error: "Invalid members response" };
   }
-  return { ok: true, members };
+  const pendingEmailInvites = record.pendingEmailInvites;
+  if (
+    !Array.isArray(pendingEmailInvites) ||
+    !pendingEmailInvites.every(isPendingEmailInvite)
+  ) {
+    return { ok: false, error: "Invalid members response" };
+  }
+  return { ok: true, members, pendingEmailInvites };
 }
 
 /** Parse PATCH/DELETE /api/workspaces/:id/members JSON. */

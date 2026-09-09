@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -10,9 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import TopNav from "@/components/app-shell/TopNav";
 import WorkspaceSidebar from "@/components/app-shell/WorkspaceSidebar";
 import { parseWorkspaceGetResponse } from "@/lib/workspace-ui/hub";
+import { workspaceIdFromPath } from "@/lib/workspace-ui/nav";
 
 type SidebarMenuContextValue = {
   open: boolean;
@@ -23,6 +26,9 @@ type SidebarMenuContextValue = {
 
 const SidebarMenuContext = createContext<SidebarMenuContextValue | null>(null);
 const DRAWER_MS = 260;
+const PIN_STORAGE_KEY = "tp-sidebar-pinned";
+const RAIL_EXPANDED = "15rem";
+const RAIL_COLLAPSED = "3.5rem";
 
 export function useSidebarMenu(): SidebarMenuContextValue {
   const ctx = useContext(SidebarMenuContext);
@@ -62,16 +68,15 @@ function CloseIcon({ className }: { className?: string }) {
   );
 }
 
-function workspaceIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/workspace\/([^/]+)/);
-  if (!match) return null;
-  if (pathname.startsWith("/workspace/invite/")) return null;
-  return match[1] || null;
+function SidebarPinIcon({ expanded }: { expanded: boolean }) {
+  const Icon = expanded ? ChevronLeft : ChevronRight;
+  return <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />;
 }
 
 /**
- * App chrome: TopNav hamburger opens Library / Workspaces as a left drawer.
- * PC-oriented: focus trap, Esc, inert background, wayfinding label.
+ * Full-width header, then a persistent left rail. Collapsed rail peeks labels
+ * on hover; the pin control stays in the icon column. Overlay drawer on small
+ * screens.
  */
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
@@ -79,6 +84,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(true);
+  const [peeked, setPeeked] = useState(false);
 
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -87,6 +94,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const openMenu = useCallback(() => setOpen(true), []);
   const closeMenu = useCallback(() => setOpen(false), []);
   const toggleMenu = useCallback(() => setOpen((v) => !v), []);
+  const expanded = pinned || peeked;
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(PIN_STORAGE_KEY) === "0") {
+        setPinned(false);
+      }
+    } catch {
+      // Keep the expanded default when storage is unavailable.
+    }
+  }, []);
+
+  function togglePinned() {
+    setPinned((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(PIN_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Preference is best-effort.
+      }
+      if (next) setPeeked(false);
+      return next;
+    });
+  }
 
   useEffect(() => {
     setOpen(false);
@@ -194,34 +225,77 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <SidebarMenuContext.Provider
       value={{ open, openMenu, closeMenu, toggleMenu }}
     >
-      <div className="min-h-screen flex flex-col">
-        <div
-          className="flex min-h-0 flex-1 flex-col"
-          inert={open || undefined}
-          aria-hidden={open || undefined}
-        >
-          <TopNav
-            locationLabel={locationLabel}
-            menuButton={
-              <button
-                ref={menuButtonRef}
-                type="button"
-                onClick={toggleMenu}
-                className="pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-600 hover-ok:bg-slate-100 dark:text-zinc-300 dark:hover-ok:bg-zinc-800"
-                aria-label={open ? "Close navigation menu" : "Open navigation menu"}
-                aria-expanded={open}
-                aria-controls="app-sidebar-drawer"
+      <div className="flex min-h-screen flex-col">
+        <TopNav
+          locationLabel={locationLabel}
+          menuButton={
+            <button
+              ref={menuButtonRef}
+              type="button"
+              onClick={toggleMenu}
+              className="pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-600 hover-ok:bg-slate-100 md:hidden dark:text-zinc-300 dark:hover-ok:bg-zinc-800"
+              aria-label={
+                open ? "Close navigation menu" : "Open navigation menu"
+              }
+              aria-expanded={open}
+              aria-controls="app-sidebar-drawer"
+            >
+              <MenuIcon className="h-5 w-5" />
+            </button>
+          }
+        />
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <div
+            className="relative hidden shrink-0 md:block"
+            style={{ width: pinned ? RAIL_EXPANDED : RAIL_COLLAPSED }}
+          >
+            <aside
+              className={`app-drawer-surface absolute inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200 transition-[width,box-shadow] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none dark:border-zinc-800 ${
+                peeked && !pinned ? "shadow-xl" : ""
+              }`}
+              style={{ width: expanded ? RAIL_EXPANDED : RAIL_COLLAPSED }}
+              onMouseEnter={() => {
+                if (!pinned) setPeeked(true);
+              }}
+              onMouseLeave={() => setPeeked(false)}
+              aria-label="Library and workspaces"
+            >
+              <div className="flex h-12 shrink-0 items-center">
+                <div className="flex w-[3.5rem] shrink-0 items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={togglePinned}
+                    className="pressable inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover-ok:bg-slate-100 dark:text-zinc-400 dark:hover-ok:bg-zinc-800"
+                    aria-label={
+                      pinned ? "Collapse sidebar" : "Keep sidebar open"
+                    }
+                    aria-pressed={pinned}
+                    title={pinned ? "Collapse sidebar" : "Keep sidebar open"}
+                  >
+                    <SidebarPinIcon expanded={pinned} />
+                  </button>
+                </div>
+              </div>
+              <div
+                className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4 ${
+                  expanded ? "px-2" : "px-1.5"
+                }`}
               >
-                <MenuIcon className="h-5 w-5" />
-              </button>
-            }
-          />
-          {children}
+                <Suspense fallback={null}>
+                  <WorkspaceSidebar
+                    compact={!expanded}
+                    onNavigate={() => setPeeked(false)}
+                  />
+                </Suspense>
+              </div>
+            </aside>
+          </div>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
         </div>
 
         {mounted && (
-          /* Above app-chrome (z-50) so glass header never composites drawer text. */
-          <div className="fixed inset-0 z-[60]">
+          <div className="fixed inset-0 z-[60] md:hidden">
             <button
               type="button"
               className="drawer-backdrop absolute inset-0 bg-slate-900/40"
@@ -249,8 +323,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   <CloseIcon className="h-5 w-5" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-                <WorkspaceSidebar onNavigate={closeMenu} />
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4">
+                <Suspense fallback={null}>
+                  <WorkspaceSidebar onNavigate={closeMenu} />
+                </Suspense>
               </div>
             </aside>
           </div>

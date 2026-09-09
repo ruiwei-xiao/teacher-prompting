@@ -7,6 +7,7 @@
  * Identity (appId + participantId) must match an existing row.
  * shared follows the latest requested owner-sharing flag on each upsert.
  * listSessionsForApp is shared-only with optional source/date filters.
+ * listSharedSessionsForAppIds is shared-only across a set of app ids (one query).
  * listSessionsForUser excludes anonymous.
  * listSharedSessionRecordsForApp returns full shared transcripts for owner export
  * (same optional filters as the owner list).
@@ -21,6 +22,7 @@ import type {
   ChatSessionsFileData,
   ListPage,
   ListSessionsForAppOpts,
+  ListSharedSessionsForAppIdsOpts,
   SessionQueryFilter,
   SessionSummary,
   SessionSurface,
@@ -33,6 +35,7 @@ export type {
   ChatSessionsFileData,
   ListPage,
   ListSessionsForAppOpts,
+  ListSharedSessionsForAppIdsOpts,
   SessionQueryFilter,
   SessionSummary,
   SessionSurface,
@@ -382,6 +385,22 @@ async function listSessionsForAppInFile(
   };
 }
 
+async function listSharedSessionsForAppIdsInFile(
+  appIds: readonly string[],
+  opts: ListSharedSessionsForAppIdsOpts
+): Promise<ListPage<SessionSummary>> {
+  const allowed = new Set(appIds);
+  const data = await readFileData();
+  const matched = data.sessions
+    .filter((session) => session.shared && allowed.has(session.appId))
+    .sort(compareRecency);
+  const page = paginateRecords(matched, opts);
+  return {
+    items: await toSummaries(page.items),
+    hasMore: page.hasMore,
+  };
+}
+
 async function listSharedSessionRecordsForAppInFile(
   appId: string,
   filter: SessionQueryFilter = {}
@@ -534,6 +553,25 @@ async function listSessionsForAppInPostgres(
   return pageFromRows(result.rows, opts.limit);
 }
 
+async function listSharedSessionsForAppIdsInPostgres(
+  appIds: readonly string[],
+  opts: ListSharedSessionsForAppIdsOpts
+): Promise<ListPage<SessionSummary>> {
+  await ensurePostgresStore();
+  const ids = [...appIds];
+  const result = await sql.query<ChatSessionRow>(
+    `SELECT
+      id, app_id, app_name, owner_id, participant_id, participant_name,
+      surface, shared, messages, created_at, updated_at
+    FROM chat_sessions
+    WHERE shared = TRUE AND app_id = ANY($1::text[])
+    ORDER BY updated_at DESC, id DESC
+    LIMIT $2 OFFSET $3`,
+    [ids, opts.limit + 1, opts.offset]
+  );
+  return pageFromRows(result.rows, opts.limit);
+}
+
 async function listSharedSessionRecordsForAppInPostgres(
   appId: string,
   filter: SessionQueryFilter = {}
@@ -627,6 +665,19 @@ export async function listSessionsForApp(
     return listSessionsForAppInPostgres(appId, opts);
   }
   return listSessionsForAppInFile(appId, opts);
+}
+
+export async function listSharedSessionsForAppIds(
+  appIds: readonly string[],
+  opts: ListSharedSessionsForAppIdsOpts
+): Promise<ListPage<SessionSummary>> {
+  if (appIds.length === 0) {
+    return { items: [], hasMore: false };
+  }
+  if (shouldUsePostgres()) {
+    return listSharedSessionsForAppIdsInPostgres(appIds, opts);
+  }
+  return listSharedSessionsForAppIdsInFile(appIds, opts);
 }
 
 export async function listSharedSessionRecordsForApp(

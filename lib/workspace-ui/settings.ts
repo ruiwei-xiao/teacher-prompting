@@ -7,6 +7,7 @@ import type {
   Workspace,
   WorkspaceRole,
 } from "@/lib/workspace-store/types";
+import { workspaceNameError } from "@/lib/workspace-ui/nav";
 
 export type ParseOk<T> = { ok: true } & T;
 export type ParseErr = { ok: false; error: string };
@@ -79,7 +80,8 @@ function isWorkspace(value: unknown): value is Workspace {
   return (
     typeof w.id === "string" &&
     typeof w.name === "string" &&
-    isBuildingPermissions(w.buildingPermissions)
+    isBuildingPermissions(w.buildingPermissions) &&
+    typeof w.assistedAuthoringModeDefault === "boolean"
   );
 }
 
@@ -102,12 +104,18 @@ export function workspaceSettingsHref(workspaceId: string): string {
 export function buildWorkspaceSettingsPatchBody(input: {
   name: string;
   buildingPermissions: BuildingPermissions;
-}): { name: string; buildingPermissions: BuildingPermissions } | null {
+  assistedAuthoringModeDefault: boolean;
+}): {
+  name: string;
+  buildingPermissions: BuildingPermissions;
+  assistedAuthoringModeDefault: boolean;
+} | null {
   const trimmed = input.name.trim();
-  if (!trimmed) return null;
+  if (workspaceNameError(input.name)) return null;
   return {
     name: trimmed,
     buildingPermissions: { ...input.buildingPermissions },
+    assistedAuthoringModeDefault: input.assistedAuthoringModeDefault,
   };
 }
 

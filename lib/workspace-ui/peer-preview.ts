@@ -86,7 +86,7 @@ export function peerBotPreviewHref(
   workspaceId: string,
   appId: string
 ): string {
-  return `/workspace/${workspaceId}/bots/${appId}`;
+  return `/workspace/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(appId)}`;
 }
 
 /** GET read-only snapshot API. */
@@ -94,7 +94,7 @@ export function peerBotSnapshotApiHref(
   workspaceId: string,
   appId: string
 ): string {
-  return `/api/workspaces/${workspaceId}/bots/${appId}`;
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(appId)}`;
 }
 
 /** POST duplicate into caller's My bots. */
@@ -102,7 +102,7 @@ export function peerBotDuplicateApiHref(
   workspaceId: string,
   appId: string
 ): string {
-  return `/api/workspaces/${workspaceId}/bots/${appId}/duplicate`;
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(appId)}/duplicate`;
 }
 
 /**

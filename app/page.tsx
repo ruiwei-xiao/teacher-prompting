@@ -2,8 +2,6 @@ import { auth } from "@/auth";
 import AppShell from "@/components/app-shell/AppShell";
 import SignInPanel from "@/components/auth/SignInPanel";
 import AppGrid from "@/components/dashboard/AppGrid";
-import CommunityGrid from "@/components/dashboard/CommunityGrid";
-import DashboardTabs from "@/components/dashboard/DashboardTabs";
 import { claimUnownedApps } from "@/lib/app-store/store";
 
 export default async function DashboardPage({
@@ -41,40 +39,21 @@ export default async function DashboardPage({
       <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-emerald-950/20">
         <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-10 sm:px-6 lg:px-8">
           <div className="w-full min-w-0 py-6">
-            <DashboardTabs
-              myBots={
-                <section className="w-full">
-                  <div className="text-center">
-                    <h1 className="type-display text-4xl text-slate-900 md:text-5xl dark:text-zinc-100">
-                      Build and manage your tutoring bots
-                    </h1>
-                    <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
-                      Open an existing bot, keep iterating on the prompt, or
-                      create a new one for a different course or teaching goal.
-                    </p>
-                  </div>
+            <section className="w-full">
+              <div className="text-center">
+                <h1 className="type-display text-4xl text-slate-900 md:text-5xl dark:text-zinc-100">
+                  Build and manage your tutoring bots
+                </h1>
+                <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 md:text-lg dark:text-zinc-300">
+                  Open an existing bot, keep iterating on the prompt, or
+                  create a new one for a different course or teaching goal.
+                </p>
+              </div>
 
-                  <div className="mt-10">
-                    <AppGrid />
-                  </div>
-                </section>
-              }
-              community={
-                <section className="w-full">
-                  <div className="mb-6">
-                    <h2 className="type-title text-3xl text-slate-900 dark:text-zinc-100">
-                      Explore published bots
-                    </h2>
-                    <p className="mt-3 max-w-2xl text-sm text-slate-600 md:text-base dark:text-zinc-300">
-                      Browse bots that have already been published. Open a
-                      chatbot directly, or view the source project when the
-                      author shared it publicly.
-                    </p>
-                  </div>
-                  <CommunityGrid />
-                </section>
-              }
-            />
+              <div className="mt-10">
+                <AppGrid />
+              </div>
+            </section>
           </div>
         </div>
       </main>

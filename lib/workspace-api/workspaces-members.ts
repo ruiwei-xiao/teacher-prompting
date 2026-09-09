@@ -131,24 +131,41 @@ function matchesMemberListQuery(
 const DEMOTE_ROLES = new Set(["facilitator", "participant"]);
 const ASSIGNABLE_ROLES = new Set(["facilitator", "participant"]);
 
+function isPendingEmailInvite(
+  invite: WorkspaceInvite,
+  now = new Date()
+): boolean {
+  if (invite.kind !== "email") return false;
+  if (invite.revokedAt) return false;
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= now.getTime()) {
+    return false;
+  }
+  return true;
+}
+
 export async function listWorkspaceMembers(
   userId: string | null,
   workspaceId: string,
   query?: string,
   viewer?: MemberViewerProfile
-): Promise<ApiResult<{ members: WorkspaceMemberListItem[] }>> {
+): Promise<
+  ApiResult<{
+    members: WorkspaceMemberListItem[];
+    pendingEmailInvites: WorkspaceInvite[];
+  }>
+> {
   if (!userId) return unauthorized();
 
   const workspace = await getWorkspace(workspaceId);
   if (!workspace) return notFound();
 
   const membership = await getMembership(workspaceId, userId);
-  const view = assertWorkspaceAction({
+  const manage = assertWorkspaceAction({
     membership,
     permissions: workspace.buildingPermissions,
-    action: "workspace.view",
+    action: "members.manage",
   });
-  if (!view.ok) {
+  if (!manage.ok) {
     return forbidden();
   }
 
@@ -160,7 +177,14 @@ export async function listWorkspaceMembers(
   const filtered = query
     ? members.filter((member) => matchesMemberListQuery(member, query))
     : members;
-  return { ok: true, status: 200, body: { members: filtered } };
+  const pendingEmailInvites = (await listInvites(workspaceId)).filter(
+    (invite) => isPendingEmailInvite(invite)
+  );
+  return {
+    ok: true,
+    status: 200,
+    body: { members: filtered, pendingEmailInvites },
+  };
 }
 
 export async function changeMemberRole(
