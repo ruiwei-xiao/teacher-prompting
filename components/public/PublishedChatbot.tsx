@@ -16,12 +16,19 @@ import {
 } from "@/lib/chat-input/client";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 import ChatPrivacyControls from "./ChatPrivacyControls";
+import IdentityChoiceModal from "./IdentityChoiceModal";
+import PublicChatSignInControl from "./PublicChatSignInControl";
 import { createPublicChatRecording } from "./chat-recording";
 import {
   applySharingResult,
   buildSharingRequest,
   sharingResultFromHttpStatus,
 } from "./chat-sharing";
+import {
+  publicChatCanParticipate,
+  publicChatShouldClaimOnMount,
+  publicChatShowsIdentityGate,
+} from "./public-chat-gate";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -29,14 +36,24 @@ type ChatMessage = {
   imageUrl?: string;
 };
 
+const CLAIM_URL = "/api/public-chat/identity/claim";
+
 export default function PublishedChatbot({
   appId,
   appName,
   systemPrompt,
+  isSignedIn,
+  chatCallbackUrl,
+  googleEnabled,
+  microsoftEnabled,
 }: {
   appId: string;
   appName: string;
   systemPrompt: string;
+  isSignedIn: boolean;
+  chatCallbackUrl: string;
+  googleEnabled: boolean;
+  microsoftEnabled: boolean;
 }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -58,11 +75,21 @@ export default function PublishedChatbot({
   const [sharing, setSharing] = useState(true);
   const [sharingBusy, setSharingBusy] = useState(false);
   const [sharingError, setSharingError] = useState("");
+  const [continuedAnonymously, setContinuedAnonymously] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const sharingRef = useRef(true);
   const recording = useMemo(() => createPublicChatRecording(), []);
+  const gateState = {
+    isSignedIn,
+    continuedAnonymously,
+    signingIn,
+  };
+  const canParticipate = publicChatCanParticipate(gateState);
+  const showIdentityGate = publicChatShowsIdentityGate(gateState);
+  const composerLocked = !canParticipate || busy;
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
     [systemPrompt]
@@ -83,12 +110,22 @@ export default function PublishedChatbot({
   }, [messages, busy]);
 
   useEffect(() => {
+    if (!publicChatShouldClaimOnMount(isSignedIn)) {
+      return;
+    }
+    void fetch(CLAIM_URL, { method: "POST" }).catch((error: unknown) => {
+      console.error("Failed to claim anonymous visitor history:", error);
+    });
+  }, [isSignedIn]);
+
+  useEffect(() => {
     return () => {
       recognitionRef.current?.stop?.();
     };
   }, []);
 
   async function send(textOverride?: string) {
+    if (!canParticipate) return;
     const baseText = (textOverride ?? input).trim();
     const text =
       attachedFileText && !attachedImageUrl
@@ -152,6 +189,7 @@ export default function PublishedChatbot({
   }
 
   async function handleToggleSharing() {
+    if (!canParticipate) return;
     if (sharingBusy) return;
 
     const previous = sharing;
@@ -190,6 +228,7 @@ export default function PublishedChatbot({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!canParticipate) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void send();
@@ -197,6 +236,7 @@ export default function PublishedChatbot({
   }
 
   function toggleVoiceInput() {
+    if (!canParticipate) return;
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
       setComposerError("Voice input is not supported in this browser.");
@@ -234,6 +274,7 @@ export default function PublishedChatbot({
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!canParticipate) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -278,9 +319,20 @@ export default function PublishedChatbot({
           </h1>
           <ChatPrivacyControls
             sharing={sharing}
-            busy={sharingBusy}
+            busy={sharingBusy || !canParticipate}
             onToggle={() => void handleToggleSharing()}
           />
+          {continuedAnonymously && !isSignedIn ? (
+            <PublicChatSignInControl
+              variant="quiet"
+              callbackUrl={chatCallbackUrl}
+              appId={appId}
+              sessionId={recording.sessionId}
+              googleEnabled={googleEnabled}
+              microsoftEnabled={microsoftEnabled}
+              onQuietSignIn={() => setSigningIn(true)}
+            />
+          ) : null}
           {sharingError ? (
             <p className="mt-2 text-xs text-red-600">{sharingError}</p>
           ) : null}
@@ -406,7 +458,7 @@ export default function PublishedChatbot({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
+              disabled={composerLocked}
               className="pressable h-11 rounded-2xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover-ok:bg-amber-100 disabled:opacity-50"
               title="Upload file or image"
               aria-label="Upload file or image"
@@ -416,7 +468,7 @@ export default function PublishedChatbot({
             <button
               type="button"
               onClick={toggleVoiceInput}
-              disabled={busy}
+              disabled={composerLocked}
               className={[
                 "pressable h-11 w-11 rounded-2xl border text-slate-700 disabled:opacity-50",
                 listening
@@ -436,12 +488,12 @@ export default function PublishedChatbot({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              disabled={busy}
+              disabled={composerLocked}
             />
             <button
               type="button"
               onClick={() => void send()}
-              disabled={busy}
+              disabled={composerLocked}
               className="pressable h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm hover-ok:brightness-105 disabled:opacity-50"
             >
               Send
@@ -502,6 +554,24 @@ export default function PublishedChatbot({
         </div>
       </div>
 
+      {showIdentityGate ? (
+        <IdentityChoiceModal
+          onLogIn={() => setSigningIn(true)}
+          onContinueAnonymously={() => setContinuedAnonymously(true)}
+        />
+      ) : null}
+      {signingIn && !isSignedIn ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+          <PublicChatSignInControl
+            variant="panel"
+            callbackUrl={chatCallbackUrl}
+            appId={appId}
+            sessionId={recording.sessionId}
+            googleEnabled={googleEnabled}
+            microsoftEnabled={microsoftEnabled}
+          />
+        </div>
+      ) : null}
       {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/45"

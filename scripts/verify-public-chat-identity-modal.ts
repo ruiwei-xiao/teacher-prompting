@@ -267,13 +267,13 @@ async function main() {
       },
     },
     {
-      name: "modal is a client component and is not hosted in PublishedChatbot yet",
+      name: "modal is a client component hosted by published chat",
       run: () => {
         assert(source.startsWith('"use client"'), "use client directive");
         assert(!/\bany\b/.test(source), "modal does not use any");
         assert(
-          !publishedSource.includes("IdentityChoiceModal"),
-          "PublishedChatbot does not host the modal yet"
+          publishedSource.includes("IdentityChoiceModal"),
+          "PublishedChatbot hosts the modal"
         );
       },
     },

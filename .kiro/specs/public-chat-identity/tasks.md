@@ -98,7 +98,7 @@
   - _Requirements: 2.1, 2.2, 4.1, 4.2, 4.3_
   - _Boundary: PublicChatSignInControl_
 
-- [ ] 4.3 Host the gate on published chat
+- [x] 4.3 Host the gate on published chat
   - Pass signed-in state and callback path from the public chat page; unsigned visitors always see the modal even if a cookie exists; signed-in visitors never see it; composer, attachments, voice, and sharing stay disabled until a choice; Continue anonymously waits for a successful visitor cookie before unlocking; login cancel returning unsigned shows the modal again; signed-in mount claims visitor history even when this visit did not start anonymously
   - Unsigned open blocks sending until a choice; signed-in open has no modal, chatting is allowed, and claim runs on mount
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 2.3, 2.4, 3.1, 5.2, 5.3_
