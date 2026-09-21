@@ -36,7 +36,7 @@
 
 ## 2. Core: recording, claim, and downloads
 
-- [ ] 2. Core: recording, claim, and downloads
+- [x] 2. Core: recording, claim, and downloads
 - [x] 2.1 (P) Stamp visitor id when recording public-chat turns
   - Recording accepts a server-supplied visitor id, ignores any visitor id in the client recording body, stores no name or email for anonymous participants, and still skips persistence when an anonymous visitor has owner sharing off
   - Recording verify: server-supplied id is stored, body-supplied id is ignored, anonymous rows have no profile PII, anonymous-unshared still skips
@@ -51,7 +51,7 @@
   - _Boundary: ClaimAnonymousVisitor_
   - _Depends: 1.2, 1.4, 1.5_
 
-- [ ] 2.3 (P) Include visitor id in activity downloads
+- [x] 2.3 (P) Include visitor id in activity downloads
   - Shared activity CSV and JSON include a stable anonymous visitor id; unattributed rows keep empty participant id and Anonymous name; attributed rows use the account id and display name
   - Export verify: header includes the visitor-id column; two unattributed visitors differ; an attributed row matches other signed-in rows for participant fields
   - _Requirements: 6.3, 6.4_

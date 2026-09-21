@@ -27,6 +27,23 @@ function assertEqual<T>(actual: T, expected: T, label: string): void {
   }
 }
 
+const EXPECTED_CSV_COLUMNS = [
+  "sessionId",
+  "appId",
+  "appName",
+  "surface",
+  "participantId",
+  "participantName",
+  "anonymousVisitorId",
+  "createdAt",
+  "updatedAt",
+  "messageIndex",
+  "role",
+  "content",
+  "messageAt",
+  "imageOmitted",
+] as const;
+
 function sampleSession(
   overrides: Partial<ChatSessionRecord> = {}
 ): ChatSessionRecord {
@@ -55,6 +72,19 @@ function sampleSession(
     updatedAt: "2026-08-24T12:05:00.000Z",
     ...overrides,
   };
+}
+
+function csvLines(csv: string): string[] {
+  return csv.replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+}
+
+function csvRowByName(header: string[], line: string): Record<string, string> {
+  const cells = line.split(",");
+  const row: Record<string, string> = {};
+  for (let i = 0; i < header.length; i += 1) {
+    row[header[i] ?? ""] = cells[i] ?? "";
+  }
+  return row;
 }
 
 async function readSource(relativePath: string): Promise<string> {
@@ -91,6 +121,60 @@ async function main() {
         content: 'He said "hello", then left',
         at: "2026-08-24T12:00:00.000Z",
         imageOmitted: true,
+      },
+    ],
+  });
+  const visitorA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const visitorB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const visitorClaimed = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const unattributedA = sampleSession({
+    id: "sess-visitor-a",
+    participantId: null,
+    participantName: null,
+    anonymousVisitorId: visitorA,
+    messages: [
+      {
+        role: "user",
+        content: "from-a",
+        at: "2026-08-24T12:00:00.000Z",
+      },
+    ],
+  });
+  const unattributedB = sampleSession({
+    id: "sess-visitor-b",
+    participantId: null,
+    participantName: null,
+    anonymousVisitorId: visitorB,
+    messages: [
+      {
+        role: "user",
+        content: "from-b",
+        at: "2026-08-24T12:00:00.000Z",
+      },
+    ],
+  });
+  const attributed = sampleSession({
+    id: "sess-attributed",
+    participantId: "user-1",
+    participantName: "Ada",
+    anonymousVisitorId: visitorClaimed,
+    messages: [
+      {
+        role: "user",
+        content: "claimed",
+        at: "2026-08-24T12:00:00.000Z",
+      },
+    ],
+  });
+  const signedInNoCookie = sampleSession({
+    id: "sess-native",
+    participantId: "user-2",
+    participantName: "Bea",
+    messages: [
+      {
+        role: "user",
+        content: "native",
+        at: "2026-08-24T12:00:00.000Z",
       },
     ],
   });
@@ -136,12 +220,17 @@ async function main() {
       run: async () => {
         const csv = sessionsToCsv([shared, anonymous]);
         assert(csv.startsWith("\uFEFF"), "BOM prefix");
-        const lines = csv.replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+        const lines = csvLines(csv);
         assertEqual(lines[0], CSV_COLUMNS.join(","), "header");
+        assertEqual(
+          lines[0],
+          EXPECTED_CSV_COLUMNS.join(","),
+          "header includes anonymousVisitorId"
+        );
         assertEqual(lines.length, 4, "header plus three message rows");
         assert(
-          lines[1]?.startsWith("sess-1,bot-1,Tutor,public,user-1,Ada,"),
-          "signed-in first message"
+          lines[1]?.startsWith("sess-1,bot-1,Tutor,public,user-1,Ada,,"),
+          "signed-in first message with empty visitor id"
         );
         assert(
           lines[1]?.includes(",0,user,hello,") &&
@@ -168,8 +257,110 @@ async function main() {
         const csv = sessionsToCsv([]);
         assertEqual(
           csv,
-          `\uFEFF${CSV_COLUMNS.join(",")}\r\n`,
+          `\uFEFF${EXPECTED_CSV_COLUMNS.join(",")}\r\n`,
           "header-only CSV"
+        );
+      },
+    },
+    {
+      name: "CSV_COLUMNS places anonymousVisitorId after participantName",
+      run: async () => {
+        assertEqual(
+          [...CSV_COLUMNS],
+          [...EXPECTED_CSV_COLUMNS],
+          "CSV_COLUMNS"
+        );
+      },
+    },
+    {
+      name: "unattributed visitors stay Anonymous and have distinct visitor ids",
+      run: async () => {
+        const csv = sessionsToCsv([unattributedA, unattributedB]);
+        const lines = csvLines(csv);
+        const header = lines[0]?.split(",") ?? [];
+        assert(
+          header.includes("anonymousVisitorId"),
+          "header includes visitor-id column"
+        );
+        const rowA = csvRowByName(header, lines[1] ?? "");
+        const rowB = csvRowByName(header, lines[2] ?? "");
+        assertEqual(rowA.sessionId, "sess-visitor-a", "visitor A session");
+        assertEqual(rowB.sessionId, "sess-visitor-b", "visitor B session");
+        assertEqual(rowA.participantId, "", "unattributed A participantId");
+        assertEqual(rowB.participantId, "", "unattributed B participantId");
+        assertEqual(rowA.participantName, "Anonymous", "unattributed A name");
+        assertEqual(rowB.participantName, "Anonymous", "unattributed B name");
+        assertEqual(rowA.anonymousVisitorId, visitorA, "visitor A id");
+        assertEqual(rowB.anonymousVisitorId, visitorB, "visitor B id");
+        assert(
+          rowA.anonymousVisitorId !== rowB.anonymousVisitorId,
+          "two unattributed visitors differ"
+        );
+      },
+    },
+    {
+      name: "attributed CSV rows match signed-in participant fields",
+      run: async () => {
+        const csv = sessionsToCsv([
+          shared,
+          attributed,
+          signedInNoCookie,
+          unattributedA,
+        ]);
+        const lines = csvLines(csv);
+        const header = lines[0]?.split(",") ?? [];
+        const rows = lines.slice(1).map((line) => csvRowByName(header, line));
+        const signedInRow = rows.find((row) => row.sessionId === "sess-1");
+        const attributedRow = rows.find(
+          (row) => row.sessionId === "sess-attributed"
+        );
+        const nativeRow = rows.find((row) => row.sessionId === "sess-native");
+        const unattributedRow = rows.find(
+          (row) => row.sessionId === "sess-visitor-a"
+        );
+        assert(signedInRow, "signed-in row present");
+        assert(attributedRow, "attributed row present");
+        assert(nativeRow, "native signed-in row present");
+        assert(unattributedRow, "unattributed row present");
+        assertEqual(
+          attributedRow.participantId,
+          signedInRow.participantId,
+          "attributed participantId matches signed-in account id"
+        );
+        assertEqual(
+          attributedRow.participantName,
+          signedInRow.participantName,
+          "attributed participantName matches signed-in display name"
+        );
+        assertEqual(
+          attributedRow.anonymousVisitorId,
+          visitorClaimed,
+          "attributed visitor id filled when present"
+        );
+        assertEqual(
+          nativeRow.participantId,
+          "user-2",
+          "native signed-in participantId"
+        );
+        assertEqual(
+          nativeRow.participantName,
+          "Bea",
+          "native signed-in display name"
+        );
+        assertEqual(
+          nativeRow.anonymousVisitorId,
+          "",
+          "native signed-in with no cookie has empty visitor id"
+        );
+        assertEqual(
+          unattributedRow.participantId,
+          "",
+          "unattributed stays empty participantId"
+        );
+        assertEqual(
+          unattributedRow.participantName,
+          "Anonymous",
+          "unattributed stays Anonymous"
         );
       },
     },
@@ -189,6 +380,62 @@ async function main() {
         };
         assertEqual(parsed.appId, appId, "appId");
         assertEqual(parsed.sessions[0]?.messages.length, 2, "full transcript");
+      },
+    },
+    {
+      name: "JSON export includes anonymousVisitorId on records",
+      run: async () => {
+        const json = sessionsToJson({
+          appId,
+          appName: "Tutor",
+          exportedAt: now,
+          filter: { surface: null, from: null, to: null },
+          sessions: [unattributedA, attributed, signedInNoCookie],
+        });
+        const parsed = JSON.parse(json) as {
+          sessions: ChatSessionRecord[];
+        };
+        assertEqual(
+          parsed.sessions[0]?.anonymousVisitorId,
+          visitorA,
+          "unattributed JSON visitor id"
+        );
+        assertEqual(parsed.sessions[0]?.participantId, null, "JSON participantId");
+        assertEqual(
+          parsed.sessions[0]?.participantName,
+          null,
+          "JSON participantName stays null for unattributed"
+        );
+        assertEqual(
+          parsed.sessions[1]?.participantId,
+          "user-1",
+          "attributed JSON account id"
+        );
+        assertEqual(
+          parsed.sessions[1]?.participantName,
+          "Ada",
+          "attributed JSON display name"
+        );
+        assertEqual(
+          parsed.sessions[1]?.anonymousVisitorId,
+          visitorClaimed,
+          "attributed JSON visitor id"
+        );
+        assertEqual(
+          parsed.sessions[2]?.participantId,
+          "user-2",
+          "native JSON account id"
+        );
+        assertEqual(
+          parsed.sessions[2]?.participantName,
+          "Bea",
+          "native JSON display name"
+        );
+        assertEqual(
+          parsed.sessions[2]?.anonymousVisitorId,
+          null,
+          "native JSON visitor id is null when absent"
+        );
       },
     },
     {
