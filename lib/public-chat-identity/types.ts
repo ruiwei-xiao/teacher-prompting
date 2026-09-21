@@ -21,3 +21,11 @@ export type AnonymousVisitorLink = {
 export type AnonymousVisitorLinksFileData = {
   links: AnonymousVisitorLink[];
 };
+
+/**
+ * Result of claiming a remembered anonymous visitor for a signed-in user.
+ * Missing cookie yields no-visitor without failing the user.
+ */
+export type ClaimAnonymousVisitorResult =
+  | { status: "claimed"; visitorId: string; attributedCount: number }
+  | { status: "no-visitor" };

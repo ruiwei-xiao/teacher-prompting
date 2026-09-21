@@ -44,7 +44,7 @@
   - _Boundary: RecordChatTurn_
   - _Depends: 1.3_
 
-- [ ] 2.2 (P) Claim anonymous history for a signed-in user
+- [x] 2.2 (P) Claim anonymous history for a signed-in user
   - When a user signs in with a remembered visitor id, record the visitor-user link and promote still-unattributed sessions; missing visitor id returns no-visitor without failing the user; claim is idempotent
   - Claim verify: with a visitor id, a mapping exists and previously anonymous sessions now have that user id and display name; without a visitor id, result is no-visitor; a second claim does not steal another user's sessions
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.4_
