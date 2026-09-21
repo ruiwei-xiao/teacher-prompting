@@ -21,7 +21,7 @@
   - _Requirements: 3.4_
   - _Boundary: ChatSessionStore_
 
-- [ ] 1.4 (P) Persist visitor-to-account links
+- [x] 1.4 (P) Persist visitor-to-account links
   - Remember that a visitor id was used by a signed-in user; repeating the same pair is a no-op; the same visitor id may later also link to a different user
   - Dual-store write then read returns the pair; a second write of the same pair does not duplicate it
   - _Requirements: 5.1_
