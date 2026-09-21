@@ -216,6 +216,101 @@ async function main() {
         assertEqual(turnedOff.shared, false, "true → false is allowed");
       },
     },
+    {
+      name: "public anonymous session round-trips visitor id without a participant account",
+      run: async () => {
+        const visitorId = "11111111-2222-4333-8444-555555555555";
+        const id = "session-anon-visitor-1";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+        const session = await getSessionById(id);
+        assert(session, "expected a public anonymous session");
+        assertEqual(session.anonymousVisitorId, visitorId, "anonymousVisitorId");
+        assertEqual(session.participantId, null, "participantId stays null");
+        assertEqual(session.participantName, null, "participantName stays null");
+        assertEqual(session.surface, "public", "surface");
+
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          messages: secondHistory,
+        });
+        const afterSecondTurn = await getSessionById(id);
+        assert(afterSecondTurn, "expected the same session after a later turn");
+        assertEqual(
+          afterSecondTurn.anonymousVisitorId,
+          visitorId,
+          "visitor id is preserved on later turns"
+        );
+        assertEqual(
+          afterSecondTurn.participantId,
+          null,
+          "later turns still have no participant account"
+        );
+      },
+    },
+    {
+      name: "editor-test rows remain without a visitor id",
+      run: async () => {
+        const id = "session-editor-test-no-visitor";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          surface: "editor-test",
+          messages: firstHistory,
+        });
+        const session = await getSessionById(id);
+        assert(session, "expected an editor-test session");
+        assertEqual(
+          session.anonymousVisitorId,
+          null,
+          "editor-test has no visitor id"
+        );
+        assertEqual(session.surface, "editor-test", "surface");
+      },
+    },
+    {
+      name: "older records without the visitor id field read as absent",
+      run: async () => {
+        const id = "session-legacy-no-visitor-field";
+        const raw = JSON.parse(await fs.readFile(dataFile, "utf-8")) as {
+          sessions: Array<Record<string, unknown>>;
+        };
+        raw.sessions.push({
+          id,
+          appId: baseInput.appId,
+          appName: baseInput.appName,
+          ownerId: baseInput.ownerId,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          shared: true,
+          messages: firstHistory,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await fs.writeFile(dataFile, JSON.stringify(raw, null, 2), "utf-8");
+
+        const session = await getSessionById(id);
+        assert(session, "expected a legacy session");
+        assertEqual(
+          session.anonymousVisitorId,
+          null,
+          "missing visitor id field reads as null"
+        );
+        assertEqual(session.participantId, null, "legacy participantId");
+      },
+    },
   ];
 
   let failed = 0;

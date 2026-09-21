@@ -19,6 +19,7 @@ export type ChatSessionRecord = {
   ownerId: string; // bot owner snapshot
   participantId: string | null; // null = anonymous
   participantName: string | null; // snapshot; null = anonymous
+  anonymousVisitorId?: string | null; // public-chat visitor; missing/null = absent
   surface: SessionSurface;
   shared: boolean; // default true
   messages: StoredChatMessage[];

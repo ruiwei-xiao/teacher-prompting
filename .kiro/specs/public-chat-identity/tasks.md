@@ -15,7 +15,7 @@
   - _Requirements: 3.2, 3.3, 3.5, 3.6, 5.6_
   - _Boundary: VisitorCookie_
 
-- [ ] 1.3 (P) Persist visitor id on public-chat session records
+- [x] 1.3 (P) Persist visitor id on public-chat session records
   - Session records carry an optional anonymous visitor id; public-chat rows can store it; editor-test rows stay without it; older records without the field read as absent
   - A recorded public anonymous session round-trips with a visitor id and without a participant account; editor-test rows remain without a visitor id
   - _Requirements: 3.4_
