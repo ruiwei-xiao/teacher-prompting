@@ -85,7 +85,7 @@
 ## 4. Published chat UI
 
 - [ ] 4. Published chat UI
-- [ ] 4.1 (P) Build the identity-choice modal
+- [x] 4.1 (P) Build the identity-choice modal
   - English non-dismissible overlay with prominent Log in to continue, quieter Continue anonymously, and both privacy sentences; overlay click and Escape do not count as a choice
   - Modal stays open without a choice and uses the shared copy strings
   - _Requirements: 1.1, 1.4, 1.6, 7.1, 7.2_
