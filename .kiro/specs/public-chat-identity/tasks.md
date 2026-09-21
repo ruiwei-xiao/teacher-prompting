@@ -61,7 +61,7 @@
 ## 3. HTTP and sign-in hooks
 
 - [ ] 3. HTTP and sign-in hooks
-- [ ] 3.1 (P) Issue or reuse the visitor cookie over HTTP
+- [x] 3.1 (P) Issue or reuse the visitor cookie over HTTP
   - Unauthenticated POST ensures the cookie exists and returns success without echoing the visitor id in JSON; existing valid cookies are reused
   - Calling the endpoint twice keeps one visitor id; JSON body does not include the id
   - _Requirements: 3.2, 3.3, 3.5, 3.6_
