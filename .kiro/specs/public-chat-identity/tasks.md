@@ -2,7 +2,7 @@
 
 ## 1. Foundation: visitor identity primitives
 
-- [ ] 1. Foundation: visitor identity primitives
+- [x] 1. Foundation: visitor identity primitives
 - [x] 1.1 (P) Publish English identity-gate copy
   - Provide a prominent login action label, a quieter anonymous continuation label, and two privacy sentences: anonymous use still remembers a visitor identity on this browser, and later sign-in associates those chats with the account
   - The copy module is the single source of those English strings and includes both disclosure sentences
@@ -27,7 +27,7 @@
   - _Requirements: 5.1_
   - _Boundary: AnonymousVisitorStore_
 
-- [ ] 1.5 Promote still-unattributed sessions to a signed-in user
+- [x] 1.5 Promote still-unattributed sessions to a signed-in user
   - Rewrite sessions that still have no participant account and match the visitor id to that user and display name; leave sessions already tied to another account unchanged; allow one-way anonymous-to-signed-in continuation of the same conversation when visitor ids match; keep rejecting other identity mismatches
   - Store tests pass: null-participant rows become the claimant; already-claimed rows stay put; matching visitor ids allow promotion on later turns; mismatched participant still fails
   - _Requirements: 4.3, 5.2, 5.3, 5.4, 5.5_

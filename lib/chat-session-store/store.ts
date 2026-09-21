@@ -4,14 +4,16 @@
  * Mirrors lib/star-store/store.ts and lib/calibration-store/store.ts chooser.
  *
  * upsertSessionTurn creates on first turn and replaces the transcript later.
- * Identity (appId + participantId) must match an existing row.
+ * Identity (appId + participantId) must match an existing row, except a
+ * one-way anonymous-to-signed-in promotion when visitor ids match.
  * Public-chat rows may carry an optional anonymousVisitorId; editor-test
- * and older records without the field read as null. Promotion of
- * unattributed rows is a later attribution task.
+ * and older records without the field read as null. Unattributed rows may
+ * be promoted one-way to a signed-in participant when visitor ids match.
  * shared follows the latest requested owner-sharing flag on each upsert.
  * listSessionsForApp is shared-only with optional source/date filters.
  * listSharedSessionsForAppIds is shared-only across a set of app ids (one query).
  * listSessionsForUser excludes anonymous.
+ * attributeSessionsForVisitor promotes still-unattributed visitor rows.
  * listSharedSessionRecordsForApp returns full shared transcripts for owner export
  * (same optional filters as the owner list).
  * disableSharing / enableSharing flip the flag; discardSession deletes the row.
@@ -45,6 +47,12 @@ export type {
   StoredChatMessage,
   UpsertSessionTurnInput,
 } from "./types";
+
+export type AttributeSessionsForVisitorInput = {
+  anonymousVisitorId: string;
+  userId: string;
+  participantName: string;
+};
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DEFAULT_SESSIONS_FILE = path.join(DATA_DIR, "chat-sessions.json");
@@ -145,12 +153,33 @@ function normalizeMessages(
 }
 
 function identitiesMatch(
-  existing: Pick<ChatSessionRecord, "appId" | "participantId">,
-  input: Pick<UpsertSessionTurnInput, "appId" | "participantId">
+  existing: Pick<
+    ChatSessionRecord,
+    "appId" | "participantId" | "anonymousVisitorId"
+  >,
+  input: Pick<
+    UpsertSessionTurnInput,
+    "appId" | "participantId" | "anonymousVisitorId"
+  >
 ): boolean {
+  if (existing.appId !== input.appId) {
+    return false;
+  }
+  if (existing.participantId === input.participantId) {
+    return true;
+  }
+  const existingVisitor = normalizeAnonymousVisitorId(
+    existing.anonymousVisitorId
+  );
+  const incomingVisitor = normalizeAnonymousVisitorId(
+    input.anonymousVisitorId
+  );
   return (
-    existing.appId === input.appId &&
-    existing.participantId === input.participantId
+    existing.participantId === null &&
+    input.participantId !== null &&
+    existingVisitor !== null &&
+    incomingVisitor !== null &&
+    existingVisitor === incomingVisitor
   );
 }
 
@@ -200,8 +229,16 @@ function applyTurn(
   if (!identitiesMatch(existing, input)) {
     throw new Error("Session identity mismatch.");
   }
+  const shouldPromote =
+    existing.participantId === null && input.participantId !== null;
   return {
     ...existing,
+    ...(shouldPromote
+      ? {
+          participantId: input.participantId,
+          participantName: input.participantName,
+        }
+      : {}),
     messages,
     shared: nextShared(existing.shared, input.shared),
     updatedAt: now,
@@ -490,6 +527,31 @@ async function discardSessionInFile(id: string): Promise<void> {
   await writeFileData({ sessions: next });
 }
 
+async function attributeSessionsForVisitorInFile(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  const data = await readFileData();
+  let attributedCount = 0;
+  const sessions = data.sessions.map((session) => {
+    if (
+      session.anonymousVisitorId !== input.anonymousVisitorId ||
+      session.participantId !== null
+    ) {
+      return session;
+    }
+    attributedCount += 1;
+    return {
+      ...session,
+      participantId: input.userId,
+      participantName: input.participantName,
+    };
+  });
+  if (attributedCount > 0) {
+    await writeFileData({ sessions });
+  }
+  return { attributedCount };
+}
+
 // --- Postgres implementations ---
 
 async function getSessionByIdInPostgres(
@@ -543,7 +605,9 @@ async function upsertSessionTurnInPostgres(
     SET
       messages = ${messagesJson},
       shared = ${next.shared},
-      updated_at = ${next.updatedAt}
+      updated_at = ${next.updatedAt},
+      participant_id = ${next.participantId},
+      participant_name = ${next.participantName}
     WHERE id = ${next.id}
   `;
 }
@@ -668,6 +732,21 @@ async function discardSessionInPostgres(id: string): Promise<void> {
   `;
 }
 
+async function attributeSessionsForVisitorInPostgres(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  await ensurePostgresStore();
+  const result = await sql`
+    UPDATE chat_sessions
+    SET
+      participant_id = ${input.userId},
+      participant_name = ${input.participantName}
+    WHERE anonymous_visitor_id = ${input.anonymousVisitorId}
+      AND participant_id IS NULL
+  `;
+  return { attributedCount: result.rowCount ?? 0 };
+}
+
 // --- Public façade ---
 
 export async function getSessionById(
@@ -750,4 +829,13 @@ export async function discardSession(id: string): Promise<void> {
     return discardSessionInPostgres(id);
   }
   return discardSessionInFile(id);
+}
+
+export async function attributeSessionsForVisitor(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  if (shouldUsePostgres()) {
+    return attributeSessionsForVisitorInPostgres(input);
+  }
+  return attributeSessionsForVisitorInFile(input);
 }
