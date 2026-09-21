@@ -30,6 +30,8 @@ export type RecordChatTurnInput = {
   isPublishedRequest: boolean;
   userId?: string | null;
   userName?: string | null;
+  // Server-supplied from the visitor cookie. Never taken from the recording body.
+  anonymousVisitorId?: string | null;
   app: RecordChatTurnApp;
   messages: ChatTurnMessage[];
   assistantReply: string;
@@ -116,6 +118,7 @@ async function recordChatTurnUnchecked(
     ownerId: input.app.ownerId ?? "",
     participantId,
     participantName,
+    anonymousVisitorId: normalizeOptionalId(input.anonymousVisitorId),
     surface: payload.surface,
     shared: payload.ownerSharing !== false,
     messages: buildStoredMessages(
@@ -147,6 +150,7 @@ function parseRecordingPayload(value: unknown): ParsedRecording {
     return { status: "invalid" };
   }
 
+  // Whitelist only recording fields. Visitor ids on the body are ignored.
   const payload: ChatRecordingPayload = {
     sessionId,
     surface: record.surface,

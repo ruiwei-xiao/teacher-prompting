@@ -283,6 +283,147 @@ async function main() {
       },
     },
     {
+      name: "server-supplied visitor id is stored on anonymous public persist",
+      run: async () => {
+        const sessionId = "rec-anon-visitor-stamp";
+        const result = await recordChatTurn({
+          recording: { sessionId, surface: "public" },
+          isPublishedRequest: true,
+          userId: null,
+          userName: "Should be ignored",
+          anonymousVisitorId: "visitor-from-cookie",
+          app: publishedApp,
+          messages: incomingMessages,
+          assistantReply: "Hello stranger",
+          now,
+        });
+        assertEqual(result.status, "persisted", "status");
+        const session = await getSessionById(sessionId);
+        assert(session, "expected an anonymous session with a visitor id");
+        assertEqual(
+          session.anonymousVisitorId,
+          "visitor-from-cookie",
+          "anonymousVisitorId"
+        );
+        assertEqual(session.participantId, null, "participantId");
+        assertEqual(session.participantName, null, "participantName");
+      },
+    },
+    {
+      name: "body-supplied visitor id is ignored",
+      run: async () => {
+        const sessionId = "rec-anon-visitor-forged-body";
+        const result = await recordChatTurn({
+          recording: {
+            sessionId,
+            surface: "public",
+            anonymousVisitorId: "forged-from-body",
+            visitorId: "also-forged",
+          },
+          isPublishedRequest: true,
+          userId: null,
+          userName: null,
+          anonymousVisitorId: "visitor-from-cookie",
+          app: publishedApp,
+          messages: incomingMessages,
+          assistantReply: "Hello stranger",
+          now,
+        });
+        assertEqual(result.status, "persisted", "status");
+        const session = await getSessionById(sessionId);
+        assert(session, "expected a session after ignoring the body visitor id");
+        assertEqual(
+          session.anonymousVisitorId,
+          "visitor-from-cookie",
+          "anonymousVisitorId comes from the server input"
+        );
+        const serialized = JSON.stringify(session);
+        assert(
+          !serialized.includes("forged-from-body"),
+          "forged body anonymousVisitorId must not be stored"
+        );
+        assert(
+          !serialized.includes("also-forged"),
+          "forged body visitorId must not be stored"
+        );
+
+        const bodyOnlyId = "rec-anon-visitor-body-only";
+        const bodyOnly = await recordChatTurn({
+          recording: {
+            sessionId: bodyOnlyId,
+            surface: "public",
+            anonymousVisitorId: "forged-body-only",
+          },
+          isPublishedRequest: true,
+          userId: null,
+          userName: null,
+          app: publishedApp,
+          messages: incomingMessages,
+          assistantReply: "Hello stranger",
+          now,
+        });
+        assertEqual(bodyOnly.status, "persisted", "body-only status");
+        const bodyOnlySession = await getSessionById(bodyOnlyId);
+        assert(bodyOnlySession, "expected a session when only the body had a visitor id");
+        assertEqual(
+          bodyOnlySession.anonymousVisitorId,
+          null,
+          "body-only visitor id is not stored"
+        );
+      },
+    },
+    {
+      name: "anonymous rows have no profile PII when a visitor id is stamped",
+      run: async () => {
+        const sessionId = "rec-anon-no-pii";
+        const result = await recordChatTurn({
+          recording: {
+            sessionId,
+            surface: "public",
+            name: "Forged Name",
+            email: "forged@example.com",
+            participantName: "Forged Participant",
+            anonymousVisitorId: "forged-from-body",
+          },
+          isPublishedRequest: true,
+          userId: null,
+          userName: "Should be ignored",
+          anonymousVisitorId: "visitor-no-pii",
+          app: publishedApp,
+          messages: incomingMessages,
+          assistantReply: "Hello stranger",
+          now,
+        });
+        assertEqual(result.status, "persisted", "status");
+        const session = await getSessionById(sessionId);
+        assert(session, "expected an anonymous session");
+        assertEqual(session.participantId, null, "participantId");
+        assertEqual(session.participantName, null, "participantName");
+        assertEqual(
+          session.anonymousVisitorId,
+          "visitor-no-pii",
+          "anonymousVisitorId"
+        );
+        const serialized = JSON.stringify(session);
+        assert(
+          !serialized.includes("Should be ignored"),
+          "anonymous rows must not store the session display name"
+        );
+        assert(
+          !serialized.includes("Forged Name"),
+          "anonymous rows must not store a body-supplied name"
+        );
+        assert(
+          !serialized.includes("Forged Participant"),
+          "anonymous rows must not store a body-supplied participantName"
+        );
+        assert(
+          !serialized.includes("forged@example.com"),
+          "anonymous rows must not store a body-supplied email"
+        );
+      },
+    },
+    {
       name: "anonymous turn with sharing off skips persistence entirely",
       run: async () => {
         let upserted = false;
@@ -315,6 +456,78 @@ async function main() {
         assertEqual(upserted, false, "upsert was not called");
         const session = await getSessionById(sessionId);
         assertEqual(session, null, "anonymous unshared turn leaves no row");
+      },
+    },
+    {
+      name: "anonymous-unshared still skips when a visitor id is supplied",
+      run: async () => {
+        let upserted = false;
+        const sessionId = "rec-anon-off-visitor";
+        const result = await recordChatTurn(
+          {
+            recording: {
+              sessionId,
+              surface: "public",
+              ownerSharing: false,
+              anonymousVisitorId: "forged-from-body",
+            },
+            isPublishedRequest: true,
+            userId: null,
+            userName: null,
+            anonymousVisitorId: "visitor-unshared",
+            app: publishedApp,
+            messages: incomingMessages,
+            assistantReply: "Still chatting",
+            now,
+          },
+          {
+            upsert: async () => {
+              upserted = true;
+            },
+          }
+        );
+        assertEqual(result.status, "skipped", "status");
+        if (result.status === "skipped") {
+          assertEqual(result.reason, "anonymous-unshared", "reason");
+        }
+        assertEqual(upserted, false, "upsert was not called");
+        const session = await getSessionById(sessionId);
+        assertEqual(
+          session,
+          null,
+          "anonymous unshared turn leaves no row even with a visitor id"
+        );
+      },
+    },
+    {
+      name: "signed-in public turn stamps visitor id without changing participantId",
+      run: async () => {
+        const sessionId = "rec-signed-visitor-lineage";
+        const result = await recordChatTurn({
+          recording: {
+            sessionId,
+            surface: "public",
+            anonymousVisitorId: "forged-from-body",
+          },
+          isPublishedRequest: true,
+          userId: "learner-signed",
+          userName: "Bea",
+          anonymousVisitorId: "visitor-lineage",
+          app: publishedApp,
+          messages: incomingMessages,
+          assistantReply: "Hi Bea",
+          now,
+        });
+        assertEqual(result.status, "persisted", "status");
+        const session = await getSessionById(sessionId);
+        assert(session, "expected a signed-in public session");
+        assertEqual(session.participantId, "learner-signed", "participantId");
+        assertEqual(session.participantName, "Bea", "participantName");
+        assertEqual(
+          session.anonymousVisitorId,
+          "visitor-lineage",
+          "anonymousVisitorId"
+        );
       },
     },
     {

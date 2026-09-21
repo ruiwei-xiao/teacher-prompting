@@ -37,7 +37,7 @@
 ## 2. Core: recording, claim, and downloads
 
 - [ ] 2. Core: recording, claim, and downloads
-- [ ] 2.1 (P) Stamp visitor id when recording public-chat turns
+- [x] 2.1 (P) Stamp visitor id when recording public-chat turns
   - Recording accepts a server-supplied visitor id, ignores any visitor id in the client recording body, stores no name or email for anonymous participants, and still skips persistence when an anonymous visitor has owner sharing off
   - Recording verify: server-supplied id is stored, body-supplied id is ignored, anonymous rows have no profile PII, anonymous-unshared still skips
   - _Requirements: 3.4_
