@@ -3,7 +3,7 @@
 ## 1. Foundation: visitor identity primitives
 
 - [ ] 1. Foundation: visitor identity primitives
-- [ ] 1.1 (P) Publish English identity-gate copy
+- [x] 1.1 (P) Publish English identity-gate copy
   - Provide a prominent login action label, a quieter anonymous continuation label, and two privacy sentences: anonymous use still remembers a visitor identity on this browser, and later sign-in associates those chats with the account
   - The copy module is the single source of those English strings and includes both disclosure sentences
   - _Requirements: 1.4, 7.1, 7.2_
