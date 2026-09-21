@@ -7,6 +7,7 @@ import {
   recordChatTurn,
   swallowRecordingFailure,
 } from "@/lib/chat-session-store/record-chat-turn";
+import { resolvePublicChatVisitorId } from "@/lib/public-chat-identity/resolve-public-chat-visitor";
 
 export const runtime = "nodejs";
 
@@ -347,11 +348,16 @@ export async function POST(req: NextRequest) {
     });
 
     await swallowRecordingFailure(async () => {
+      const anonymousVisitorId = await resolvePublicChatVisitorId({
+        isPublishedRequest,
+        userId: userId ?? null,
+      });
       await recordChatTurn({
         recording,
         isPublishedRequest,
         userId: userId ?? null,
         userName: session?.user?.name ?? null,
+        anonymousVisitorId,
         app: {
           id: app.id,
           name: app.name,

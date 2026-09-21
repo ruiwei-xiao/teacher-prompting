@@ -60,7 +60,7 @@
 
 ## 3. HTTP and sign-in hooks
 
-- [ ] 3. HTTP and sign-in hooks
+- [x] 3. HTTP and sign-in hooks
 - [x] 3.1 (P) Issue or reuse the visitor cookie over HTTP
   - Unauthenticated POST ensures the cookie exists and returns success without echoing the visitor id in JSON; existing valid cookies are reused
   - Calling the endpoint twice keeps one visitor id; JSON body does not include the id
@@ -75,7 +75,7 @@
   - _Boundary: Claim API, Auth jwt callback_
   - _Depends: 2.2_
 
-- [ ] 3.3 (P) Attach the visitor cookie when recording published chat
+- [x] 3.3 (P) Attach the visitor cookie when recording published chat
   - Published chat recording reads the visitor cookie on the server, may ensure it if missing, never takes the id from the client body, and does not stamp editor-test rows
   - A public anonymous turn persists with the cookie visitor id; a forged body id is ignored
   - _Requirements: 3.2, 3.4_
