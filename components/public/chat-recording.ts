@@ -21,6 +21,7 @@ export type PublicChatRecordingOptions = {
   now?: () => string;
   createId?: () => string;
   ownerSharing?: boolean;
+  sessionId?: string;
 };
 
 export type PublicChatRecording = {
@@ -40,7 +41,8 @@ export function createPublicChatRecording(
   const createId = options.createId ?? (() => crypto.randomUUID());
   let ownerSharing = options.ownerSharing ?? true;
 
-  let sessionId = createId();
+  const providedSessionId = options.sessionId?.trim();
+  let sessionId = providedSessionId || createId();
   const rememberedTimes: string[] = [];
 
   function reset(): void {

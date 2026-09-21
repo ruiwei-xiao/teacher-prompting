@@ -92,7 +92,7 @@
   - _Boundary: IdentityChoiceModal_
   - _Depends: 1.1_
 
-- [ ] 4.2 (P) Start existing sign-in from public chat and remember the conversation
+- [x] 4.2 (P) Start existing sign-in from public chat and remember the conversation
   - Reuse the existing sign-in panel with callback to the current public chat path; write a tab-local resume of the in-progress conversation before leaving; quieter Log in control exists for use after anonymous continuation; the public recording helper can reuse a provided conversation id
   - Sign-in is invoked with the public-chat callback path; resume storage round-trips app and conversation ids; recording helper reuse keeps the same conversation id
   - _Requirements: 2.1, 2.2, 4.1, 4.2, 4.3_
