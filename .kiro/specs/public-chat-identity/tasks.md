@@ -68,7 +68,7 @@
   - _Boundary: VisitorCookie API_
   - _Depends: 1.2_
 
-- [ ] 3.2 (P) Claim visitor history on sign-in
+- [x] 3.2 (P) Claim visitor history on sign-in
   - Authenticated claim POST reads only the cookie; unauthenticated claim is rejected; jwt on-sign-in runs the same claim and logs failures without blocking login
   - Signed-in claim with cookie returns claimed or no-visitor; unsigned claim is 401; sign-in still succeeds if claim throws
   - _Requirements: 5.1, 5.2, 5.6_
