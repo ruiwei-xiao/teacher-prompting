@@ -9,7 +9,7 @@
   - _Requirements: 1.4, 7.1, 7.2_
   - _Boundary: IdentityChoiceModal copy_
 
-- [ ] 1.2 (P) Remember anonymous visitor identity on the browser
+- [x] 1.2 (P) Remember anonymous visitor identity on the browser
   - Issue a UUID visitor id when none exists, reuse a valid remembered id, treat a missing or invalid remembered id as a new visitor, and use an HttpOnly Lax path-root long-lived cookie
   - Cookie helper tests pass for reuse, new id after forgotten or invalid value, and HttpOnly Lax path-root options; helpers never accept a client-supplied id
   - _Requirements: 3.2, 3.3, 3.5, 3.6, 5.6_
