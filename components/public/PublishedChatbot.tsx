@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   detectVisualizationMode,
   getVisualizationTitle,
@@ -19,6 +19,7 @@ import ChatPrivacyControls from "./ChatPrivacyControls";
 import IdentityChoiceModal from "./IdentityChoiceModal";
 import PublicChatSignInControl from "./PublicChatSignInControl";
 import { createPublicChatRecording } from "./chat-recording";
+import { readPublicChatResume } from "./conversation-resume";
 import {
   applySharingResult,
   buildSharingRequest,
@@ -29,6 +30,7 @@ import {
   publicChatShouldClaimOnMount,
   publicChatShowsIdentityGate,
 } from "./public-chat-gate";
+import { loadResumedPublicChat } from "./resume-public-chat";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -77,6 +79,7 @@ export default function PublishedChatbot({
   const [sharingError, setSharingError] = useState("");
   const [continuedAnonymously, setContinuedAnonymously] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [resumePending, setResumePending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -87,7 +90,8 @@ export default function PublishedChatbot({
     continuedAnonymously,
     signingIn,
   };
-  const canParticipate = publicChatCanParticipate(gateState);
+  const canParticipate =
+    publicChatCanParticipate(gateState) && !resumePending;
   const showIdentityGate = publicChatShowsIdentityGate(gateState);
   const composerLocked = !canParticipate || busy;
   const visualizationMode = useMemo(
@@ -109,14 +113,45 @@ export default function PublishedChatbot({
     });
   }, [messages, busy]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!publicChatShouldClaimOnMount(isSignedIn)) {
       return;
     }
-    void fetch(CLAIM_URL, { method: "POST" }).catch((error: unknown) => {
-      console.error("Failed to claim anonymous visitor history:", error);
-    });
-  }, [isSignedIn]);
+    const resume = readPublicChatResume(window.sessionStorage);
+    if (resume?.appId === appId) {
+      setResumePending(true);
+    }
+    let cancelled = false;
+    void loadResumedPublicChat({
+      isSignedIn,
+      appId,
+      storage: window.sessionStorage,
+      claim: async () => {
+        const response = await fetch(CLAIM_URL, { method: "POST" });
+        if (!response.ok) {
+          throw new Error("Failed to claim anonymous visitor history");
+        }
+      },
+      fetchTranscript: (sessionId) => fetch(`/api/sessions/${sessionId}`),
+    })
+      .then((resumed) => {
+        if (cancelled || !resumed) {
+          return;
+        }
+        recording.resumeConversation(resumed.sessionId, resumed.messageTimes);
+        if (resumed.messages.length > 0) {
+          setMessages(resumed.messages);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setResumePending(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, appId, recording]);
 
   useEffect(() => {
     return () => {

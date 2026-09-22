@@ -13,6 +13,7 @@ export type PublicChatResume = {
 export type ResumeStorage = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
 };
 
 export function rememberPublicChatResume(
@@ -40,6 +41,10 @@ export function readPublicChatResume(
   } catch {
     return null;
   }
+}
+
+export function clearPublicChatResume(storage: ResumeStorage): void {
+  storage.removeItem(PUBLIC_CHAT_RESUME_KEY);
 }
 
 export function rememberPublicChatResumeInSession(

@@ -84,7 +84,7 @@
 
 ## 4. Published chat UI
 
-- [ ] 4. Published chat UI
+- [x] 4. Published chat UI
 - [x] 4.1 (P) Build the identity-choice modal
   - English non-dismissible overlay with prominent Log in to continue, quieter Continue anonymously, and both privacy sentences; overlay click and Escape do not count as a choice
   - Modal stays open without a choice and uses the shared copy strings
@@ -105,7 +105,7 @@
   - _Boundary: PublicChatPage, PublishedChatbot_
   - _Depends: 4.1, 4.2, 3.1, 3.2_
 
-- [ ] 4.4 Resume an in-progress conversation after later sign-in
+- [x] 4.4 Resume an in-progress conversation after later sign-in
   - After anonymous chatting, later login from the page reloads the resumed transcript, reuses the same conversation id, and records further turns as that signed-in user; failed resume falls back to a new welcome thread without blocking chat
   - Returning signed-in with a matching resume continues the same transcript as one conversation attributed to the user
   - _Requirements: 2.2, 2.3, 4.3, 5.2, 5.3, 5.4_
