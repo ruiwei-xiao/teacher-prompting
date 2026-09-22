@@ -115,7 +115,7 @@
 ## 5. Validation
 
 - [ ] 5. Validation
-- [ ] 5.1 Run identity domain verify scripts
+- [x] 5.1 Run identity domain verify scripts
   - Cookie reuse and options, copy disclosures, claim promote-null-only, and gate copy presence
   - Identity cookie, claim, and gate verify scripts pass via `npx tsx`
   - _Requirements: 5.2, 5.5, 7.1, 7.2_
