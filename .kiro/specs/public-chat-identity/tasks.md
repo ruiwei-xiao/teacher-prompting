@@ -114,7 +114,7 @@
 
 ## 5. Validation
 
-- [ ] 5. Validation
+- [x] 5. Validation
 - [x] 5.1 Run identity domain verify scripts
   - Cookie reuse and options, copy disclosures, claim promote-null-only, and gate copy presence
   - Identity cookie, claim, and gate verify scripts pass via `npx tsx`
@@ -122,7 +122,7 @@
   - _Boundary: ClaimAnonymousVisitor, VisitorCookie, IdentityChoiceModal copy_
   - _Depends: 1.1, 1.2, 2.2, 4.1_
 
-- [ ] 5.2 Run activity identity regressions
+- [x] 5.2 Run activity identity regressions
   - Export visitor column; recording ignores a body-supplied id; unattributed sessions still render as Anonymous in list and transcript helpers; My sessions still excludes null participant ids; recording helper reuses a conversation id
   - Store-write, recording, export, session-display, and published-recording verifies pass via `npx tsx`
   - _Requirements: 3.4, 4.3, 6.1, 6.2, 6.3, 6.4_
