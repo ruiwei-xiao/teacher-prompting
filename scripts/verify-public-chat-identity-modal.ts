@@ -90,6 +90,7 @@ async function main() {
           "imports lib/public-chat-identity/copy"
         );
         for (const name of [
+          "IDENTITY_CHOICE_TITLE",
           "LOGIN_ACTION_LABEL",
           "ANONYMOUS_ACTION_LABEL",
           "REMEMBERED_VISITOR_SENTENCE",
@@ -105,8 +106,8 @@ async function main() {
           );
         }
         assert(
-          !source.includes("Log in to continue"),
-          "does not hardcode the login sentence"
+          !source.includes("Choose how to continue"),
+          "does not hardcode the modal title"
         );
         assert(
           !source.includes("Continue anonymously"),
@@ -123,7 +124,7 @@ async function main() {
       },
     },
     {
-      name: "login is a filled primary button and anonymous is quieter text",
+      name: "modal is concise, light, and uses primary and outlined actions",
       run: () => {
         const loginClass = classNameBefore(source, "{LOGIN_ACTION_LABEL}");
         const anonymousClass = classNameBefore(
@@ -135,12 +136,36 @@ async function main() {
           "login action is a filled primary button"
         );
         assert(
-          !anonymousClass.includes("bg-"),
-          "anonymous action has no filled background"
+          anonymousClass.includes("border-slate-"),
+          "anonymous action has a visible outline"
         );
         assert(
           anonymousClass.includes("text-slate-"),
           "anonymous action is quieter text"
+        );
+        assert(
+          !source.includes("dark:"),
+          "public-chat identity modal stays light in dark app mode"
+        );
+        assert(
+          /<h2[^>]*>\s*\{IDENTITY_CHOICE_TITLE\}\s*<\/h2>/.test(source),
+          "renders a concise modal heading"
+        );
+        const disclosureStart = source.indexOf(
+          "{REMEMBERED_VISITOR_SENTENCE}"
+        );
+        const disclosureEnd = source.indexOf(
+          "{LATER_LINKING_SENTENCE}",
+          disclosureStart
+        );
+        const disclosureRegion = source.slice(
+          source.lastIndexOf("<p", disclosureStart),
+          source.indexOf("</p>", disclosureEnd) + 4
+        );
+        assert(
+          disclosureRegion.includes("{REMEMBERED_VISITOR_SENTENCE}") &&
+            disclosureRegion.includes("{LATER_LINKING_SENTENCE}"),
+          "renders both disclosures in one paragraph"
         );
         assert(
           source.indexOf("{LOGIN_ACTION_LABEL}") <

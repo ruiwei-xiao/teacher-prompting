@@ -128,11 +128,12 @@ async function main() {
         );
         assert(
           controlSource.includes(">Log in<"),
-          "quieter Log in control exists"
+          "post-anonymous Log in control exists"
         );
         assert(
-          /text-slate-/.test(controlSource),
-          "Log in control uses quieter text styling"
+          /border-sky-/.test(controlSource) &&
+            /text-sky-/.test(controlSource),
+          "Log in control is a clearly visible outlined button"
         );
         assert(!/\bany\b/.test(controlSource), "control does not use any");
       },

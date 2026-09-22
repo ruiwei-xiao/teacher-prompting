@@ -41,7 +41,7 @@ Primary users are public-chat visitors (often students) and the educators/resear
 1. When an unauthenticated visitor opens a published bot's public chat page, the Teacher Prompting System shall present an identity-choice modal before the visitor can participate in the chat.
 2. When a signed-in visitor opens a published bot's public chat page, the Teacher Prompting System shall not present the identity-choice modal.
 3. When an unauthenticated visitor opens or reloads a published bot's public chat page, the Teacher Prompting System shall present the identity-choice modal even if that visitor previously chose to continue anonymously on that browser.
-4. The identity-choice modal shall use English copy and shall present a visually primary action to log in to continue and a visually quieter action to continue anonymously.
+4. The identity-choice modal shall use concise English copy, a light surface consistent with public chat, a visually primary Log in action, and a secondary outlined Continue anonymously action.
 5. While the identity-choice modal is displayed, the Teacher Prompting System shall not accept chat participation from that visitor, including sending messages.
 6. If the visitor closes or otherwise leaves the identity-choice modal without choosing login or anonymous continuation, then the Teacher Prompting System shall keep chat participation unavailable until the visitor makes a choice.
 
@@ -75,7 +75,7 @@ Primary users are public-chat visitors (often students) and the educators/resear
 
 #### Acceptance Criteria
 
-1. While an unauthenticated visitor is on a published chat page after choosing to continue anonymously, the Teacher Prompting System shall provide a way to sign in from that page.
+1. While an unauthenticated visitor is on a published chat page after choosing to continue anonymously, the Teacher Prompting System shall show that they are anonymous and provide a clearly visible Log in button.
 2. When the visitor signs in from that page, the Teacher Prompting System shall return them to the same published chat page as a signed-in user.
 3. When the visitor signs in while an anonymous conversation is in progress on that page, the Teacher Prompting System shall keep that conversation available as one continuous conversation attributed to the signed-in user.
 
@@ -111,3 +111,14 @@ Primary users are public-chat visitors (often students) and the educators/resear
 
 1. When the identity-choice modal is shown, the Teacher Prompting System shall inform the visitor in English that continuing anonymously still records a remembered visitor identity on that browser.
 2. When the identity-choice modal is shown, the Teacher Prompting System shall inform the visitor in English that signing in later associates prior chats from that visitor identity with their account.
+
+### Requirement 8: Visible public-chat account status
+
+**Objective:** As a public-chat visitor, I want to see whether I am anonymous or signed in and access the relevant account actions, so that my current identity is always clear.
+
+#### Acceptance Criteria
+
+1. After an unauthenticated visitor chooses anonymous continuation, the Teacher Prompting System shall show an Anonymous status and a visually clear Log in button in the public-chat header.
+2. When a signed-in visitor uses public chat, the Teacher Prompting System shall show the current account's display name or email in the public-chat header.
+3. The signed-in account control shall provide access to My sessions and Log out.
+4. When the visitor logs out from public chat, the Teacher Prompting System shall return to the same public-chat URL as an unauthenticated visitor, show the identity-choice modal, and keep chat participation unavailable until a new choice is made.

@@ -26,6 +26,15 @@ export default async function PublicChatbotPage({
       appName={app.name || app.id}
       systemPrompt={app.systemPrompt || ""}
       isSignedIn={Boolean(session?.user)}
+      signedInUser={
+        session?.user
+          ? {
+              name: session.user.name ?? null,
+              email: session.user.email ?? null,
+              image: session.user.image ?? null,
+            }
+          : null
+      }
       chatCallbackUrl={publicChatCallbackPath(appId, query)}
       googleEnabled={Boolean(
         process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET

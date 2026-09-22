@@ -17,6 +17,9 @@ import {
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 import ChatPrivacyControls from "./ChatPrivacyControls";
 import IdentityChoiceModal from "./IdentityChoiceModal";
+import PublicChatIdentityStatus, {
+  type PublicChatSignedInUser,
+} from "./PublicChatIdentityStatus";
 import PublicChatSignInControl from "./PublicChatSignInControl";
 import { createPublicChatRecording } from "./chat-recording";
 import { readPublicChatResume } from "./conversation-resume";
@@ -45,6 +48,7 @@ export default function PublishedChatbot({
   appName,
   systemPrompt,
   isSignedIn,
+  signedInUser,
   chatCallbackUrl,
   googleEnabled,
   microsoftEnabled,
@@ -53,6 +57,7 @@ export default function PublishedChatbot({
   appName: string;
   systemPrompt: string;
   isSignedIn: boolean;
+  signedInUser: PublicChatSignedInUser | null;
   chatCallbackUrl: string;
   googleEnabled: boolean;
   microsoftEnabled: boolean;
@@ -338,36 +343,39 @@ export default function PublishedChatbot({
     <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-amber-50 via-rose-50 to-sky-50 px-4 py-4 scheme-light">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white shadow-[0_16px_48px_rgba(251,113,133,0.12)]">
         <div className="shrink-0 bg-white px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Published chatbot
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Published chatbot
+                </div>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
+                  friendly mode
+                </span>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-amber-600">
+                  learn together
+                </span>
+              </div>
+              <h1 className="type-title mt-2 truncate text-2xl text-slate-900">
+                {appName}
+              </h1>
             </div>
-            <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
-              friendly mode
-            </span>
-            <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-amber-600">
-              learn together
-            </span>
-          </div>
-          <h1 className="type-title mt-2 text-2xl text-slate-900">
-            {appName}
-          </h1>
-          <ChatPrivacyControls
-            sharing={sharing}
-            busy={sharingBusy || !canParticipate}
-            onToggle={() => void handleToggleSharing()}
-          />
-          {continuedAnonymously && !isSignedIn ? (
-            <PublicChatSignInControl
-              variant="quiet"
+            <PublicChatIdentityStatus
+              signedInUser={signedInUser}
+              anonymous={continuedAnonymously && !isSignedIn}
               callbackUrl={chatCallbackUrl}
               appId={appId}
               sessionId={recording.sessionId}
               googleEnabled={googleEnabled}
               microsoftEnabled={microsoftEnabled}
-              onQuietSignIn={() => setSigningIn(true)}
+              onAnonymousLogIn={() => setSigningIn(true)}
             />
-          ) : null}
+          </div>
+          <ChatPrivacyControls
+            sharing={sharing}
+            busy={sharingBusy || !canParticipate}
+            onToggle={() => void handleToggleSharing()}
+          />
           {sharingError ? (
             <p className="mt-2 text-xs text-red-600">{sharingError}</p>
           ) : null}

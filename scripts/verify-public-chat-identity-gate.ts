@@ -48,6 +48,10 @@ async function main() {
     copyExports,
     "LOGIN_ACTION_LABEL"
   );
+  const identityChoiceTitle = readExportedString(
+    copyExports,
+    "IDENTITY_CHOICE_TITLE"
+  );
   const anonymousActionLabel = readExportedString(
     copyExports,
     "ANONYMOUS_ACTION_LABEL"
@@ -63,9 +67,14 @@ async function main() {
 
   const checks: Check[] = [
     {
-      name: "primary login action label is Log in to continue",
+      name: "modal has a concise title and Log in action",
       run: () => {
-        assertEqual(loginActionLabel, "Log in to continue", "login label");
+        assertEqual(
+          identityChoiceTitle,
+          "Choose how to continue",
+          "modal title"
+        );
+        assertEqual(loginActionLabel, "Log in", "login label");
       },
     },
     {
@@ -82,16 +91,18 @@ async function main() {
       name: "remembered-visitor sentence discloses browser visitor identity",
       run: () => {
         assert(
-          /remembered visitor identity/i.test(rememberedVisitorSentence),
-          "mentions a remembered visitor identity"
+          /remembered visitor (?:id|identity)/i.test(
+            rememberedVisitorSentence
+          ),
+          "discloses a remembered visitor identity"
         );
         assert(
           /this browser/i.test(rememberedVisitorSentence),
           "mentions this browser"
         );
         assert(
-          /anonymously/i.test(rememberedVisitorSentence),
-          "ties the disclosure to anonymous continuation"
+          /anonymous chats/i.test(rememberedVisitorSentence),
+          "ties the disclosure to anonymous chats"
         );
       },
     },
@@ -99,20 +110,20 @@ async function main() {
       name: "later-linking sentence discloses account association after sign-in",
       run: () => {
         assert(
-          /sign(?:ing)? in later/i.test(laterLinkingSentence),
-          "mentions signing in later"
+          /(?:sign(?:ing)?|log) in later/i.test(laterLinkingSentence),
+          "mentions logging in later"
         );
         assert(
-          /associat/i.test(laterLinkingSentence),
-          "mentions association with the account"
+          /linked/i.test(laterLinkingSentence),
+          "mentions linking with the account"
         );
         assert(
           /account/i.test(laterLinkingSentence),
           "mentions the visitor's account"
         );
         assert(
-          /chats/i.test(laterLinkingSentence),
-          "mentions prior chats"
+          /those chats|they/i.test(laterLinkingSentence),
+          "refers to the anonymous chats from the preceding sentence"
         );
       },
     },

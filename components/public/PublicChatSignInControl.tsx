@@ -39,7 +39,7 @@ export default function PublicChatSignInControl({
           rememberPublicChatResumeInSession(resume);
           onQuietSignIn?.();
         }}
-        className="text-sm text-slate-500 underline"
+        className="pressable inline-flex h-9 items-center rounded-xl border border-sky-200 bg-white px-3 text-sm font-semibold text-sky-700 shadow-sm hover-ok:bg-sky-50"
       >Log in</button>
     );
   }
@@ -49,6 +49,8 @@ export default function PublicChatSignInControl({
       callbackUrl={callbackUrl}
       googleEnabled={googleEnabled}
       microsoftEnabled={microsoftEnabled}
+      appearance="light"
+      description="Continue this chat with your account."
     />
   );
 }

@@ -134,6 +134,7 @@ lib/public-chat-identity/
   claim.ts                 # Map + reattribute orchestration
 components/public/
   IdentityChoiceModal.tsx  # Non-dismissible gate
+  PublicChatIdentityStatus.tsx
   PublicChatSignInControl.tsx
   conversation-resume.ts   # sessionStorage resume helper
 app/api/public-chat/visitor/route.ts
@@ -145,8 +146,8 @@ scripts/verify-public-chat-identity-gate.ts
 
 ### Modified Files
 
-- `app/chat/[appId]/page.tsx` — pass `isSignedIn`, `chatCallbackUrl`, OAuth flags from `auth()` and env.
-- `components/public/PublishedChatbot.tsx` — host gate, block composer, anonymous login CTA, resume hydration.
+- `app/chat/[appId]/page.tsx` — pass `isSignedIn`, `signedInUser`, `chatCallbackUrl`, OAuth flags from `auth()` and env.
+- `components/public/PublishedChatbot.tsx` — host gate, block composer, identity status, resume hydration.
 - `components/public/chat-recording.ts` — optional initial `sessionId` for resume.
 - `lib/chat-session-store/types.ts` — optional `anonymousVisitorId`.
 - `lib/chat-session-store/store.ts` — column, `attributeSessionsForVisitor`, one-way identity promotion on upsert.
@@ -262,6 +263,10 @@ Already-attributed rows stay with the earlier user when another person later sig
 | 6.4 | Attributed downloads match signed-in | export.ts, Claim | CSV/JSON | Claim and resume |
 | 7.1 | Disclose remembered visitor id | copy.ts, IdentityChoiceModal | State | Identity gate |
 | 7.2 | Disclose later linking | copy.ts, IdentityChoiceModal | State | Identity gate |
+| 8.1 | Show anonymous status and clear login | PublicChatIdentityStatus | State | Identity gate |
+| 8.2 | Show current signed-in account | PublicChatIdentityStatus, PublicChatPage | `signedInUser` | Identity gate |
+| 8.3 | Expose sessions and logout | PublicChatIdentityStatus | Auth.js `signOut` | Identity gate |
+| 8.4 | Logout returns to the gated chat | PublicChatIdentityStatus, PublicChatPage | `chatCallbackUrl` | Identity gate |
 
 ## Components and Interfaces
 
@@ -269,6 +274,7 @@ Already-attributed rows stay with the earlier user when another person later sig
 |-----------|--------------|--------|--------------|------------------|-----------|
 | IdentityChoiceModal | UI | Non-dismissible English gate | 1.1–1.6, 2.4, 3.1, 7.1, 7.2 | copy.ts P0, Visitor API P0, PublicChatSignInControl P0 | State |
 | PublicChatSignInControl | UI | Start existing OAuth with chat callbackUrl | 2.1–2.3, 4.1, 4.2 | SignInPanel P0, conversation-resume P0 | State |
+| PublicChatIdentityStatus | UI | Show anonymous or account status and account actions | 4.1, 8.1–8.4 | PublicChatSignInControl P0, Auth.js signOut P0 | State |
 | PublishedChatbot | UI | Host gate, block composer, resume | 1.1–1.5, 3.1, 4.3 | Modal P0, claim API P0, transcript P1 | State |
 | PublicChatPage | Route | Pass signed-in flag and callback path | 1.2, 2.2 | auth() P0 | State |
 | VisitorCookie | Domain | Issue and read HttpOnly visitor cookie | 3.2–3.6, 5.6 | next/headers P0 | Service |
@@ -290,8 +296,9 @@ Already-attributed rows stay with the earlier user when another person later sig
 **Responsibilities & Constraints**
 
 - Render only when `isSignedIn` is false.
-- Primary button label: `Log in to continue`. Secondary text-style action: `Continue anonymously`.
-- Copy from `lib/public-chat-identity/copy.ts` (privacy sentences required).
+- Light surface consistent with the public-chat canvas, even when the app theme is dark.
+- Heading: `Choose how to continue`. Primary button label: `Log in`. Secondary outlined action: `Continue anonymously`.
+- Concise copy from `lib/public-chat-identity/copy.ts` combines both required privacy disclosures into one paragraph.
 - Do not close on overlay click or Escape. No close control.
 - Continue anonymously calls `POST /api/public-chat/visitor` and only then signals the parent to unlock chat.
 
@@ -311,15 +318,16 @@ Already-attributed rows stay with the earlier user when another person later sig
 
 - `callbackUrl` is the path the visitor opened (`/chat/{id-or-slug}` plus search).
 - Before `signIn()`, write the resume record.
-- After anonymous choice, a quieter `Log in` control on the chat chrome uses this same control.
+- After anonymous choice, an `Anonymous` status and outlined `Log in` button on the chat header use this same control.
 
 #### PublishedChatbot
 
 **Implementation Notes**
 
-- New props: `isSignedIn`, `chatCallbackUrl`, `googleEnabled`, `microsoftEnabled`.
+- New props: `isSignedIn`, `signedInUser`, `chatCallbackUrl`, `googleEnabled`, `microsoftEnabled`.
 - Signed-in mount: skip modal; `POST` claim; if resume matches `appId`, hydrate transcript and reuse `sessionId`.
 - Unauthenticated mount: always show the modal, even when a visitor cookie exists.
+- The public-chat header hosts a persistent identity control. Anonymous mode shows status plus Log in. Signed-in mode shows the current account and a menu with My sessions and Log out. Log out returns to `chatCallbackUrl`.
 
 ### Domain
 

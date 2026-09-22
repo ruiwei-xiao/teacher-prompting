@@ -86,7 +86,7 @@
 
 - [x] 4. Published chat UI
 - [x] 4.1 (P) Build the identity-choice modal
-  - English non-dismissible overlay with prominent Log in to continue, quieter Continue anonymously, and both privacy sentences; overlay click and Escape do not count as a choice
+  - English non-dismissible overlay with prominent Log in, secondary Continue anonymously, and both privacy disclosures; overlay click and Escape do not count as a choice
   - Modal stays open without a choice and uses the shared copy strings
   - _Requirements: 1.1, 1.4, 1.6, 7.1, 7.2_
   - _Boundary: IdentityChoiceModal_
@@ -128,3 +128,13 @@
   - _Requirements: 3.4, 4.3, 6.1, 6.2, 6.3, 6.4_
   - _Boundary: Owner export, RecordChatTurn, ChatSessionStore_
   - _Depends: 1.5, 2.1, 2.3, 4.2, 4.4_
+
+## 6. Public-chat identity clarity
+
+- [x] 6. Public-chat identity clarity
+- [x] 6.1 Refine the modal and expose account status
+  - Keep the identity modal light, add a short heading, combine the privacy disclosure into one concise paragraph, and use a secondary outlined anonymous action
+  - After anonymous continuation, show Anonymous plus a clear Log in button; when signed in, show the current account with My sessions and Log out actions; logout returns to the same chat
+  - Modal, account-status, sign-in, type-check, and build verifications pass
+  - _Requirements: 1.4, 4.1, 7.1, 7.2, 8.1, 8.2, 8.3, 8.4_
+  - _Boundary: IdentityChoiceModal, PublicChatIdentityStatus, PublicChatPage, PublishedChatbot, SignInPanel_

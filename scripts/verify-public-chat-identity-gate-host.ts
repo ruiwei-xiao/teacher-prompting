@@ -149,8 +149,8 @@ async function main() {
           "login from the gate shows the sign-in panel"
         );
         assert(
-          chatbotSource.includes('variant="quiet"'),
-          "anonymous chat offers the quieter Log in control"
+          chatbotSource.includes("PublicChatIdentityStatus"),
+          "anonymous and signed-in chat expose identity status"
         );
         assert(
           chatbotSource.includes("publicChatCanParticipate"),
