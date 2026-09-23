@@ -41,13 +41,15 @@ export async function loadResumedPublicChat(input: {
     return null;
   }
 
+  // Both Strict Mode effect setups must capture the same resume before either
+  // asynchronous claim can finish and consume the storage key.
+  const resume = readPublicChatResume(input.storage);
   try {
     await input.claim();
   } catch (error: unknown) {
     console.error("Failed to claim anonymous visitor history:", error);
   }
 
-  const resume = readPublicChatResume(input.storage);
   if (!resume || resume.appId !== input.appId) {
     return null;
   }

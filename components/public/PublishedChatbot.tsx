@@ -140,7 +140,13 @@ export default function PublishedChatbot({
       fetchTranscript: (sessionId) => fetch(`/api/sessions/${sessionId}`),
     })
       .then((resumed) => {
-        if (cancelled || !resumed) {
+        if (cancelled) {
+          return;
+        }
+        if (!resumed) {
+          if (resume?.appId === appId) {
+            recording.reset();
+          }
           return;
         }
         recording.resumeConversation(resumed.sessionId, resumed.messageTimes);

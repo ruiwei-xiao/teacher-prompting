@@ -201,7 +201,10 @@ async function main() {
         assertEqual(dismissalChoice("escape-key"), null, "escape choice");
         assert(!source.includes('"Escape"'), "no Escape key comparison");
         assert(!source.includes("'Escape'"), "no Escape key comparison");
-        assert(!/onKeyDown|keydown|keyup|KeyboardEvent/.test(source), "no key listener");
+        assert(
+          !/event\.key\s*===?\s*["']Escape["']/.test(source),
+          "Escape does not dismiss the modal"
+        );
         assert(!/return null/.test(source), "modal does not unmount itself");
         assert(
           !/setOpen|setVisible|setDismissed/.test(source),
@@ -223,6 +226,19 @@ async function main() {
           !/return null|setOpen|onClose/.test(loginRegion),
           "login handler does not close the modal"
         );
+      },
+    },
+    {
+      name: "dialog traps focus and serializes the two choices",
+      run: () => {
+        assert(source.includes("loginRef.current?.focus()"), "focus enters the dialog");
+        assert(source.includes('event.key !== "Tab"'), "Tab is trapped");
+        assert(source.includes('addEventListener("focusin"'), "outside focus is redirected");
+        assert(source.includes("element.inert = true"), "background is inert");
+        assert(source.includes("previousFocus.focus()"), "focus is restored");
+        const loginIndex = source.indexOf("onClick={onLogIn}");
+        const loginRegion = source.slice(loginIndex, loginIndex + 100);
+        assert(loginRegion.includes("disabled={pending}"), "login waits for visitor POST");
       },
     },
     {

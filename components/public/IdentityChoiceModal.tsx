@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ANONYMOUS_ACTION_LABEL,
   IDENTITY_CHOICE_TITLE,
@@ -59,6 +59,70 @@ export default function IdentityChoiceModal({
 }: IdentityChoiceModalProps) {
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const loginRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const dialog = dialogRef.current;
+    if (!overlay || !dialog) return;
+
+    const previousFocus = document.activeElement;
+    const siblings = Array.from(overlay.parentElement?.children ?? []).filter(
+      (element): element is HTMLElement =>
+        element instanceof HTMLElement && element !== overlay
+    );
+    const previousInert = siblings.map((element) => element.inert);
+    siblings.forEach((element) => {
+      element.inert = true;
+    });
+    loginRef.current?.focus();
+
+    function keepFocusInside(event: FocusEvent) {
+      if (!dialog?.contains(event.target as Node)) {
+        dialog?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+      }
+    }
+
+    function trapTab(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      const buttons = Array.from(
+        dialog?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []
+      );
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("focusin", keepFocusInside);
+    document.addEventListener("keydown", trapTab);
+    return () => {
+      document.removeEventListener("focusin", keepFocusInside);
+      document.removeEventListener("keydown", trapTab);
+      siblings.forEach((element, index) => {
+        element.inert = previousInert[index];
+      });
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pending) {
+      dialogRef.current
+        ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.focus();
+    }
+  }, [pending]);
 
   async function handleContinueAnonymously() {
     if (pending) {
@@ -77,8 +141,9 @@ export default function IdentityChoiceModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="identity-choice-title"
@@ -95,9 +160,11 @@ export default function IdentityChoiceModal({
         </p>
         <div className="mt-6 flex flex-col items-stretch gap-3">
           <button
+            ref={loginRef}
             type="button"
             onClick={onLogIn}
-            className="pressable flex h-12 w-full items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700"
+            disabled={pending}
+            className="pressable flex h-12 w-full items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
             {LOGIN_ACTION_LABEL}
           </button>

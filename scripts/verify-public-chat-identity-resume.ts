@@ -171,6 +171,32 @@ async function main() {
       },
     },
     {
+      name: "concurrent Strict Mode loads retain the resume while claims await",
+      run: async () => {
+        const storage = memoryStorage();
+        rememberPublicChatResume({ appId: "bot-1", sessionId: RESUME_ID }, storage);
+        let finishFirstClaim: (() => void) | undefined;
+        const firstClaim = new Promise<void>((resolve) => {
+          finishFirstClaim = resolve;
+        });
+        const options = {
+          isSignedIn: true,
+          appId: "bot-1",
+          storage,
+          fetchTranscript: async () => ({
+            ok: true,
+            json: async () => ({ session: { appId: "bot-1", messages: [] } }),
+          }),
+        };
+        const first = loadResumedPublicChat({ ...options, claim: () => firstClaim });
+        const second = loadResumedPublicChat({ ...options, claim: async () => {} });
+        finishFirstClaim?.();
+        const [firstResult, secondResult] = await Promise.all([first, second]);
+        assertEqual(firstResult?.sessionId, RESUME_ID, "first setup captured resume");
+        assertEqual(secondResult?.sessionId, RESUME_ID, "second setup captured resume");
+      },
+    },
+    {
       name: "recording helper keeps the resumed id and original times",
       run: () => {
         const recording = createPublicChatRecording({
@@ -218,6 +244,10 @@ async function main() {
         assert(
           !loadRegion.includes("setComposerError"),
           "failed resume does not block the composer with an error"
+        );
+        assert(
+          /if \(!resumed\)\s*\{[\s\S]*?recording\.reset\(\)/.test(loadRegion),
+          "failed resume resets the recording id"
         );
       },
     },
