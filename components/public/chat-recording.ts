@@ -21,11 +21,16 @@ export type PublicChatRecordingOptions = {
   now?: () => string;
   createId?: () => string;
   ownerSharing?: boolean;
+  sessionId?: string;
 };
 
 export type PublicChatRecording = {
   readonly sessionId: string;
   reset: () => void;
+  resumeConversation: (
+    sessionId: string,
+    messageTimes: readonly string[]
+  ) => void;
   setOwnerSharing: (value: boolean) => void;
   buildPayload: (
     messages: readonly PublicChatRecordingMessage[],
@@ -40,13 +45,29 @@ export function createPublicChatRecording(
   const createId = options.createId ?? (() => crypto.randomUUID());
   let ownerSharing = options.ownerSharing ?? true;
 
-  let sessionId = createId();
+  const providedSessionId = options.sessionId?.trim();
+  let sessionId = providedSessionId || createId();
   const rememberedTimes: string[] = [];
 
   function reset(): void {
     sessionId = createId();
     rememberedTimes.length = 0;
     ownerSharing = options.ownerSharing ?? true;
+  }
+
+  function resumeConversation(
+    nextSessionId: string,
+    messageTimes: readonly string[]
+  ): void {
+    const trimmed = nextSessionId.trim();
+    if (!trimmed) {
+      return;
+    }
+    sessionId = trimmed;
+    rememberedTimes.length = 0;
+    for (const time of messageTimes) {
+      rememberedTimes.push(time);
+    }
   }
 
   function setOwnerSharing(value: boolean): void {
@@ -84,6 +105,7 @@ export function createPublicChatRecording(
       return sessionId;
     },
     reset,
+    resumeConversation,
     setOwnerSharing,
     buildPayload,
   };

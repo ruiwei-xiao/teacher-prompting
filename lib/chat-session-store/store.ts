@@ -4,11 +4,16 @@
  * Mirrors lib/star-store/store.ts and lib/calibration-store/store.ts chooser.
  *
  * upsertSessionTurn creates on first turn and replaces the transcript later.
- * Identity (appId + participantId) must match an existing row.
+ * Identity (appId + participantId) must match an existing row, except a
+ * one-way anonymous-to-signed-in promotion when visitor ids match.
+ * Public-chat rows may carry an optional anonymousVisitorId; editor-test
+ * and older records without the field read as null. Unattributed rows may
+ * be promoted one-way to a signed-in participant when visitor ids match.
  * shared follows the latest requested owner-sharing flag on each upsert.
  * listSessionsForApp is shared-only with optional source/date filters.
  * listSharedSessionsForAppIds is shared-only across a set of app ids (one query).
  * listSessionsForUser excludes anonymous.
+ * attributeSessionsForVisitor promotes still-unattributed visitor rows.
  * listSharedSessionRecordsForApp returns full shared transcripts for owner export
  * (same optional filters as the owner list).
  * disableSharing / enableSharing flip the flag; discardSession deletes the row.
@@ -43,6 +48,12 @@ export type {
   UpsertSessionTurnInput,
 } from "./types";
 
+export type AttributeSessionsForVisitorInput = {
+  anonymousVisitorId: string;
+  userId: string;
+  participantName: string;
+};
+
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DEFAULT_SESSIONS_FILE = path.join(DATA_DIR, "chat-sessions.json");
 
@@ -53,6 +64,7 @@ type ChatSessionRow = {
   owner_id: string;
   participant_id: string | null;
   participant_name: string | null;
+  anonymous_visitor_id?: string | null;
   surface: string;
   shared: boolean;
   messages: unknown;
@@ -141,13 +153,45 @@ function normalizeMessages(
 }
 
 function identitiesMatch(
-  existing: Pick<ChatSessionRecord, "appId" | "participantId">,
-  input: Pick<UpsertSessionTurnInput, "appId" | "participantId">
+  existing: Pick<
+    ChatSessionRecord,
+    "appId" | "participantId" | "anonymousVisitorId"
+  >,
+  input: Pick<
+    UpsertSessionTurnInput,
+    "appId" | "participantId" | "anonymousVisitorId"
+  >
 ): boolean {
-  return (
-    existing.appId === input.appId &&
-    existing.participantId === input.participantId
+  if (existing.appId !== input.appId) {
+    return false;
+  }
+  if (existing.participantId === input.participantId) {
+    return true;
+  }
+  const existingVisitor = normalizeAnonymousVisitorId(
+    existing.anonymousVisitorId
   );
+  const incomingVisitor = normalizeAnonymousVisitorId(
+    input.anonymousVisitorId
+  );
+  return (
+    existing.participantId === null &&
+    input.participantId !== null &&
+    existingVisitor !== null &&
+    incomingVisitor !== null &&
+    existingVisitor === incomingVisitor
+  );
+}
+
+function normalizeAnonymousVisitorId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizeSessionRecord(session: ChatSessionRecord): ChatSessionRecord {
+  return {
+    ...session,
+    anonymousVisitorId: normalizeAnonymousVisitorId(session.anonymousVisitorId),
+  };
 }
 
 function nextShared(existingShared: boolean, requested?: boolean): boolean {
@@ -174,6 +218,7 @@ function applyTurn(
       ownerId: input.ownerId,
       participantId: input.participantId,
       participantName: input.participantName,
+      anonymousVisitorId: normalizeAnonymousVisitorId(input.anonymousVisitorId),
       surface: input.surface,
       shared: input.shared ?? true,
       messages,
@@ -184,8 +229,16 @@ function applyTurn(
   if (!identitiesMatch(existing, input)) {
     throw new Error("Session identity mismatch.");
   }
+  const shouldPromote =
+    existing.participantId === null && input.participantId !== null;
   return {
     ...existing,
+    ...(shouldPromote
+      ? {
+          participantId: input.participantId,
+          participantName: input.participantName,
+        }
+      : {}),
     messages,
     shared: nextShared(existing.shared, input.shared),
     updatedAt: now,
@@ -200,6 +253,7 @@ function rowToSession(row: ChatSessionRow): ChatSessionRecord {
     ownerId: row.owner_id,
     participantId: row.participant_id,
     participantName: row.participant_name,
+    anonymousVisitorId: normalizeAnonymousVisitorId(row.anonymous_visitor_id),
     surface: parseSurface(row.surface),
     shared: Boolean(row.shared),
     messages: parseMessages(row.messages),
@@ -294,7 +348,9 @@ async function readFileData(): Promise<ChatSessionsFileData> {
   const raw = await fs.readFile(sessionsFilePath(), "utf-8");
   const parsed = JSON.parse(raw) as Partial<ChatSessionsFileData>;
   return {
-    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    sessions: Array.isArray(parsed.sessions)
+      ? parsed.sessions.map(normalizeSessionRecord)
+      : [],
   };
 }
 
@@ -334,6 +390,17 @@ async function ensurePostgresStore() {
       await sql`
         CREATE INDEX IF NOT EXISTS idx_chat_sessions_participant
         ON chat_sessions (participant_id, updated_at DESC)
+      `;
+
+      await sql`
+        ALTER TABLE chat_sessions
+        ADD COLUMN IF NOT EXISTS anonymous_visitor_id TEXT
+      `;
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_chat_sessions_anonymous_visitor
+        ON chat_sessions (anonymous_visitor_id)
+        WHERE anonymous_visitor_id IS NOT NULL
       `;
     })();
   }
@@ -460,6 +527,31 @@ async function discardSessionInFile(id: string): Promise<void> {
   await writeFileData({ sessions: next });
 }
 
+async function attributeSessionsForVisitorInFile(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  const data = await readFileData();
+  let attributedCount = 0;
+  const sessions = data.sessions.map((session) => {
+    if (
+      session.anonymousVisitorId !== input.anonymousVisitorId ||
+      session.participantId !== null
+    ) {
+      return session;
+    }
+    attributedCount += 1;
+    return {
+      ...session,
+      participantId: input.userId,
+      participantName: input.participantName,
+    };
+  });
+  if (attributedCount > 0) {
+    await writeFileData({ sessions });
+  }
+  return { attributedCount };
+}
+
 // --- Postgres implementations ---
 
 async function getSessionByIdInPostgres(
@@ -469,7 +561,7 @@ async function getSessionByIdInPostgres(
   const result = await sql<ChatSessionRow>`
     SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
-      surface, shared, messages, created_at, updated_at
+      anonymous_visitor_id, surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE id = ${id}
     LIMIT 1
@@ -489,7 +581,7 @@ async function upsertSessionTurnInPostgres(
     await sql`
       INSERT INTO chat_sessions (
         id, app_id, app_name, owner_id, participant_id, participant_name,
-        surface, shared, messages, created_at, updated_at
+        anonymous_visitor_id, surface, shared, messages, created_at, updated_at
       )
       VALUES (
         ${next.id},
@@ -498,6 +590,7 @@ async function upsertSessionTurnInPostgres(
         ${next.ownerId},
         ${next.participantId},
         ${next.participantName},
+        ${next.anonymousVisitorId ?? null},
         ${next.surface},
         ${next.shared},
         ${messagesJson},
@@ -512,7 +605,9 @@ async function upsertSessionTurnInPostgres(
     SET
       messages = ${messagesJson},
       shared = ${next.shared},
-      updated_at = ${next.updatedAt}
+      updated_at = ${next.updatedAt},
+      participant_id = ${next.participantId},
+      participant_name = ${next.participantName}
     WHERE id = ${next.id}
   `;
 }
@@ -541,7 +636,7 @@ async function listSessionsForAppInPostgres(
   const result = await sql<ChatSessionRow>`
     SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
-      surface, shared, messages, created_at, updated_at
+      anonymous_visitor_id, surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE app_id = ${appId} AND shared = TRUE
       AND (${surface}::text IS NULL OR surface = ${surface})
@@ -562,7 +657,7 @@ async function listSharedSessionsForAppIdsInPostgres(
   const result = await sql.query<ChatSessionRow>(
     `SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
-      surface, shared, messages, created_at, updated_at
+      anonymous_visitor_id, surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE shared = TRUE AND app_id = ANY($1::text[])
     ORDER BY updated_at DESC, id DESC
@@ -583,7 +678,7 @@ async function listSharedSessionRecordsForAppInPostgres(
   const result = await sql<ChatSessionRow>`
     SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
-      surface, shared, messages, created_at, updated_at
+      anonymous_visitor_id, surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE app_id = ${appId} AND shared = TRUE
       AND (${surface}::text IS NULL OR surface = ${surface})
@@ -602,7 +697,7 @@ async function listSessionsForUserInPostgres(
   const result = await sql<ChatSessionRow>`
     SELECT
       id, app_id, app_name, owner_id, participant_id, participant_name,
-      surface, shared, messages, created_at, updated_at
+      anonymous_visitor_id, surface, shared, messages, created_at, updated_at
     FROM chat_sessions
     WHERE participant_id = ${userId}
     ORDER BY updated_at DESC
@@ -635,6 +730,21 @@ async function discardSessionInPostgres(id: string): Promise<void> {
     DELETE FROM chat_sessions
     WHERE id = ${id}
   `;
+}
+
+async function attributeSessionsForVisitorInPostgres(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  await ensurePostgresStore();
+  const result = await sql`
+    UPDATE chat_sessions
+    SET
+      participant_id = ${input.userId},
+      participant_name = ${input.participantName}
+    WHERE anonymous_visitor_id = ${input.anonymousVisitorId}
+      AND participant_id IS NULL
+  `;
+  return { attributedCount: result.rowCount ?? 0 };
 }
 
 // --- Public façade ---
@@ -719,4 +829,13 @@ export async function discardSession(id: string): Promise<void> {
     return discardSessionInPostgres(id);
   }
   return discardSessionInFile(id);
+}
+
+export async function attributeSessionsForVisitor(
+  input: AttributeSessionsForVisitorInput
+): Promise<{ attributedCount: number }> {
+  if (shouldUsePostgres()) {
+    return attributeSessionsForVisitorInPostgres(input);
+  }
+  return attributeSessionsForVisitorInFile(input);
 }

@@ -34,9 +34,12 @@ async function main() {
   delete process.env.POSTGRES_URL_NON_POOLING;
   delete process.env.POSTGRES_PRISMA_URL;
 
-  const { upsertSessionTurn, getSessionById } = await import(
-    "../lib/chat-session-store/store"
-  );
+  const {
+    upsertSessionTurn,
+    getSessionById,
+    attributeSessionsForVisitor,
+    listSessionsForUser,
+  } = await import("../lib/chat-session-store/store");
 
   const baseInput = {
     id: "session-write-1",
@@ -214,6 +217,360 @@ async function main() {
         const turnedOff = await getSessionById(sharedId);
         assert(turnedOff, "expected session after turning sharing off");
         assertEqual(turnedOff.shared, false, "true → false is allowed");
+      },
+    },
+    {
+      name: "public anonymous session round-trips visitor id without a participant account",
+      run: async () => {
+        const visitorId = "11111111-2222-4333-8444-555555555555";
+        const id = "session-anon-visitor-1";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+        const session = await getSessionById(id);
+        assert(session, "expected a public anonymous session");
+        assertEqual(session.anonymousVisitorId, visitorId, "anonymousVisitorId");
+        assertEqual(session.participantId, null, "participantId stays null");
+        assertEqual(session.participantName, null, "participantName stays null");
+        assertEqual(session.surface, "public", "surface");
+
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          messages: secondHistory,
+        });
+        const afterSecondTurn = await getSessionById(id);
+        assert(afterSecondTurn, "expected the same session after a later turn");
+        assertEqual(
+          afterSecondTurn.anonymousVisitorId,
+          visitorId,
+          "visitor id is preserved on later turns"
+        );
+        assertEqual(
+          afterSecondTurn.participantId,
+          null,
+          "later turns still have no participant account"
+        );
+      },
+    },
+    {
+      name: "editor-test rows remain without a visitor id",
+      run: async () => {
+        const id = "session-editor-test-no-visitor";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          surface: "editor-test",
+          messages: firstHistory,
+        });
+        const session = await getSessionById(id);
+        assert(session, "expected an editor-test session");
+        assertEqual(
+          session.anonymousVisitorId,
+          null,
+          "editor-test has no visitor id"
+        );
+        assertEqual(session.surface, "editor-test", "surface");
+      },
+    },
+    {
+      name: "older records without the visitor id field read as absent",
+      run: async () => {
+        const id = "session-legacy-no-visitor-field";
+        const raw = JSON.parse(await fs.readFile(dataFile, "utf-8")) as {
+          sessions: Array<Record<string, unknown>>;
+        };
+        raw.sessions.push({
+          id,
+          appId: baseInput.appId,
+          appName: baseInput.appName,
+          ownerId: baseInput.ownerId,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          shared: true,
+          messages: firstHistory,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        await fs.writeFile(dataFile, JSON.stringify(raw, null, 2), "utf-8");
+
+        const session = await getSessionById(id);
+        assert(session, "expected a legacy session");
+        assertEqual(
+          session.anonymousVisitorId,
+          null,
+          "missing visitor id field reads as null"
+        );
+        assertEqual(session.participantId, null, "legacy participantId");
+      },
+    },
+    {
+      name: "attributeSessionsForVisitor promotes null-participant rows to the claimant",
+      run: async () => {
+        const visitorId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        const id = "session-claim-null-participant";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+
+        const result = await attributeSessionsForVisitor({
+          anonymousVisitorId: visitorId,
+          userId: "claimant-1",
+          participantName: "Claimant One",
+        });
+        assertEqual(result.attributedCount, 1, "attributedCount");
+
+        const session = await getSessionById(id);
+        assert(session, "expected the promoted session");
+        assertEqual(session.participantId, "claimant-1", "participantId");
+        assertEqual(
+          session.participantName,
+          "Claimant One",
+          "participantName uses the signed-in display name"
+        );
+        assertEqual(
+          session.anonymousVisitorId,
+          visitorId,
+          "visitor id is retained after attribution"
+        );
+        assertEqual(session.messages, firstHistory, "transcript stays put");
+
+        const mine = await listSessionsForUser("claimant-1", {
+          limit: 20,
+          offset: 0,
+        });
+        assert(
+          mine.items.some((item) => item.id === id),
+          "promoted session appears in My sessions"
+        );
+
+        const second = await attributeSessionsForVisitor({
+          anonymousVisitorId: visitorId,
+          userId: "claimant-1",
+          participantName: "Claimant One",
+        });
+        assertEqual(second.attributedCount, 0, "repeat claim is a no-op");
+      },
+    },
+    {
+      name: "attributeSessionsForVisitor leaves already-claimed rows unchanged",
+      run: async () => {
+        const visitorId = "ffffffff-1111-4222-8333-444444444444";
+        const claimedId = "session-already-claimed";
+        const openId = "session-still-open-for-claim";
+        await upsertSessionTurn({
+          ...baseInput,
+          id: claimedId,
+          participantId: "earlier-user",
+          participantName: "Earlier User",
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+        await upsertSessionTurn({
+          ...baseInput,
+          id: openId,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+
+        const result = await attributeSessionsForVisitor({
+          anonymousVisitorId: visitorId,
+          userId: "later-user",
+          participantName: "Later User",
+        });
+        assertEqual(result.attributedCount, 1, "only the unattributed row");
+
+        const claimed = await getSessionById(claimedId);
+        assert(claimed, "already-claimed session should still exist");
+        assertEqual(
+          claimed.participantId,
+          "earlier-user",
+          "already-claimed participantId stays put"
+        );
+        assertEqual(
+          claimed.participantName,
+          "Earlier User",
+          "already-claimed display name stays put"
+        );
+
+        const open = await getSessionById(openId);
+        assert(open, "unattributed session should still exist");
+        assertEqual(open.participantId, "later-user", "open row becomes claimant");
+        assertEqual(
+          open.participantName,
+          "Later User",
+          "open row display name"
+        );
+      },
+    },
+    {
+      name: "matching visitor ids allow one-way promotion on later turns",
+      run: async () => {
+        const visitorId = "99999999-8888-4777-8666-555555555555";
+        const id = "session-midchat-login";
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+
+        await upsertSessionTurn({
+          ...baseInput,
+          id,
+          participantId: "signed-in-user",
+          participantName: "Signed In",
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: secondHistory,
+        });
+
+        const session = await getSessionById(id);
+        assert(session, "expected the continued conversation");
+        assertEqual(session.id, id, "same conversation id");
+        assertEqual(session.participantId, "signed-in-user", "promoted participantId");
+        assertEqual(
+          session.participantName,
+          "Signed In",
+          "promoted participantName"
+        );
+        assertEqual(
+          session.anonymousVisitorId,
+          visitorId,
+          "visitor id stays on the continued conversation"
+        );
+        assertEqual(session.messages, secondHistory, "later-turn transcript");
+      },
+    },
+    {
+      name: "mismatched participant still fails when visitor ids are present",
+      run: async () => {
+        const visitorId = "12121212-3434-4656-8787-909090909090";
+        const claimedId = "session-mismatch-already-owned";
+        const anonId = "session-mismatch-anon";
+        await upsertSessionTurn({
+          ...baseInput,
+          id: claimedId,
+          participantId: "owner-user",
+          participantName: "Owner User",
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+        await upsertSessionTurn({
+          ...baseInput,
+          id: anonId,
+          participantId: null,
+          participantName: null,
+          surface: "public",
+          anonymousVisitorId: visitorId,
+          messages: firstHistory,
+        });
+
+        const claimedBefore = await getSessionById(claimedId);
+        assert(claimedBefore, "owned session should exist");
+        let otherAccountRejected = false;
+        try {
+          await upsertSessionTurn({
+            ...baseInput,
+            id: claimedId,
+            participantId: "other-user",
+            participantName: "Other User",
+            surface: "public",
+            anonymousVisitorId: visitorId,
+            messages: secondHistory,
+          });
+        } catch {
+          otherAccountRejected = true;
+        }
+        assert(
+          otherAccountRejected,
+          "expected rejection when another account tries to take the session"
+        );
+
+        const anonBefore = await getSessionById(anonId);
+        assert(anonBefore, "anonymous session should exist");
+        let visitorMismatchRejected = false;
+        try {
+          await upsertSessionTurn({
+            ...baseInput,
+            id: anonId,
+            participantId: "signed-in-user",
+            participantName: "Signed In",
+            surface: "public",
+            anonymousVisitorId: "00000000-0000-4000-8000-000000000000",
+            messages: secondHistory,
+          });
+        } catch {
+          visitorMismatchRejected = true;
+        }
+        assert(
+          visitorMismatchRejected,
+          "expected rejection when visitor ids do not match"
+        );
+
+        let missingVisitorRejected = false;
+        try {
+          await upsertSessionTurn({
+            ...baseInput,
+            id: anonId,
+            participantId: "signed-in-user",
+            participantName: "Signed In",
+            surface: "public",
+            messages: secondHistory,
+          });
+        } catch {
+          missingVisitorRejected = true;
+        }
+        assert(
+          missingVisitorRejected,
+          "expected rejection when the later turn has no visitor id"
+        );
+
+        const claimedAfter = await getSessionById(claimedId);
+        assert(claimedAfter, "owned session should still exist");
+        assertEqual(
+          claimedAfter.participantId,
+          claimedBefore.participantId,
+          "owned participantId unchanged"
+        );
+        assertEqual(
+          claimedAfter.messages,
+          claimedBefore.messages,
+          "owned transcript unchanged"
+        );
+
+        const anonAfter = await getSessionById(anonId);
+        assert(anonAfter, "anonymous session should still exist");
+        assertEqual(anonAfter.participantId, null, "anon participantId unchanged");
+        assertEqual(
+          anonAfter.messages,
+          anonBefore.messages,
+          "anon transcript unchanged"
+        );
       },
     },
   ];

@@ -47,6 +47,7 @@ export const CSV_COLUMNS = [
   "surface",
   "participantId",
   "participantName",
+  "anonymousVisitorId",
   "createdAt",
   "updatedAt",
   "messageIndex",
@@ -114,6 +115,7 @@ export function sessionsToCsv(sessions: ChatSessionRecord[]): string {
         session.surface,
         session.participantId ?? "",
         participantName,
+        session.anonymousVisitorId ?? "",
         session.createdAt,
         session.updatedAt,
         String(messageIndex),
@@ -139,7 +141,11 @@ export function sessionsToJson(input: {
   };
   sessions: ChatSessionRecord[];
 }): string {
-  return `${JSON.stringify(input, null, 2)}\n`;
+  const sessions = input.sessions.map((session) => ({
+    ...session,
+    anonymousVisitorId: session.anonymousVisitorId ?? null,
+  }));
+  return `${JSON.stringify({ ...input, sessions }, null, 2)}\n`;
 }
 
 function dateStamp(iso: string): string {

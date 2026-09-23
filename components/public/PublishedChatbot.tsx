@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   detectVisualizationMode,
   getVisualizationTitle,
@@ -16,12 +16,24 @@ import {
 } from "@/lib/chat-input/client";
 import { getWelcomeMessage } from "@/lib/chat/welcome-message";
 import ChatPrivacyControls from "./ChatPrivacyControls";
+import IdentityChoiceModal from "./IdentityChoiceModal";
+import PublicChatIdentityStatus, {
+  type PublicChatSignedInUser,
+} from "./PublicChatIdentityStatus";
+import PublicChatSignInControl from "./PublicChatSignInControl";
 import { createPublicChatRecording } from "./chat-recording";
+import { readPublicChatResume } from "./conversation-resume";
 import {
   applySharingResult,
   buildSharingRequest,
   sharingResultFromHttpStatus,
 } from "./chat-sharing";
+import {
+  publicChatCanParticipate,
+  publicChatShouldClaimOnMount,
+  publicChatShowsIdentityGate,
+} from "./public-chat-gate";
+import { loadResumedPublicChat } from "./resume-public-chat";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -29,14 +41,26 @@ type ChatMessage = {
   imageUrl?: string;
 };
 
+const CLAIM_URL = "/api/public-chat/identity/claim";
+
 export default function PublishedChatbot({
   appId,
   appName,
   systemPrompt,
+  isSignedIn,
+  signedInUser,
+  chatCallbackUrl,
+  googleEnabled,
+  microsoftEnabled,
 }: {
   appId: string;
   appName: string;
   systemPrompt: string;
+  isSignedIn: boolean;
+  signedInUser: PublicChatSignedInUser | null;
+  chatCallbackUrl: string;
+  googleEnabled: boolean;
+  microsoftEnabled: boolean;
 }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -58,11 +82,23 @@ export default function PublishedChatbot({
   const [sharing, setSharing] = useState(true);
   const [sharingBusy, setSharingBusy] = useState(false);
   const [sharingError, setSharingError] = useState("");
+  const [continuedAnonymously, setContinuedAnonymously] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [resumePending, setResumePending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const sharingRef = useRef(true);
   const recording = useMemo(() => createPublicChatRecording(), []);
+  const gateState = {
+    isSignedIn,
+    continuedAnonymously,
+    signingIn,
+  };
+  const canParticipate =
+    publicChatCanParticipate(gateState) && !resumePending;
+  const showIdentityGate = publicChatShowsIdentityGate(gateState);
+  const composerLocked = !canParticipate || busy;
   const visualizationMode = useMemo(
     () => detectVisualizationMode(systemPrompt || ""),
     [systemPrompt]
@@ -82,6 +118,52 @@ export default function PublishedChatbot({
     });
   }, [messages, busy]);
 
+  useLayoutEffect(() => {
+    if (!publicChatShouldClaimOnMount(isSignedIn)) {
+      return;
+    }
+    const resume = readPublicChatResume(window.sessionStorage);
+    if (resume?.appId === appId) {
+      setResumePending(true);
+    }
+    let cancelled = false;
+    void loadResumedPublicChat({
+      isSignedIn,
+      appId,
+      storage: window.sessionStorage,
+      claim: async () => {
+        const response = await fetch(CLAIM_URL, { method: "POST" });
+        if (!response.ok) {
+          throw new Error("Failed to claim anonymous visitor history");
+        }
+      },
+      fetchTranscript: (sessionId) => fetch(`/api/sessions/${sessionId}`),
+    })
+      .then((resumed) => {
+        if (cancelled) {
+          return;
+        }
+        if (!resumed) {
+          if (resume?.appId === appId) {
+            recording.reset();
+          }
+          return;
+        }
+        recording.resumeConversation(resumed.sessionId, resumed.messageTimes);
+        if (resumed.messages.length > 0) {
+          setMessages(resumed.messages);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setResumePending(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, appId, recording]);
+
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop?.();
@@ -89,6 +171,7 @@ export default function PublishedChatbot({
   }, []);
 
   async function send(textOverride?: string) {
+    if (!canParticipate) return;
     const baseText = (textOverride ?? input).trim();
     const text =
       attachedFileText && !attachedImageUrl
@@ -152,6 +235,7 @@ export default function PublishedChatbot({
   }
 
   async function handleToggleSharing() {
+    if (!canParticipate) return;
     if (sharingBusy) return;
 
     const previous = sharing;
@@ -190,6 +274,7 @@ export default function PublishedChatbot({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!canParticipate) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void send();
@@ -197,6 +282,7 @@ export default function PublishedChatbot({
   }
 
   function toggleVoiceInput() {
+    if (!canParticipate) return;
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
       setComposerError("Voice input is not supported in this browser.");
@@ -234,6 +320,7 @@ export default function PublishedChatbot({
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!canParticipate) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -262,23 +349,37 @@ export default function PublishedChatbot({
     <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-amber-50 via-rose-50 to-sky-50 px-4 py-4 scheme-light">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[2rem] border-2 border-rose-100 bg-white shadow-[0_16px_48px_rgba(251,113,133,0.12)]">
         <div className="shrink-0 bg-white px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Published chatbot
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Published chatbot
+                </div>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
+                  friendly mode
+                </span>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-amber-600">
+                  learn together
+                </span>
+              </div>
+              <h1 className="type-title mt-2 truncate text-2xl text-slate-900">
+                {appName}
+              </h1>
             </div>
-            <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-rose-500">
-              friendly mode
-            </span>
-            <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-amber-600">
-              learn together
-            </span>
+            <PublicChatIdentityStatus
+              signedInUser={signedInUser}
+              anonymous={continuedAnonymously && !isSignedIn}
+              callbackUrl={chatCallbackUrl}
+              appId={appId}
+              sessionId={recording.sessionId}
+              googleEnabled={googleEnabled}
+              microsoftEnabled={microsoftEnabled}
+              onAnonymousLogIn={() => setSigningIn(true)}
+            />
           </div>
-          <h1 className="type-title mt-2 text-2xl text-slate-900">
-            {appName}
-          </h1>
           <ChatPrivacyControls
             sharing={sharing}
-            busy={sharingBusy}
+            busy={sharingBusy || !canParticipate}
             onToggle={() => void handleToggleSharing()}
           />
           {sharingError ? (
@@ -406,7 +507,7 @@ export default function PublishedChatbot({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
+              disabled={composerLocked}
               className="pressable h-11 rounded-2xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-slate-700 hover-ok:bg-amber-100 disabled:opacity-50"
               title="Upload file or image"
               aria-label="Upload file or image"
@@ -416,7 +517,7 @@ export default function PublishedChatbot({
             <button
               type="button"
               onClick={toggleVoiceInput}
-              disabled={busy}
+              disabled={composerLocked}
               className={[
                 "pressable h-11 w-11 rounded-2xl border text-slate-700 disabled:opacity-50",
                 listening
@@ -436,12 +537,12 @@ export default function PublishedChatbot({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              disabled={busy}
+              disabled={composerLocked}
             />
             <button
               type="button"
               onClick={() => void send()}
-              disabled={busy}
+              disabled={composerLocked}
               className="pressable h-11 rounded-2xl bg-gradient-to-r from-rose-400 to-orange-400 px-5 font-medium text-white shadow-sm hover-ok:brightness-105 disabled:opacity-50"
             >
               Send
@@ -502,6 +603,24 @@ export default function PublishedChatbot({
         </div>
       </div>
 
+      {showIdentityGate ? (
+        <IdentityChoiceModal
+          onLogIn={() => setSigningIn(true)}
+          onContinueAnonymously={() => setContinuedAnonymously(true)}
+        />
+      ) : null}
+      {signingIn && !isSignedIn ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+          <PublicChatSignInControl
+            variant="panel"
+            callbackUrl={chatCallbackUrl}
+            appId={appId}
+            sessionId={recording.sessionId}
+            googleEnabled={googleEnabled}
+            microsoftEnabled={microsoftEnabled}
+          />
+        </div>
+      ) : null}
       {visualizationMode && visualizationMode !== "spacing-testing" && visualFullscreen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/45"

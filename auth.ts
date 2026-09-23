@@ -10,6 +10,7 @@ import {
   rememberDisplayProfile,
   upsertOAuthUser,
 } from "@/lib/auth/user-store";
+import { claimAnonymousVisitorForUser } from "@/lib/public-chat-identity/claim";
 
 const providers = [];
 
@@ -128,6 +129,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           });
         } catch (error) {
           console.error("Failed to remember display profile:", error);
+        }
+      }
+
+      if (user && token.userId) {
+        try {
+          await claimAnonymousVisitorForUser(String(token.userId));
+        } catch (error) {
+          console.error("Failed to claim anonymous visitor:", error);
         }
       }
 
