@@ -71,7 +71,7 @@ export default function SignInPanel({
           onClick={() => void handleSocial("google")}
           disabled={busy || !googleEnabled}
           className={[
-            "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50",
+            "pressable flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50",
             adaptive
               ? "dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
               : "",
@@ -103,7 +103,7 @@ export default function SignInPanel({
           onClick={() => void handleSocial("microsoft-entra-id")}
           disabled={busy || !microsoftEnabled}
           className={[
-            "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50",
+            "pressable flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50",
             adaptive
               ? "dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
               : "",

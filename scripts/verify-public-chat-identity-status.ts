@@ -87,7 +87,14 @@ async function main() {
     {
       name: "signed-in status exposes account, sessions, and logout",
       run: () => {
-        assert(statusSource.includes("<details"), "account control opens a menu");
+        assert(
+          statusSource.includes("aria-expanded={open}"),
+          "account control opens a menu"
+        );
+        assert(
+          statusSource.includes("origin-top-right"),
+          "account menu grows from its trigger"
+        );
         assert(statusSource.includes("signedInUser.name"), "shows account name");
         assert(statusSource.includes("signedInUser.email"), "shows account email");
         assert(statusSource.includes('href="/sessions"'), "links to My sessions");
@@ -95,6 +102,26 @@ async function main() {
         assert(statusSource.includes("signOut"), "uses existing Auth.js logout");
         assert(statusSource.includes("{ callbackUrl }"), "logout returns to chat");
         assert(statusSource.includes(">Log out<"), "labels Log out");
+        assert(
+          statusSource.includes('referrerPolicy="no-referrer"'),
+          "profile photos omit the page referrer"
+        );
+        assert(
+          statusSource.includes("onError={() => setFailed(true)}"),
+          "a failed profile photo falls back to an initial"
+        );
+        assert(
+          statusSource.includes('document.addEventListener("pointerdown", closeIfOutside)'),
+          "an outside press closes the account menu"
+        );
+        assert(
+          statusSource.includes("menu.contains(target)"),
+          "presses inside the account menu stay open"
+        );
+        assert(
+          statusSource.includes("setOpen(false)"),
+          "outside presses clear the open menu"
+        );
       },
     },
     {

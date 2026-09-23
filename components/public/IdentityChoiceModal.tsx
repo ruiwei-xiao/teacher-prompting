@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   ANONYMOUS_ACTION_LABEL,
+  IDENTITY_CHOICE_TITLE,
   LATER_LINKING_SENTENCE,
   LOGIN_ACTION_LABEL,
   REMEMBERED_VISITOR_SENTENCE,
@@ -85,21 +86,18 @@ export default function IdentityChoiceModal({
       >
         <h2
           id="identity-choice-title"
-          className="text-lg font-semibold text-slate-900"
+          className="text-lg font-semibold tracking-[-0.01em] text-slate-900"
         >
-          Choose how to continue
+          {IDENTITY_CHOICE_TITLE}
         </h2>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          {REMEMBERED_VISITOR_SENTENCE}
-        </p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          {LATER_LINKING_SENTENCE}
+          {REMEMBERED_VISITOR_SENTENCE} {LATER_LINKING_SENTENCE}
         </p>
         <div className="mt-6 flex flex-col items-stretch gap-3">
           <button
             type="button"
             onClick={onLogIn}
-            className="w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
+            className="pressable flex h-12 w-full items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white hover:bg-sky-700"
           >
             {LOGIN_ACTION_LABEL}
           </button>
@@ -109,7 +107,7 @@ export default function IdentityChoiceModal({
               void handleContinueAnonymously();
             }}
             disabled={pending}
-            className="text-sm text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-60"
+            className="pressable flex h-12 w-full items-center justify-center rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
             {ANONYMOUS_ACTION_LABEL}
           </button>
