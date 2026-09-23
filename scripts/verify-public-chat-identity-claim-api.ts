@@ -210,12 +210,19 @@ async function main() {
     {
       name: "claim throw returns 500 without leaking a visitor id",
       run: async () => {
-        const result = await claimVisitorIdentity(USER_ID, {
-          readVisitorId: async () => VALID_VISITOR_ID,
-          claimForUser: async () => {
-            throw new Error(`claim failed for ${VALID_VISITOR_ID}`);
-          },
-        });
+        const originalError = console.error;
+        console.error = () => {};
+        let result: Awaited<ReturnType<typeof claimVisitorIdentity>>;
+        try {
+          result = await claimVisitorIdentity(USER_ID, {
+            readVisitorId: async () => VALID_VISITOR_ID,
+            claimForUser: async () => {
+              throw new Error(`claim failed for ${VALID_VISITOR_ID}`);
+            },
+          });
+        } finally {
+          console.error = originalError;
+        }
         assertEqual(result.status, 500, "status");
         assertEqual(result.ok, false, "ok");
         if (!result.ok) {
