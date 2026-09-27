@@ -3,9 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import { sql, type VercelPoolClient } from "@vercel/postgres";
 import {
-  getAppById,
-  listApps,
   persistPublishedPointers,
+  readAppsForVersionBackfill,
 } from "../app-store/store";
 import type { AppConfig, PromptBuilderState, SupportedProvider } from "../app-store/types";
 import { snapshotFromApp } from "./rules";
@@ -13,9 +12,6 @@ import type { ConfigVersionKind, ConfigVersionRecord } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const VERSIONS_FILE = path.join(DATA_DIR, "app-config-versions.json");
-
-/** Temporary gate so the new store behavior can fail closed before it is enabled. */
-const CONFIG_VERSION_STORE_ENABLED = false;
 
 type SqlQuery = VercelPoolClient["sql"];
 
@@ -490,7 +486,7 @@ async function backfillPostgres(): Promise<void> {
 }
 
 async function backfillJson(): Promise<void> {
-  const apps = await listApps();
+  const apps = await readAppsForVersionBackfill();
   const existing = await readVersionsFile();
   const planned = planBackfill(apps, existing);
   if (planned.created.length === 0) return;
@@ -547,7 +543,7 @@ async function ensurePublishedVersionJson(
   app: AppConfig,
   now: string
 ): Promise<ConfigVersionRecord> {
-  const stored = await getAppById(app.id);
+  const stored = (await readAppsForVersionBackfill()).find((item) => item.id === app.id);
   if (!stored) {
     logStoreFailure([app.id]);
     throw new Error(`App ${app.id} was not found`);
@@ -580,30 +576,7 @@ async function ensurePublishedVersionJson(
   return plan.version;
 }
 
-async function listConfigVersionsEnabled(appId: string): Promise<ConfigVersionRecord[]> {
-  if (shouldUsePostgres()) {
-    await ensureVersionSchema();
-    const versions = await listVersionRows(sql, appId);
-    return [...versions].sort(compareVersions);
-  }
-  const versions = (await readVersionsFile()).filter((version) => version.appId === appId);
-  return [...versions].sort(compareVersions);
-}
-
-function disabledVersion(app: AppConfig): ConfigVersionRecord {
-  return {
-    ...snapshotFromApp(app),
-    id: "",
-    appId: app.id,
-    kind: "edit",
-    createdAt: "",
-    updatedAt: "",
-    sealedAt: null,
-  };
-}
-
 export async function prepareConfigVersionStore(): Promise<void> {
-  if (!CONFIG_VERSION_STORE_ENABLED) return;
   await enqueue(async () => {
     if (shouldUsePostgres()) {
       await backfillPostgres();
@@ -617,7 +590,6 @@ export async function ensurePublishedVersion(
   app: AppConfig,
   now: string
 ): Promise<ConfigVersionRecord> {
-  if (!CONFIG_VERSION_STORE_ENABLED) return disabledVersion(app);
   return enqueue(() =>
     shouldUsePostgres()
       ? ensurePublishedVersionPostgres(app, now)
@@ -626,6 +598,13 @@ export async function ensurePublishedVersion(
 }
 
 export async function listConfigVersions(appId: string): Promise<ConfigVersionRecord[]> {
-  if (!CONFIG_VERSION_STORE_ENABLED) return [];
-  return enqueue(() => listConfigVersionsEnabled(appId));
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      await ensureVersionSchema();
+      const versions = await listVersionRows(sql, appId);
+      return [...versions].sort(compareVersions);
+    }
+    const versions = (await readVersionsFile()).filter((version) => version.appId === appId);
+    return [...versions].sort(compareVersions);
+  });
 }

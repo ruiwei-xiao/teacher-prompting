@@ -12,7 +12,7 @@
   - The version-rules self-check passes for the exact 15-minute boundary, a sealed latest version, a prompt change, a model change, and the excluded secret fields
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.6, 2.3_
 
-- [ ] 1.2 Store configuration versions and backfill existing bots
+- [x] 1.2 Store configuration versions and backfill existing bots
   - Every new version stores a created time and a last-updated time
   - Backfill runs when version storage is prepared; each existing bot with no versions receives one edit version copied from its current snapshotted settings
   - An already published bot points at that initial version, the version is sealed, and the published API key is copied from the current key
@@ -167,3 +167,4 @@
 ## Implementation Notes
 
 - Builder-leaf diff fields are `builderState.<leaf>`. Null variability displays as `unset`. `npx tsx` self-checks need to run outside the sandbox (`EPERM` on the tsx IPC pipe).
+- JSON backfill must not call `listApps` or `getAppById` while `prepareConfigVersionStore` is still pending, or the JSON load deadlocks. `listConfigVersions` returns full records and is not the history summary API.

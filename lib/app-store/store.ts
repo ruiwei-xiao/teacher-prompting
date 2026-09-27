@@ -779,11 +779,17 @@ export async function persistPublishedPointers(
   await writeAppsToFile(nextApps);
 }
 
+/** Reads the file store without starting version backfill, so backfill can load apps. */
+export async function readAppsForVersionBackfill(): Promise<AppConfig[]> {
+  return listAppsFromFile();
+}
+
 export async function createApp(app: AppConfig) {
   if (shouldUsePostgres()) {
     return createAppInPostgres(app);
   }
 
+  await prepareConfigVersionsOnce();
   return createAppInFile(app);
 }
 
@@ -792,6 +798,7 @@ export async function getAppById(id: string, ownerId?: string) {
     return getAppByIdFromPostgres(id, ownerId);
   }
 
+  await prepareConfigVersionsOnce();
   return getAppByIdFromFile(id, ownerId);
 }
 
@@ -800,6 +807,7 @@ export async function getAppByPublicSlug(publicSlug: string) {
     return getAppByPublicSlugFromPostgres(publicSlug);
   }
 
+  await prepareConfigVersionsOnce();
   return getAppByPublicSlugFromFile(publicSlug);
 }
 
@@ -808,6 +816,7 @@ export async function getAppByProjectShareSlug(projectShareSlug: string) {
     return getAppByProjectShareSlugFromPostgres(projectShareSlug);
   }
 
+  await prepareConfigVersionsOnce();
   return getAppByProjectShareSlugFromFile(projectShareSlug);
 }
 
@@ -816,6 +825,7 @@ export async function listApps(ownerId?: string) {
     return listAppsFromPostgres(ownerId);
   }
 
+  await prepareConfigVersionsOnce();
   return listAppsFromFile(ownerId);
 }
 
@@ -828,6 +838,7 @@ export async function updateApp(
     return updateAppInPostgres(id, patch, ownerId);
   }
 
+  await prepareConfigVersionsOnce();
   return updateAppInFile(id, patch, ownerId);
 }
 
@@ -836,6 +847,7 @@ export async function claimUnownedApps(ownerId: string) {
     return claimUnownedAppsInPostgres(ownerId);
   }
 
+  await prepareConfigVersionsOnce();
   return claimUnownedAppsInFile(ownerId);
 }
 
@@ -844,5 +856,6 @@ export async function deleteApp(id: string, ownerId?: string) {
     return deleteAppInPostgres(id, ownerId);
   }
 
+  await prepareConfigVersionsOnce();
   return deleteAppInFile(id, ownerId);
 }
