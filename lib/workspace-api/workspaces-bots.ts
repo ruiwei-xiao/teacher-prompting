@@ -25,7 +25,7 @@ export type ApiResult<T> =
   | { ok: false; status: number; body: ApiError };
 
 /** Read-only peer inspect payload — provider secrets omitted. */
-export type PeerBotSnapshot = Omit<AppConfig, "apiKey">;
+export type PeerBotSnapshot = Omit<AppConfig, "apiKey" | "publishedApiKey">;
 
 function unauthorized<T = never>(): ApiResult<T> {
   return { ok: false, status: 401, body: { error: "Unauthorized" } };
@@ -48,7 +48,7 @@ async function getMembership(
 }
 
 function toPeerSnapshot(app: AppConfig): PeerBotSnapshot {
-  const { apiKey: _secret, ...snapshot } = app;
+  const { apiKey: _secret, publishedApiKey: _publishedSecret, ...snapshot } = app;
   return snapshot;
 }
 

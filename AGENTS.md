@@ -25,7 +25,7 @@ Project memory keeps persistent guidance (steering, specs notes, component docs)
 - Use `$kiro-spec-status [feature-name]` to check progress
 
 ## Development Guidelines
-- Think in English, generate responses in English. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
+- Spec documents (requirements, design, tasks, research, validation reports), other files committed to the repository, and code comments are written in English. Set `spec.json.language` to `en`. Chat replies follow the user's language.
 
 ## Minimal Workflow
 - Phase 0 (optional): `$kiro-steering`, `$kiro-steering-custom`

@@ -19,3 +19,14 @@ export type ConfigFieldDiff = {
   earlier: string;
   later: string;
 };
+
+export type ConfigVersionKind = "edit" | "session";
+
+export type ConfigVersionRecord = ConfigSnapshot & {
+  id: string;
+  appId: string;
+  kind: ConfigVersionKind;
+  createdAt: string;
+  updatedAt: string;
+  sealedAt: string | null;
+};

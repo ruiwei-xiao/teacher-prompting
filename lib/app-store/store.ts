@@ -27,6 +27,8 @@ type AppRow = {
   community_subject: string | null;
   community_tags: string | null;
   published_at: string | Date | null;
+  published_version_id: string | null;
+  published_api_key: string | null;
   project_shared_at: string | Date | null;
   project_share_visibility: string | null;
   share_author_name: boolean | null;
@@ -95,6 +97,8 @@ function rowToApp(row: AppRow): AppConfig {
     publishedAt: row.published_at
       ? new Date(row.published_at).toISOString()
       : undefined,
+    publishedVersionId: row.published_version_id,
+    publishedApiKey: row.published_api_key,
     projectSharedAt: row.project_shared_at
       ? new Date(row.project_shared_at).toISOString()
       : undefined,
@@ -235,6 +239,16 @@ async function ensurePostgresStore() {
         ADD COLUMN IF NOT EXISTS forked_from_author_name TEXT
       `;
 
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS published_version_id TEXT
+      `;
+
+      await sql`
+        ALTER TABLE apps
+        ADD COLUMN IF NOT EXISTS published_api_key TEXT
+      `;
+
       const countResult = await sql<{ count: number }>`
         SELECT COUNT(*)::int AS count FROM apps
       `;
@@ -250,7 +264,22 @@ async function ensurePostgresStore() {
     })();
   }
 
-  return postgresReadyPromise;
+  await postgresReadyPromise;
+  await prepareConfigVersionsOnce();
+}
+
+let configVersionPreparePromise: Promise<void> | null = null;
+
+function prepareConfigVersionsOnce(): Promise<void> {
+  if (!configVersionPreparePromise) {
+    configVersionPreparePromise = import("../app-config-versions/store")
+      .then((mod) => mod.prepareConfigVersionStore())
+      .catch((error: unknown) => {
+        configVersionPreparePromise = null;
+        throw error;
+      });
+  }
+  return configVersionPreparePromise;
 }
 
 async function insertAppIntoPostgres(app: AppConfig) {
@@ -278,6 +307,8 @@ async function insertAppIntoPostgres(app: AppConfig) {
       forked_from_project_name,
       forked_from_project_share_slug,
       forked_from_author_name,
+      published_version_id,
+      published_api_key,
       created_at,
       updated_at
     ) VALUES (
@@ -303,6 +334,8 @@ async function insertAppIntoPostgres(app: AppConfig) {
       ${app.forkedFromProjectName ?? null},
       ${app.forkedFromProjectShareSlug ?? null},
       ${app.forkedFromAuthorName ?? null},
+      ${app.publishedVersionId ?? null},
+      ${app.publishedApiKey ?? null},
       ${app.createdAt},
       ${app.updatedAt}
     )
@@ -340,6 +373,8 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           community_subject,
           community_tags,
           published_at,
+          published_version_id,
+          published_api_key,
           project_shared_at,
           project_share_visibility,
           share_author_name,
@@ -370,6 +405,8 @@ async function getAppByIdFromPostgres(id: string, ownerId?: string) {
           community_subject,
           community_tags,
           published_at,
+          published_version_id,
+          published_api_key,
           project_shared_at,
           project_share_visibility,
           share_author_name,
@@ -408,6 +445,8 @@ async function listAppsFromPostgres(ownerId?: string) {
           community_subject,
           community_tags,
           published_at,
+          published_version_id,
+          published_api_key,
           project_shared_at,
           project_share_visibility,
           share_author_name,
@@ -438,6 +477,8 @@ async function listAppsFromPostgres(ownerId?: string) {
           community_subject,
           community_tags,
           published_at,
+          published_version_id,
+          published_api_key,
           project_shared_at,
           project_share_visibility,
           share_author_name,
@@ -486,6 +527,8 @@ async function updateAppInPostgres(
       community_subject = ${next.communitySubject ?? null},
       community_tags = ${next.communityTags ? JSON.stringify(next.communityTags) : null},
       published_at = ${next.publishedAt ?? null},
+      published_version_id = ${next.publishedVersionId ?? null},
+      published_api_key = ${next.publishedApiKey ?? null},
       project_shared_at = ${next.projectSharedAt ?? null},
       project_share_visibility = ${next.projectShareVisibility ?? "private"},
       share_author_name = ${next.shareAuthorName ?? false},
@@ -538,19 +581,21 @@ async function getAppByPublicSlugFromPostgres(publicSlug: string) {
       system_prompt,
       builder_state,
       community_subject,
-      community_tags,
-      published_at,
-      project_shared_at,
-      project_share_visibility,
-      share_author_name,
-      assisted_authoring_mode,
-      forked_from_project_name,
-      forked_from_project_share_slug,
-      forked_from_author_name,
-      created_at,
-      updated_at
-    FROM apps
-    WHERE public_slug = ${publicSlug}
+          community_tags,
+          published_at,
+          published_version_id,
+          published_api_key,
+          project_shared_at,
+          project_share_visibility,
+          share_author_name,
+          assisted_authoring_mode,
+          forked_from_project_name,
+          forked_from_project_share_slug,
+          forked_from_author_name,
+          created_at,
+          updated_at
+        FROM apps
+        WHERE public_slug = ${publicSlug}
     LIMIT 1
   `;
 
@@ -580,19 +625,21 @@ async function getAppByProjectShareSlugFromPostgres(projectShareSlug: string) {
       system_prompt,
       builder_state,
       community_subject,
-      community_tags,
-      published_at,
-      project_shared_at,
-      project_share_visibility,
-      share_author_name,
-      assisted_authoring_mode,
-      forked_from_project_name,
-      forked_from_project_share_slug,
-      forked_from_author_name,
-      created_at,
-      updated_at
-    FROM apps
-    WHERE project_share_slug = ${projectShareSlug}
+          community_tags,
+          published_at,
+          published_version_id,
+          published_api_key,
+          project_shared_at,
+          project_share_visibility,
+          share_author_name,
+          assisted_authoring_mode,
+          forked_from_project_name,
+          forked_from_project_share_slug,
+          forked_from_author_name,
+          created_at,
+          updated_at
+        FROM apps
+        WHERE project_share_slug = ${projectShareSlug}
     LIMIT 1
   `;
 
@@ -683,6 +730,53 @@ async function claimUnownedAppsInFile(ownerId: string) {
   if (changed) {
     await writeAppsToFile(nextApps);
   }
+}
+
+export async function persistPublishedPointers(
+  updates: readonly {
+    appId: string;
+    publishedVersionId: string | null;
+    publishedApiKey: string | null;
+  }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  if (shouldUsePostgres()) {
+    await ensurePostgresStore();
+    for (const update of updates) {
+      const result = await sql`
+        UPDATE apps
+        SET
+          published_version_id = ${update.publishedVersionId},
+          published_api_key = ${update.publishedApiKey}
+        WHERE id = ${update.appId}
+      `;
+      if (result.rowCount === 0) {
+        throw new Error(`App ${update.appId} was not found`);
+      }
+    }
+    return;
+  }
+
+  const apps = await readAppsFromFile();
+  const missing = updates.find(
+    (update) => !apps.some((app) => app.id === update.appId)
+  );
+  if (missing) {
+    throw new Error(`App ${missing.appId} was not found`);
+  }
+
+  const byId = new Map(updates.map((update) => [update.appId, update]));
+  const nextApps = apps.map((app) => {
+    const update = byId.get(app.id);
+    if (!update) return app;
+    return {
+      ...app,
+      publishedVersionId: update.publishedVersionId,
+      publishedApiKey: update.publishedApiKey,
+    };
+  });
+  await writeAppsToFile(nextApps);
 }
 
 export async function createApp(app: AppConfig) {
