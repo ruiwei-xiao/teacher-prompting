@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
-import { sql } from "@vercel/postgres";
+import { sql, type VercelPoolClient } from "@vercel/postgres";
+import { snapshotFromApp } from "../app-config-versions/rules";
+import type { ConfigVersionRecord } from "../app-config-versions/types";
 import {
   AppConfig,
   ProjectShareVisibility,
@@ -8,8 +10,11 @@ import {
   SupportedProvider,
 } from "./types";
 
+type SqlQuery = VercelPoolClient["sql"];
+
 const DATA_DIR = path.join(process.cwd(), ".data");
 const APPS_FILE = path.join(DATA_DIR, "apps.json");
+const VERSIONS_FILE = path.join(DATA_DIR, "app-config-versions.json");
 
 type AppRow = {
   id: string;
@@ -282,8 +287,80 @@ function prepareConfigVersionsOnce(): Promise<void> {
   return configVersionPreparePromise;
 }
 
-async function insertAppIntoPostgres(app: AppConfig) {
-  await sql`
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+function isSupportedProvider(value: string): value is SupportedProvider {
+  return value === "openai" || value === "google" || value === "anthropic";
+}
+
+function snapshotChanged(before: AppConfig, after: AppConfig): boolean {
+  return JSON.stringify(snapshotFromApp(before)) !== JSON.stringify(snapshotFromApp(after));
+}
+
+function applyDraftSnapshot(app: AppConfig, latest: ConfigVersionRecord): AppConfig {
+  if (!isSupportedProvider(latest.provider)) {
+    throw new Error(`App ${app.id} could not be snapshotted`);
+  }
+  // Keep an omitted optional field when it normalizes to the same snapshot value.
+  const systemPrompt =
+    latest.systemPrompt === "" &&
+    (app.systemPrompt === undefined || app.systemPrompt === "")
+      ? app.systemPrompt
+      : latest.systemPrompt;
+  const assistedAuthoringMode =
+    app.assistedAuthoringMode === undefined && latest.assistedAuthoringMode
+      ? undefined
+      : latest.assistedAuthoringMode;
+  return {
+    ...app,
+    name: latest.name,
+    provider: latest.provider,
+    model: latest.model,
+    variability: latest.variability === null ? undefined : latest.variability,
+    systemPrompt,
+    assistedAuthoringMode,
+    builderState: latest.builderState ?? undefined,
+  };
+}
+
+async function readOptionalFile(file: string): Promise<string | null> {
+  try {
+    return await fs.readFile(file, "utf-8");
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+}
+
+async function restoreFile(file: string, previous: string | null): Promise<void> {
+  if (previous === null) {
+    await fs.rm(file, { force: true });
+    return;
+  }
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, previous, "utf-8");
+}
+
+/** Test-only. Set APP_DRAFT_SAVE_FAULT=1 to fail the next draft save after the version write. */
+function takeDraftSaveFault(): boolean {
+  if (process.env.APP_DRAFT_SAVE_FAULT !== "1") return false;
+  delete process.env.APP_DRAFT_SAVE_FAULT;
+  return true;
+}
+
+function logDraftSaveFailure(appId: string): void {
+  console.error(`Configuration version store failed for app ${appId}`);
+}
+
+async function insertAppIntoPostgres(app: AppConfig, query: SqlQuery = sql) {
+  await query`
     INSERT INTO apps (
       id,
       public_slug,
@@ -349,8 +426,47 @@ async function createAppInPostgres(app: AppConfig) {
     throw new Error(`App with id "${app.id}" already exists`);
   }
 
-  await insertAppIntoPostgres(app);
+  const versions = await import("../app-config-versions/store");
+  await versions.withConfigVersionQuery([app.id], async (query) => {
+    await insertAppIntoPostgres(app, query);
+    await versions.syncDraftVersion({ app, now: app.updatedAt }, query);
+    if (takeDraftSaveFault()) {
+      throw new Error("Failed to update app settings");
+    }
+  });
   return app;
+}
+
+async function updateAppRow(query: SqlQuery, id: string, next: AppConfig) {
+  await query`
+    UPDATE apps
+    SET
+      name = ${next.name},
+      public_slug = ${next.publicSlug ?? null},
+      project_share_slug = ${next.projectShareSlug ?? null},
+      owner_id = ${next.ownerId ?? null},
+      description = ${next.description ?? null},
+      provider = ${next.provider},
+      model = ${next.model},
+      api_key = ${next.apiKey},
+      variability = ${next.variability ?? null},
+      system_prompt = ${next.systemPrompt ?? null},
+      builder_state = ${next.builderState ? JSON.stringify(next.builderState) : null},
+      community_subject = ${next.communitySubject ?? null},
+      community_tags = ${next.communityTags ? JSON.stringify(next.communityTags) : null},
+      published_at = ${next.publishedAt ?? null},
+      published_version_id = ${next.publishedVersionId ?? null},
+      published_api_key = ${next.publishedApiKey ?? null},
+      project_shared_at = ${next.projectSharedAt ?? null},
+      project_share_visibility = ${next.projectShareVisibility ?? "private"},
+      share_author_name = ${next.shareAuthorName ?? false},
+      assisted_authoring_mode = ${next.assistedAuthoringMode ?? null},
+      forked_from_project_name = ${next.forkedFromProjectName ?? null},
+      forked_from_project_share_slug = ${next.forkedFromProjectShareSlug ?? null},
+      forked_from_author_name = ${next.forkedFromAuthorName ?? null},
+      updated_at = ${next.updatedAt}
+    WHERE id = ${id}
+  `;
 }
 
 async function getAppByIdFromPostgres(id: string, ownerId?: string) {
@@ -504,43 +620,28 @@ async function updateAppInPostgres(
   const existing = await getAppByIdFromPostgres(id, ownerId);
   if (!existing) return null;
 
-  const next: AppConfig = {
+  const now = new Date().toISOString();
+  const merged: AppConfig = {
     ...existing,
     ...patch,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   };
 
-  await sql`
-    UPDATE apps
-    SET
-      name = ${next.name},
-      public_slug = ${next.publicSlug ?? null},
-      project_share_slug = ${next.projectShareSlug ?? null},
-      owner_id = ${next.ownerId ?? null},
-      description = ${next.description ?? null},
-      provider = ${next.provider},
-      model = ${next.model},
-      api_key = ${next.apiKey},
-      variability = ${next.variability ?? null},
-      system_prompt = ${next.systemPrompt ?? null},
-      builder_state = ${next.builderState ? JSON.stringify(next.builderState) : null},
-      community_subject = ${next.communitySubject ?? null},
-      community_tags = ${next.communityTags ? JSON.stringify(next.communityTags) : null},
-      published_at = ${next.publishedAt ?? null},
-      published_version_id = ${next.publishedVersionId ?? null},
-      published_api_key = ${next.publishedApiKey ?? null},
-      project_shared_at = ${next.projectSharedAt ?? null},
-      project_share_visibility = ${next.projectShareVisibility ?? "private"},
-      share_author_name = ${next.shareAuthorName ?? false},
-      assisted_authoring_mode = ${next.assistedAuthoringMode ?? null},
-      forked_from_project_name = ${next.forkedFromProjectName ?? null},
-      forked_from_project_share_slug = ${next.forkedFromProjectShareSlug ?? null},
-      forked_from_author_name = ${next.forkedFromAuthorName ?? null},
-      updated_at = ${next.updatedAt}
-    WHERE id = ${id}
-  `;
+  if (snapshotChanged(existing, merged)) {
+    const versions = await import("../app-config-versions/store");
+    return versions.withConfigVersionQuery([id], async (query) => {
+      const { latest } = await versions.syncDraftVersion({ app: merged, now }, query);
+      const next = applyDraftSnapshot(merged, latest);
+      if (takeDraftSaveFault()) {
+        throw new Error("Failed to update app settings");
+      }
+      await updateAppRow(query, id, next);
+      return next;
+    });
+  }
 
-  return next;
+  await updateAppRow(sql, id, merged);
+  return merged;
 }
 
 async function createAppInFile(app: AppConfig) {
@@ -550,9 +651,23 @@ async function createAppInFile(app: AppConfig) {
     throw new Error(`App with id "${app.id}" already exists`);
   }
 
-  apps.push(app);
-  await writeAppsToFile(apps);
-  return app;
+  const previousApps = await readOptionalFile(APPS_FILE);
+  const previousVersions = await readOptionalFile(VERSIONS_FILE);
+  try {
+    const versions = await import("../app-config-versions/store");
+    await versions.syncDraftVersion({ app, now: app.updatedAt });
+    if (takeDraftSaveFault()) {
+      throw new Error("Failed to update app settings");
+    }
+    apps.push(app);
+    await writeAppsToFile(apps);
+    return app;
+  } catch (error) {
+    await restoreFile(APPS_FILE, previousApps);
+    await restoreFile(VERSIONS_FILE, previousVersions);
+    logDraftSaveFailure(app.id);
+    throw error;
+  }
 }
 
 async function getAppByIdFromFile(id: string, ownerId?: string) {
@@ -669,14 +784,39 @@ async function updateAppInFile(
   );
   if (idx === -1) return null;
 
-  apps[idx] = {
-    ...apps[idx],
+  const current = apps[idx];
+  if (!current) return null;
+  const now = new Date().toISOString();
+  let next: AppConfig = {
+    ...current,
     ...patch,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   };
 
-  await writeAppsToFile(apps);
-  return apps[idx];
+  if (!snapshotChanged(current, next)) {
+    apps[idx] = next;
+    await writeAppsToFile(apps);
+    return apps[idx];
+  }
+
+  const previousApps = await readOptionalFile(APPS_FILE);
+  const previousVersions = await readOptionalFile(VERSIONS_FILE);
+  try {
+    const versions = await import("../app-config-versions/store");
+    const { latest } = await versions.syncDraftVersion({ app: next, now });
+    next = applyDraftSnapshot(next, latest);
+    if (takeDraftSaveFault()) {
+      throw new Error("Failed to update app settings");
+    }
+    apps[idx] = next;
+    await writeAppsToFile(apps);
+    return apps[idx];
+  } catch (error) {
+    await restoreFile(APPS_FILE, previousApps);
+    await restoreFile(VERSIONS_FILE, previousVersions);
+    logDraftSaveFailure(id);
+    throw error;
+  }
 }
 
 async function deleteAppInPostgres(id: string, ownerId?: string) {

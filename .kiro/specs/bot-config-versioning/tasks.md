@@ -24,7 +24,7 @@
   - _Requirements: 1.3, 7.1, 7.2, 7.3_
   - _Depends: 1.1_
 
-- [ ] 1.3 Keep the app row as the current draft
+- [x] 1.3 Keep the app row as the current draft
   - Creating a bot also creates one unsealed edit version, and the app row matches it
   - Saving a snapshotted setting updates that unsealed draft or appends a new edit version
   - Appending a new edit version seals the previous edit version, so only one edit version stays unsealed
@@ -168,3 +168,4 @@
 
 - Builder-leaf diff fields are `builderState.<leaf>`. Null variability displays as `unset`. `npx tsx` self-checks need to run outside the sandbox (`EPERM` on the tsx IPC pipe).
 - JSON backfill must not call `listApps` or `getAppById` while `prepareConfigVersionStore` is still pending, or the JSON load deadlocks. `listConfigVersions` returns full records and is not the history summary API.
+- JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files.

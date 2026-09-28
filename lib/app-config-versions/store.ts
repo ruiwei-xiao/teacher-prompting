@@ -7,7 +7,7 @@ import {
   readAppsForVersionBackfill,
 } from "../app-store/store";
 import type { AppConfig, PromptBuilderState, SupportedProvider } from "../app-store/types";
-import { snapshotFromApp } from "./rules";
+import { decideVersionWrite, snapshotFromApp } from "./rules";
 import type { ConfigVersionKind, ConfigVersionRecord } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -264,7 +264,126 @@ async function readVersionsFile(): Promise<ConfigVersionRecord[]> {
 async function writeVersionsFile(versions: readonly ConfigVersionRecord[]): Promise<void> {
   await fs.mkdir(DATA_DIR, { recursive: true });
   const body: VersionsFile = { versions: [...versions] };
-  await fs.writeFile(VERSIONS_FILE, JSON.stringify(body, null, 2), "utf-8");
+  const temporary = path.join(DATA_DIR, `.app-config-versions.${randomUUID()}.tmp`);
+  await fs.writeFile(temporary, JSON.stringify(body, null, 2), "utf-8");
+  try {
+    await fs.rename(temporary, VERSIONS_FILE);
+  } catch (error) {
+    await fs.rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+function latestEditVersion(
+  versions: readonly ConfigVersionRecord[],
+  appId: string
+): ConfigVersionRecord | null {
+  // Session copies are never the draft, even when they sort after the edit row.
+  const edits = versions.filter((version) => version.appId === appId && version.kind === "edit");
+  if (edits.length === 0) return null;
+  return edits.reduce((latest, version) =>
+    compareVersions(version, latest) > 0 ? version : latest
+  );
+}
+
+function planDraftSync(
+  versions: readonly ConfigVersionRecord[],
+  app: AppConfig,
+  now: string
+): { versions: ConfigVersionRecord[]; latest: ConfigVersionRecord } {
+  const latest = latestEditVersion(versions, app.id);
+  const decision = decideVersionWrite({
+    latest: latest
+      ? {
+          id: latest.id,
+          updatedAt: latest.updatedAt,
+          sealed: latest.sealedAt !== null,
+        }
+      : null,
+    now,
+  });
+  if (decision.action === "update" && latest && latest.id === decision.versionId) {
+    const updated: ConfigVersionRecord = {
+      ...snapshotFromApp(app),
+      id: latest.id,
+      appId: app.id,
+      kind: "edit",
+      createdAt: latest.createdAt,
+      updatedAt: now,
+      sealedAt: null,
+    };
+    return {
+      latest: updated,
+      versions: versions.map((version) => (version.id === updated.id ? updated : version)),
+    };
+  }
+  const created = versionFromApp(app, now, null);
+  const sealed = versions.map((version) =>
+    version.appId === app.id && version.kind === "edit" && version.sealedAt === null
+      ? { ...version, sealedAt: now }
+      : version
+  );
+  return { latest: created, versions: [...sealed, created] };
+}
+
+async function updateVersionSnapshot(query: SqlQuery, version: ConfigVersionRecord): Promise<void> {
+  const builderState = version.builderState ? JSON.stringify(version.builderState) : null;
+  const result = await query`
+    UPDATE app_config_versions
+    SET
+      name = ${version.name},
+      provider = ${version.provider},
+      model = ${version.model},
+      variability = ${version.variability},
+      system_prompt = ${version.systemPrompt},
+      builder_state = ${builderState}::jsonb,
+      assisted_authoring_mode = ${version.assistedAuthoringMode},
+      updated_at = ${version.updatedAt}
+    WHERE id = ${version.id} AND app_id = ${version.appId}
+  `;
+  if (result.rowCount === 0) {
+    throw new Error(`Configuration version ${version.id} was not found for app ${version.appId}`);
+  }
+}
+
+async function sealUnsealedEdits(query: SqlQuery, appId: string, now: string): Promise<void> {
+  await query`
+    UPDATE app_config_versions
+    SET sealed_at = ${now}
+    WHERE app_id = ${appId}
+      AND kind = 'edit'
+      AND sealed_at IS NULL
+  `;
+}
+
+async function syncDraftPostgres(
+  query: SqlQuery,
+  app: AppConfig,
+  now: string
+): Promise<ConfigVersionRecord> {
+  await ensureVersionSchema(query);
+  const existing = await listVersionRows(query, app.id);
+  const plan = planDraftSync(existing, app, now);
+  const updating = existing.some((version) => version.id === plan.latest.id);
+  if (updating) {
+    await updateVersionSnapshot(query, plan.latest);
+  } else {
+    await sealUnsealedEdits(query, app.id, now);
+    await insertVersion(query, plan.latest);
+  }
+  return plan.latest;
+}
+
+async function syncDraftJson(app: AppConfig, now: string): Promise<ConfigVersionRecord> {
+  const existing = await readVersionsFile();
+  const plan = planDraftSync(existing, app, now);
+  try {
+    await writeVersionsFile(plan.versions);
+  } catch (error) {
+    logStoreFailure([app.id]);
+    throw error;
+  }
+  return plan.latest;
 }
 
 async function ensureVersionSchema(query: SqlQuery = sql): Promise<void> {
@@ -574,6 +693,33 @@ async function ensurePublishedVersionJson(
     throw error;
   }
   return plan.version;
+}
+
+export async function withConfigVersionQuery<T>(
+  appIds: readonly string[],
+  fn: (query: SqlQuery) => Promise<T>
+): Promise<T> {
+  return enqueue(() => withPostgresTransaction(appIds, fn));
+}
+
+export async function syncDraftVersion(
+  input: { app: AppConfig; now: string },
+  query?: SqlQuery
+): Promise<{ latest: ConfigVersionRecord }> {
+  if (query) {
+    const latest = await syncDraftPostgres(query, input.app, input.now);
+    return { latest };
+  }
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      const latest = await withPostgresTransaction([input.app.id], (transaction) =>
+        syncDraftPostgres(transaction, input.app, input.now)
+      );
+      return { latest };
+    }
+    const latest = await syncDraftJson(input.app, input.now);
+    return { latest };
+  });
 }
 
 export async function prepareConfigVersionStore(): Promise<void> {
