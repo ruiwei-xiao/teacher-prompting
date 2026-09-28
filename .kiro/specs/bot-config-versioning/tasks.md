@@ -39,7 +39,7 @@
 ## 2. Core: publish, session pins, and history access
 
 - [ ] 2. Core: publish, session pins, and history access
-- [ ] 2.1 Publish the latest draft and keep a separate published API key
+- [x] 2.1 Publish the latest draft and keep a separate published API key
   - When one save both changes snapshotted settings and publishes, the draft version is synced first and that latest edit version is then sealed and published
   - First publish makes the latest edit version the published version, seals that version, copies the draft API key into the published API key, and does not change the snapshot
   - Republish moves the pointer to the latest edit version and copies the draft API key, without changing any version snapshot
@@ -168,4 +168,4 @@
 
 - Builder-leaf diff fields are `builderState.<leaf>`. Null variability displays as `unset`. `npx tsx` self-checks need to run outside the sandbox (`EPERM` on the tsx IPC pipe).
 - JSON backfill must not call `listApps` or `getAppById` while `prepareConfigVersionStore` is still pending, or the JSON load deadlocks. `listConfigVersions` returns full records and is not the history summary API.
-- JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files.
+- JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files. `APP_PUBLISH_FAULT=1` is the same kind of switch for a failed publish after the seal. A republish whose pointer already matches does not copy a new API key.

@@ -355,6 +355,73 @@ function takeDraftSaveFault(): boolean {
   return true;
 }
 
+/** Test-only. Set APP_PUBLISH_FAULT=1 to fail the next publish after the version seal. */
+function takePublishFault(): boolean {
+  if (process.env.APP_PUBLISH_FAULT !== "1") return false;
+  delete process.env.APP_PUBLISH_FAULT;
+  return true;
+}
+
+function isNewPublish(existing: AppConfig, patch: Partial<AppConfig>): boolean {
+  return (
+    typeof patch.publishedAt === "string" &&
+    patch.publishedAt.length > 0 &&
+    patch.publishedAt !== existing.publishedAt
+  );
+}
+
+function draftApiKeyChanged(existing: AppConfig, patch: Partial<AppConfig>): boolean {
+  return typeof patch.apiKey === "string" && patch.apiKey !== existing.apiKey;
+}
+
+function hasPublishedPointer(app: AppConfig): boolean {
+  return typeof app.publishedVersionId === "string" && app.publishedVersionId.length > 0;
+}
+
+type ConfigVersionModule = typeof import("../app-config-versions/store");
+
+function applyPublishResult(
+  existing: AppConfig,
+  next: AppConfig,
+  result: { versionId: string; noop: boolean }
+): AppConfig {
+  if (result.noop) {
+    return {
+      ...next,
+      publishedVersionId: existing.publishedVersionId ?? null,
+      publishedApiKey: existing.publishedApiKey ?? null,
+    };
+  }
+  return {
+    ...next,
+    publishedVersionId: result.versionId,
+    publishedApiKey: next.apiKey,
+  };
+}
+
+async function alignPublishedApiKey(
+  versions: ConfigVersionModule,
+  existing: AppConfig,
+  next: AppConfig,
+  query?: SqlQuery
+): Promise<AppConfig> {
+  const pointer = existing.publishedVersionId;
+  if (typeof pointer !== "string" || pointer.length === 0) return next;
+  const provider = await versions.publishedSnapshotProvider(existing.id, pointer, query);
+  if (provider !== null && provider === next.provider) {
+    return {
+      ...next,
+      publishedVersionId: pointer,
+      publishedApiKey: next.apiKey,
+    };
+  }
+  return {
+    ...next,
+    publishedVersionId: pointer,
+    publishedApiKey: existing.publishedApiKey ?? null,
+  };
+}
+
 function logDraftSaveFailure(appId: string): void {
   console.error(`Configuration version store failed for app ${appId}`);
 }
@@ -627,21 +694,45 @@ async function updateAppInPostgres(
     updatedAt: now,
   };
 
-  if (snapshotChanged(existing, merged)) {
-    const versions = await import("../app-config-versions/store");
-    return versions.withConfigVersionQuery([id], async (query) => {
-      const { latest } = await versions.syncDraftVersion({ app: merged, now }, query);
-      const next = applyDraftSnapshot(merged, latest);
+  const publishing = isNewPublish(existing, patch);
+  const keySync =
+    !publishing &&
+    draftApiKeyChanged(existing, patch) &&
+    hasPublishedPointer(existing);
+  if (!snapshotChanged(existing, merged) && !publishing && !keySync) {
+    await updateAppRow(sql, id, merged);
+    return merged;
+  }
+
+  const versions = await import("../app-config-versions/store");
+  return versions.withConfigVersionQuery([id], async (query) => {
+    let next = merged;
+    if (snapshotChanged(existing, next)) {
+      const { latest } = await versions.syncDraftVersion({ app: next, now }, query);
+      next = applyDraftSnapshot(next, latest);
       if (takeDraftSaveFault()) {
         throw new Error("Failed to update app settings");
       }
-      await updateAppRow(query, id, next);
-      return next;
-    });
-  }
-
-  await updateAppRow(sql, id, merged);
-  return merged;
+    }
+    if (publishing) {
+      const result = await versions.publishLatestEdit(
+        {
+          appId: id,
+          publishedVersionId: existing.publishedVersionId,
+          now,
+        },
+        query
+      );
+      next = applyPublishResult(existing, next, result);
+      if (takePublishFault()) {
+        throw new Error("Failed to update app settings");
+      }
+    } else if (keySync) {
+      next = await alignPublishedApiKey(versions, existing, next, query);
+    }
+    await updateAppRow(query, id, next);
+    return next;
+  });
 }
 
 async function createAppInFile(app: AppConfig) {
@@ -793,7 +884,12 @@ async function updateAppInFile(
     updatedAt: now,
   };
 
-  if (!snapshotChanged(current, next)) {
+  const publishing = isNewPublish(current, patch);
+  const keySync =
+    !publishing &&
+    draftApiKeyChanged(current, patch) &&
+    hasPublishedPointer(current);
+  if (!snapshotChanged(current, next) && !publishing && !keySync) {
     apps[idx] = next;
     await writeAppsToFile(apps);
     return apps[idx];
@@ -803,10 +899,25 @@ async function updateAppInFile(
   const previousVersions = await readOptionalFile(VERSIONS_FILE);
   try {
     const versions = await import("../app-config-versions/store");
-    const { latest } = await versions.syncDraftVersion({ app: next, now });
-    next = applyDraftSnapshot(next, latest);
-    if (takeDraftSaveFault()) {
-      throw new Error("Failed to update app settings");
+    if (snapshotChanged(current, next)) {
+      const { latest } = await versions.syncDraftVersion({ app: next, now });
+      next = applyDraftSnapshot(next, latest);
+      if (takeDraftSaveFault()) {
+        throw new Error("Failed to update app settings");
+      }
+    }
+    if (publishing) {
+      const result = await versions.publishLatestEdit({
+        appId: id,
+        publishedVersionId: current.publishedVersionId,
+        now,
+      });
+      next = applyPublishResult(current, next, result);
+      if (takePublishFault()) {
+        throw new Error("Failed to update app settings");
+      }
+    } else if (keySync) {
+      next = await alignPublishedApiKey(versions, current, next);
     }
     apps[idx] = next;
     await writeAppsToFile(apps);

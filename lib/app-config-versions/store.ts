@@ -326,6 +326,30 @@ function planDraftSync(
   return { latest: created, versions: [...sealed, created] };
 }
 
+function planPublish(
+  versions: readonly ConfigVersionRecord[],
+  appId: string,
+  publishedVersionId: string | null | undefined,
+  now: string
+): { versionId: string; noop: boolean; versions: ConfigVersionRecord[] | null } {
+  const latest = latestEditVersion(versions, appId);
+  if (!latest) {
+    throw new Error(`No edit version to publish for app ${appId}`);
+  }
+  if (publishedVersionId === latest.id) {
+    return { versionId: latest.id, noop: true, versions: null };
+  }
+  if (latest.sealedAt !== null) {
+    return { versionId: latest.id, noop: false, versions: null };
+  }
+  const sealed: ConfigVersionRecord = { ...latest, sealedAt: now };
+  return {
+    versionId: latest.id,
+    noop: false,
+    versions: versions.map((version) => (version.id === sealed.id ? sealed : version)),
+  };
+}
+
 async function updateVersionSnapshot(query: SqlQuery, version: ConfigVersionRecord): Promise<void> {
   const builderState = version.builderState ? JSON.stringify(version.builderState) : null;
   const result = await query`
@@ -702,6 +726,93 @@ export async function withConfigVersionQuery<T>(
   return enqueue(() => withPostgresTransaction(appIds, fn));
 }
 
+async function sealPublishedEdit(
+  query: SqlQuery,
+  appId: string,
+  version: ConfigVersionRecord
+): Promise<void> {
+  const result = await query`
+    UPDATE app_config_versions
+    SET sealed_at = ${version.sealedAt}
+    WHERE id = ${version.id}
+      AND app_id = ${appId}
+      AND kind = 'edit'
+      AND sealed_at IS NULL
+  `;
+  if (result.rowCount === 0) {
+    throw new Error(`Configuration version ${version.id} was not found for app ${appId}`);
+  }
+}
+
+async function publishLatestPostgres(
+  query: SqlQuery,
+  input: {
+    appId: string;
+    publishedVersionId: string | null | undefined;
+    now: string;
+  }
+): Promise<{ versionId: string; noop: boolean }> {
+  await ensureVersionSchema(query);
+  const versions = await listVersionRows(query, input.appId);
+  const plan = planPublish(versions, input.appId, input.publishedVersionId, input.now);
+  const sealed = plan.versions?.find((version) => version.id === plan.versionId);
+  if (sealed) {
+    await sealPublishedEdit(query, input.appId, sealed);
+  }
+  return { versionId: plan.versionId, noop: plan.noop };
+}
+
+async function publishLatestJson(input: {
+  appId: string;
+  publishedVersionId: string | null | undefined;
+  now: string;
+}): Promise<{ versionId: string; noop: boolean }> {
+  const versions = await readVersionsFile();
+  let plan: ReturnType<typeof planPublish>;
+  try {
+    plan = planPublish(versions, input.appId, input.publishedVersionId, input.now);
+  } catch (error) {
+    logStoreFailure([input.appId]);
+    throw error;
+  }
+  if (!plan.versions) {
+    return { versionId: plan.versionId, noop: plan.noop };
+  }
+  try {
+    await writeVersionsFile(plan.versions);
+  } catch (error) {
+    logStoreFailure([input.appId]);
+    throw error;
+  }
+  return { versionId: plan.versionId, noop: false };
+}
+
+async function readPublishedProvider(
+  query: SqlQuery,
+  appId: string,
+  versionId: string
+): Promise<string | null> {
+  const result = await query<{ provider: string }>`
+    SELECT provider
+    FROM app_config_versions
+    WHERE id = ${versionId} AND app_id = ${appId}
+    LIMIT 1
+  `;
+  const provider = result.rows[0]?.provider;
+  return typeof provider === "string" ? provider : null;
+}
+
+async function publishedSnapshotProviderJson(
+  appId: string,
+  versionId: string
+): Promise<string | null> {
+  const versions = await readVersionsFile();
+  const found = versions.find(
+    (version) => version.id === versionId && version.appId === appId
+  );
+  return found?.provider ?? null;
+}
+
 export async function syncDraftVersion(
   input: { app: AppConfig; now: string },
   query?: SqlQuery
@@ -719,6 +830,40 @@ export async function syncDraftVersion(
     }
     const latest = await syncDraftJson(input.app, input.now);
     return { latest };
+  });
+}
+
+export async function publishLatestEdit(
+  input: {
+    appId: string;
+    publishedVersionId: string | null | undefined;
+    now: string;
+  },
+  query?: SqlQuery
+): Promise<{ versionId: string; noop: boolean }> {
+  if (query) return publishLatestPostgres(query, input);
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      return withPostgresTransaction([input.appId], (transaction) =>
+        publishLatestPostgres(transaction, input)
+      );
+    }
+    return publishLatestJson(input);
+  });
+}
+
+export async function publishedSnapshotProvider(
+  appId: string,
+  versionId: string,
+  query?: SqlQuery
+): Promise<string | null> {
+  if (query) return readPublishedProvider(query, appId, versionId);
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      await ensureVersionSchema();
+      return readPublishedProvider(sql, appId, versionId);
+    }
+    return publishedSnapshotProviderJson(appId, versionId);
   });
 }
 

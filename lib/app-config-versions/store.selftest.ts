@@ -1,11 +1,12 @@
 /**
  * Self-test: configuration version JSON store, backfill, published repair,
- * and draft sync on create/update/fork (Tasks 1.2 and 1.3).
+ * draft sync on create/update/fork, and publish pointer sync (Tasks 1.2, 1.3, and 2.1).
  * Run: npx tsx lib/app-config-versions/store.selftest.ts
  */
 import fs from "fs/promises";
 import path from "path";
 import type { AppConfig, PromptBuilderState } from "../app-store/types";
+import { parsePeerBotSnapshotResponse } from "../workspace-ui/peer-preview";
 import { CONFIG_VERSION_WINDOW_MS, snapshotFromApp } from "./rules";
 import type { ConfigSnapshot, ConfigVersionRecord } from "./types";
 
@@ -1097,6 +1098,466 @@ async function main(): Promise<void> {
     const sourceStill = await getAppById(source.id);
     assertEqual(sourceStill?.apiKey, "source-secret-key", "source api key stays on the source app");
     assertEqual(forked.apiKey, "", "fork api key is empty");
+  });
+
+  await withTempStore([], [], async () => {
+    const versionsFile = draftVersionsFile;
+    const recent = new Date().toISOString();
+    const publishAt = "2026-09-28T01:00:00.000Z";
+    const republishAt = "2026-09-28T02:00:00.000Z";
+    const noopAt = "2026-09-28T03:00:00.000Z";
+
+    const combo = stubApp({
+      id: "publish-combo",
+      name: "Combo",
+      apiKey: "combo-draft-key",
+      provider: "openai",
+      systemPrompt: "before combo",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(combo);
+    const comboCreated = (await listConfigVersions(combo.id))[0];
+    assert(comboCreated !== undefined, "combo bot has a draft version");
+    const comboPublished = await updateApp(combo.id, {
+      name: "Combo published",
+      systemPrompt: "after combo",
+      publishedAt: publishAt,
+      publicSlug: "combo-slug",
+    });
+    const comboVersions = await listConfigVersions(combo.id);
+    assertEqual(
+      comboVersions.length,
+      1,
+      "a save that also publishes keeps one in-window version"
+    );
+    const comboVersion = comboVersions[0];
+    if (comboCreated && comboVersion && comboPublished) {
+      assertEqual(comboVersion.id, comboCreated.id, "publish seals the synced draft");
+      assertEqual(
+        comboVersion.createdAt,
+        comboCreated.createdAt,
+        "combined publish keeps createdAt"
+      );
+      assertEqual(comboVersion.systemPrompt, "after combo", "draft sync runs before publish");
+      assertEqual(comboVersion.name, "Combo published", "draft sync stores the published name");
+      assert(comboVersion.sealedAt !== null, "combined publish seals the latest edit");
+      assertEqual(
+        comboVersion.sealedAt,
+        comboVersion.updatedAt,
+        "seal uses the sync time and does not rewrite snapshot fields"
+      );
+      assertEqual(
+        snapshotOf(comboVersion),
+        snapshotFromApp(comboPublished),
+        "app row matches the sealed snapshot"
+      );
+      assertEqual(
+        comboPublished.publishedVersionId,
+        comboVersion.id,
+        "first combined publish sets the pointer"
+      );
+      assertEqual(
+        comboPublished.publishedApiKey,
+        "combo-draft-key",
+        "first combined publish copies the draft API key"
+      );
+      assertEqual(comboPublished.publishedAt, publishAt, "publish stores publishedAt");
+      assertEqual(comboPublished.publicSlug, "combo-slug", "publish stores the public slug");
+      assert(!("publishedApiKey" in comboVersion), "version record has no publishedApiKey");
+    }
+    const comboRaw = await fs.readFile(versionsFile, "utf-8");
+    assert(!comboRaw.includes("combo-draft-key"), "version file omits the draft API key");
+    assert(!comboRaw.includes("publishedApiKey"), "version file omits publishedApiKey");
+
+    const first = stubApp({
+      id: "publish-first",
+      name: "First",
+      apiKey: "first-draft-key",
+      provider: "openai",
+      systemPrompt: "stable prompt",
+      model: "gpt-4.1",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(first);
+    const firstBefore = (await listConfigVersions(first.id))[0];
+    assert(firstBefore !== undefined, "first-publish bot has a draft");
+    const firstSnapshot = firstBefore ? snapshotOf(firstBefore) : null;
+    const firstPublished = await updateApp(first.id, {
+      publishedAt: publishAt,
+      publicSlug: "first-slug",
+    });
+    const firstAfterList = await listConfigVersions(first.id);
+    assertEqual(firstAfterList.length, 1, "first publish does not insert a version");
+    const firstAfter = firstAfterList[0];
+    if (firstBefore && firstAfter && firstPublished && firstSnapshot) {
+      assertEqual(firstAfter.id, firstBefore.id, "first publish keeps the latest edit id");
+      assertEqual(snapshotOf(firstAfter), firstSnapshot, "first publish does not change the snapshot");
+      assertEqual(firstAfter.createdAt, firstBefore.createdAt, "first publish keeps createdAt");
+      assertEqual(firstAfter.updatedAt, firstBefore.updatedAt, "first publish keeps version updatedAt");
+      assertEqual(firstBefore.sealedAt, null, "draft starts unsealed");
+      assert(firstAfter.sealedAt !== null, "first publish seals the latest edit");
+      assertEqual(
+        firstPublished.publishedVersionId,
+        firstAfter.id,
+        "first publish sets the pointer"
+      );
+      assertEqual(
+        firstPublished.publishedApiKey,
+        "first-draft-key",
+        "first publish copies the draft API key"
+      );
+      assertEqual(firstPublished.apiKey, "first-draft-key", "first publish leaves the draft API key");
+    }
+
+    const edited = await updateApp(first.id, { systemPrompt: "draft after publish" });
+    const afterEdit = await listConfigVersions(first.id);
+    assertEqual(afterEdit.length, 2, "editing a published version appends a draft");
+    const stillPublished = afterEdit.find((version) => version.id === firstBefore?.id);
+    const openDraft = afterEdit.find((version) => version.id !== firstBefore?.id);
+    assert(stillPublished !== undefined && openDraft !== undefined, "republish setup has both versions");
+    if (stillPublished && openDraft && edited && firstBefore) {
+      assertEqual(
+        snapshotOf(stillPublished),
+        snapshotOf(firstBefore),
+        "the published snapshot stays unchanged after a later edit"
+      );
+      assertEqual(openDraft.sealedAt, null, "the newer edit is unsealed");
+      assertEqual(openDraft.systemPrompt, "draft after publish", "the draft has the new prompt");
+      assertEqual(edited.publishedVersionId, firstBefore.id, "an edit does not move the pointer");
+      const publishedSnapshot = snapshotOf(stillPublished);
+      const draftSnapshot = snapshotOf(openDraft);
+      const publishedSealedAt = stillPublished.sealedAt;
+      const draftUpdatedAt = openDraft.updatedAt;
+      const republished = await updateApp(first.id, {
+        publishedAt: republishAt,
+        publicSlug: "first-slug",
+      });
+      const afterRepublish = await listConfigVersions(first.id);
+      const oldRow = afterRepublish.find((version) => version.id === stillPublished.id);
+      const newRow = afterRepublish.find((version) => version.id === openDraft.id);
+      assert(oldRow !== undefined && newRow !== undefined, "republish keeps both version rows");
+      if (oldRow && newRow && republished) {
+        assertEqual(
+          snapshotOf(oldRow),
+          publishedSnapshot,
+          "republish leaves the previous snapshot unchanged"
+        );
+        assertEqual(
+          snapshotOf(newRow),
+          draftSnapshot,
+          "republish leaves the latest snapshot unchanged"
+        );
+        assertEqual(oldRow.sealedAt, publishedSealedAt, "republish leaves the previous seal time");
+        assertEqual(newRow.updatedAt, draftUpdatedAt, "republish does not change the latest updatedAt");
+        assert(newRow.sealedAt !== null, "republish seals the latest edit");
+        assertEqual(republished.publishedVersionId, newRow.id, "republish moves the pointer");
+        assertEqual(
+          republished.publishedApiKey,
+          "first-draft-key",
+          "republish copies the draft API key"
+        );
+        assertEqual(afterRepublish.length, 2, "republish does not insert a version");
+      }
+    }
+
+    const storedBeforeNoop = await getAppById(first.id);
+    const versionsBeforeNoop = await fs.readFile(versionsFile, "utf-8");
+    const noop = await updateApp(first.id, {
+      publishedAt: noopAt,
+      publicSlug: "first-slug-again",
+      apiKey: "noop-should-not-copy",
+    });
+    assertEqual(
+      storedBeforeNoop?.publishedApiKey,
+      "first-draft-key",
+      "republish stored the draft key before the matching publish"
+    );
+    assertEqual(
+      noop?.publishedVersionId,
+      storedBeforeNoop?.publishedVersionId,
+      "a matching publish leaves the pointer"
+    );
+    assertEqual(
+      noop?.publishedApiKey,
+      "first-draft-key",
+      "a matching publish leaves the published API key"
+    );
+    assertEqual(noop?.apiKey, "noop-should-not-copy", "a matching publish still stores the draft API key");
+    assertEqual(noop?.publishedAt, noopAt, "a matching publish still stores publishedAt");
+    assertEqual(
+      await fs.readFile(versionsFile, "utf-8"),
+      versionsBeforeNoop,
+      "a matching publish leaves every version unchanged"
+    );
+
+    const keyed = stubApp({
+      id: "publish-key",
+      name: "Keyed",
+      apiKey: "provider-key-1",
+      provider: "openai",
+      systemPrompt: "key prompt",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(keyed);
+    const keyedPublished = await updateApp(keyed.id, {
+      publishedAt: publishAt,
+      publicSlug: "key-slug",
+    });
+    const keyedVersionId = keyedPublished?.publishedVersionId;
+    assertEqual(keyedPublished?.publishedApiKey, "provider-key-1", "publish copies the original draft key");
+    const versionsBeforeKey = await fs.readFile(versionsFile, "utf-8");
+    const rotated = await updateApp(keyed.id, { apiKey: "provider-key-2" });
+    assertEqual(
+      rotated?.publishedApiKey,
+      "provider-key-2",
+      "a same-provider key change updates the published API key"
+    );
+    assertEqual(rotated?.apiKey, "provider-key-2", "a same-provider key change stores the draft API key");
+    assertEqual(rotated?.publishedVersionId, keyedVersionId, "a key change does not publish");
+    assertEqual(rotated?.publishedAt, publishAt, "a key change leaves publishedAt");
+    assertEqual(
+      await fs.readFile(versionsFile, "utf-8"),
+      versionsBeforeKey,
+      "a key change does not rewrite versions"
+    );
+    assert(
+      !(await fs.readFile(versionsFile, "utf-8")).includes("provider-key-2"),
+      "versions omit the rotated key"
+    );
+
+    const switched = await updateApp(keyed.id, {
+      provider: "google",
+      apiKey: "provider-key-3",
+    });
+    const publishedRow = (await listConfigVersions(keyed.id)).find(
+      (version) => version.id === keyedVersionId
+    );
+    assertEqual(switched?.provider, "google", "the draft provider changes");
+    assertEqual(switched?.apiKey, "provider-key-3", "the draft API key changes with the provider");
+    assertEqual(
+      switched?.publishedApiKey,
+      "provider-key-2",
+      "a different provider leaves the published API key"
+    );
+    assertEqual(
+      switched?.publishedVersionId,
+      keyedVersionId,
+      "a provider change does not move the pointer"
+    );
+    assertEqual(publishedRow?.provider, "openai", "the published snapshot keeps its provider");
+
+    const stillDifferent = await updateApp(keyed.id, { apiKey: "provider-key-4" });
+    assertEqual(
+      stillDifferent?.publishedApiKey,
+      "provider-key-2",
+      "a key change against a different published provider leaves the published API key"
+    );
+    assertEqual(stillDifferent?.apiKey, "provider-key-4", "the draft API key still updates");
+
+    const matchedAgain = await updateApp(keyed.id, {
+      provider: "openai",
+      apiKey: "provider-key-5",
+    });
+    assertEqual(
+      matchedAgain?.publishedApiKey,
+      "provider-key-5",
+      "a key change updates the published API key when the draft provider matches the published snapshot"
+    );
+    assertEqual(
+      matchedAgain?.publishedVersionId,
+      keyedVersionId,
+      "matching the provider does not publish"
+    );
+
+    const republishKey = stubApp({
+      id: "publish-republish-key",
+      name: "Republish key",
+      apiKey: "republish-key-1",
+      provider: "openai",
+      systemPrompt: "republish prompt",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(republishKey);
+    const republishFirst = await updateApp(republishKey.id, {
+      publishedAt: publishAt,
+      publicSlug: "republish-key-slug",
+    });
+    const previousPointer = republishFirst?.publishedVersionId;
+    await updateApp(republishKey.id, {
+      provider: "anthropic",
+      apiKey: "republish-key-2",
+    });
+    const beforeRepublishRows = await listConfigVersions(republishKey.id);
+    const snapshotsBeforeRepublish = beforeRepublishRows.map((version) => ({
+      id: version.id,
+      snapshot: snapshotOf(version),
+      createdAt: version.createdAt,
+      updatedAt: version.updatedAt,
+      sealedAt: version.sealedAt,
+    }));
+    const republishedKey = await updateApp(republishKey.id, {
+      publishedAt: republishAt,
+      publicSlug: "republish-key-slug-2",
+    });
+    assertEqual(
+      republishedKey?.publishedApiKey,
+      "republish-key-2",
+      "republish copies the draft API key when it differs from the published key"
+    );
+    assertEqual(republishedKey?.apiKey, "republish-key-2", "republish leaves the draft API key");
+    assert(
+      republishedKey?.publishedVersionId !== previousPointer,
+      "republish moves the pointer to the latest edit"
+    );
+    const afterRepublishRows = await listConfigVersions(republishKey.id);
+    assertEqual(
+      afterRepublishRows.length,
+      snapshotsBeforeRepublish.length,
+      "republish does not insert a version"
+    );
+    for (const before of snapshotsBeforeRepublish) {
+      const after = afterRepublishRows.find((version) => version.id === before.id);
+      assertEqual(
+        after ? snapshotOf(after) : null,
+        before.snapshot,
+        "republish does not change any version snapshot"
+      );
+      assertEqual(after?.createdAt, before.createdAt, "republish keeps createdAt");
+      assertEqual(after?.updatedAt, before.updatedAt, "republish keeps updatedAt");
+      if (before.id !== republishedKey?.publishedVersionId) {
+        assertEqual(after?.sealedAt, before.sealedAt, "republish leaves other seal times unchanged");
+      }
+    }
+    const previousPublished = afterRepublishRows.find((version) => version.id === previousPointer);
+    const newlyPublished = afterRepublishRows.find(
+      (version) => version.id === republishedKey?.publishedVersionId
+    );
+    assertEqual(previousPublished?.provider, "openai", "the previous snapshot keeps its provider");
+    assertEqual(newlyPublished?.provider, "anthropic", "the published pointer selects the latest edit");
+    assert(newlyPublished?.sealedAt !== null, "republish seals the latest edit");
+    const republishRaw = await fs.readFile(versionsFile, "utf-8");
+    assert(!republishRaw.includes("republish-key-1"), "version file omits the original draft key");
+    assert(!republishRaw.includes("republish-key-2"), "version file omits the republished draft key");
+
+    const unpublished = stubApp({
+      id: "publish-unpublished",
+      name: "Unpublished",
+      apiKey: "unpublished-key",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(unpublished);
+    const unpublishedSaved = await updateApp(unpublished.id, { apiKey: "unpublished-key-2" });
+    assertEqual(
+      unpublishedSaved?.publishedApiKey ?? null,
+      null,
+      "an unpublished bot has no published API key"
+    );
+    assertEqual(
+      unpublishedSaved?.publishedVersionId ?? null,
+      null,
+      "an unpublished bot has no published pointer"
+    );
+
+    const failing = stubApp({
+      id: "publish-fail",
+      name: "Fail publish",
+      apiKey: "publish-fail-key",
+      provider: "openai",
+      systemPrompt: "published prompt",
+      createdAt: recent,
+      updatedAt: recent,
+    });
+    await createApp(failing);
+    const failedFirst = await updateApp(failing.id, {
+      publishedAt: publishAt,
+      publicSlug: "fail-slug",
+    });
+    await updateApp(failing.id, { systemPrompt: "draft that must remain" });
+    const appsBeforeFailure = await fs.readFile(draftAppsFile, "utf-8");
+    const versionsBeforeFailure = await fs.readFile(versionsFile, "utf-8");
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map((arg) => String(arg)).join(" "));
+    };
+    let threw = false;
+    try {
+      process.env.APP_PUBLISH_FAULT = "1";
+      await updateApp(failing.id, {
+        systemPrompt: "SECRET PROMPT TEXT",
+        publishedAt: republishAt,
+        publicSlug: "fail-slug-2",
+        apiKey: "SECRET-PUBLISH-KEY",
+      });
+    } catch {
+      threw = true;
+    } finally {
+      console.error = originalError;
+      delete process.env.APP_PUBLISH_FAULT;
+    }
+    assert(threw, "a failed publish throws");
+    assertEqual(
+      await fs.readFile(draftAppsFile, "utf-8"),
+      appsBeforeFailure,
+      "a failed publish restores the app file"
+    );
+    assertEqual(
+      await fs.readFile(versionsFile, "utf-8"),
+      versionsBeforeFailure,
+      "a failed publish restores the versions file"
+    );
+    const failedStored = await getAppById(failing.id);
+    assertEqual(
+      failedStored?.publishedVersionId,
+      failedFirst?.publishedVersionId,
+      "a failed publish leaves the previous pointer"
+    );
+    assertEqual(
+      failedStored?.publishedApiKey,
+      "publish-fail-key",
+      "a failed publish leaves the previous published API key"
+    );
+    assertEqual(
+      failedStored?.systemPrompt,
+      "draft that must remain",
+      "a failed publish leaves the previous draft"
+    );
+    const publishFailureLog = logged.join("\n");
+    assert(!publishFailureLog.includes("SECRET PROMPT TEXT"), "publish failure log omits prompt text");
+    assert(!publishFailureLog.includes("SECRET-PUBLISH-KEY"), "publish failure log omits API keys");
+    assert(!publishFailureLog.includes("publish-fail-key"), "publish failure log omits the published API key");
+    assert(publishFailureLog.includes("publish-fail"), "publish failure log includes the app id");
+
+    const parsed = parsePeerBotSnapshotResponse(200, {
+      app: {
+        id: "peer",
+        name: "Peer",
+        provider: "openai",
+        model: "gpt-4.1",
+        createdAt: recent,
+        updatedAt: recent,
+        apiKey: "peer-draft-key",
+        publishedApiKey: "peer-published-key",
+      },
+    });
+    assert(parsed.ok, "peer snapshot parses");
+    if (parsed.ok) {
+      assert(!("apiKey" in parsed.app), "peer snapshot omits apiKey");
+      assert(!("publishedApiKey" in parsed.app), "peer snapshot omits publishedApiKey");
+      assert(
+        !JSON.stringify(parsed.app).includes("peer-published-key"),
+        "peer snapshot omits the published key value"
+      );
+      assert(
+        !JSON.stringify(parsed.app).includes("peer-draft-key"),
+        "peer snapshot omits the draft key value"
+      );
+    }
   });
 
   if (failures > 0) {
