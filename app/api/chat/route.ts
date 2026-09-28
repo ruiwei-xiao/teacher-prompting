@@ -4,6 +4,11 @@ import { getAppById } from "@/lib/app-store/store";
 import { sendChat, type ChatMsg } from "@/lib/ai/providers";
 import { normalizeVariability } from "@/lib/app-store/model-selection";
 import {
+  editorTestConfigVersionId,
+  resolveEditorDraftChat,
+  resolvePublishedSnapshot,
+} from "@/lib/chat/resolve-chat-config";
+import {
   recordChatTurn,
   swallowRecordingFailure,
 } from "@/lib/chat-session-store/record-chat-turn";
@@ -302,18 +307,65 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!app.apiKey) {
-      return NextResponse.json(
-        { error: `Missing API key for app "${appId}"` },
-        { status: 500 }
-      );
+    const now = new Date().toISOString();
+
+    async function resolveTurn(loadedApp: NonNullable<typeof app>): Promise<
+      | NextResponse
+      | {
+          appName: string;
+          systemPrompt: string;
+          provider: "openai" | "google" | "anthropic";
+          model: string;
+          variability: number | null;
+          apiKey: string;
+          configVersionId: string | null;
+        }
+    > {
+      if (isPublishedChat) {
+        const snapshot = await resolvePublishedSnapshot(loadedApp, now);
+        if (!snapshot.ok) {
+          return NextResponse.json({ error: snapshot.error }, { status: 500 });
+        }
+        if (!snapshot.apiKey) {
+          return NextResponse.json(
+            { error: `Missing API key for app "${appId}"` },
+            { status: 500 }
+          );
+        }
+        return {
+          appName: snapshot.appName,
+          systemPrompt: snapshot.systemPrompt,
+          provider: snapshot.provider,
+          model: snapshot.model,
+          variability: snapshot.variability,
+          apiKey: snapshot.apiKey,
+          configVersionId: snapshot.configVersionId,
+        };
+      }
+
+      const draft = resolveEditorDraftChat({ app: loadedApp, clientSystem: system });
+      if (!draft.ok) {
+        return NextResponse.json({ error: draft.error }, { status: draft.status });
+      }
+      return {
+        appName: draft.appName,
+        systemPrompt: draft.systemPrompt,
+        provider: draft.provider,
+        model: draft.model,
+        variability: draft.variability,
+        apiKey: draft.apiKey,
+        configVersionId: null,
+      };
     }
+
+    const turn = await resolveTurn(app);
+    if (turn instanceof NextResponse) return turn;
 
     const rawMessages = messages ?? [];
     const hasImageAttachment = rawMessages.some(
       (m) => m.role === "user" && typeof m.imageUrl === "string" && m.imageUrl.trim()
     );
-    if (hasImageAttachment && app.provider !== "openai") {
+    if (hasImageAttachment && turn.provider !== "openai") {
       return NextResponse.json(
         {
           error:
@@ -334,16 +386,16 @@ export async function POST(req: NextRequest) {
     }));
 
     const visualizationContext = buildVisualizationContext(visualizationState);
-    const effectiveSystem = [system?.trim() ? system : app.systemPrompt, visualizationContext]
+    const effectiveSystem = [turn.systemPrompt, visualizationContext]
       .filter(Boolean)
       .join("\n\n");
 
     const reply = await sendChat({
-      provider: app.provider,
-      model: app.model,
-      apiKey: app.apiKey,
+      provider: turn.provider,
+      model: turn.model,
+      apiKey: turn.apiKey,
       system: effectiveSystem,
-      variability: normalizeVariability(app.variability),
+      variability: normalizeVariability(turn.variability),
       messages: normalizedMessages,
     });
 
@@ -352,15 +404,24 @@ export async function POST(req: NextRequest) {
         isPublishedRequest,
         userId: userId ?? null,
       });
+      const configVersionId = isPublishedChat
+        ? turn.configVersionId
+        : await editorTestConfigVersionId({
+            app,
+            userId: userId ?? null,
+            recording,
+            now,
+          });
       await recordChatTurn({
         recording,
         isPublishedRequest,
         userId: userId ?? null,
         userName: session?.user?.name ?? null,
         anonymousVisitorId,
+        configVersionId,
         app: {
           id: app.id,
-          name: app.name,
+          name: turn.appName,
           ownerId: app.ownerId,
         },
         messages: rawMessages,
@@ -370,14 +431,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       reply,
-      provider: app.provider,
-      model: app.model,
+      provider: turn.provider,
+      model: turn.model,
     });
-  } catch (e: any) {
-    console.error("API /api/chat error:", e);
-    return NextResponse.json(
-      { error: e?.message || "Unknown server error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    console.error("API /api/chat error:", error);
+    const message =
+      error instanceof Error && error.message ? error.message : "Unknown server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

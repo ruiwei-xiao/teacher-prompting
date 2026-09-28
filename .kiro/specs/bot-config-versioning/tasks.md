@@ -95,7 +95,7 @@
   - _Depends: 1.3, 2.1, 2.2, 2.4_
   - _Boundary: Version store, Version routes, App store sync_
 
-- [ ] 3.2 (P) Serve students the published snapshot and the owner the draft
+- [x] 3.2 (P) Serve students the published snapshot and the owner the draft
   - Public chat replies and the public page title use the published version's name, prompt, provider, model, and variability, together with the published API key
   - A published bot with an empty pointer uses the repair result from version storage and this task does not insert a version itself
   - A published pointer that does not match a version row returns an English error and does not use the draft
@@ -173,3 +173,4 @@
 - `configVersionId` is written only when a session row is inserted. Later turns do not replace it or fill a null. The client recording body cannot set it.
 - History route self-checks stub `@/auth` with `node:module` `registerHooks` so the route handlers run under `npx tsx`.
 - `APP_REVERT_FAULT=1` fails the next revert after the version write and must leave both JSON files unchanged. Revert always appends, including inside the 15-minute window.
+- Public chat resolves the published snapshot on every request. An empty pointer calls `ensurePublishedVersion`. A dangling pointer returns `Published configuration is unavailable.` Editor tests pin only when the session row does not exist yet.
