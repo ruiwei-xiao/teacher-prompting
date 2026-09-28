@@ -24,6 +24,11 @@ import {
 } from '@/lib/chat-input/client';
 import { TEACHING_AGENT_TEMPLATES } from '@/lib/prompt-builder/teaching-agent-templates';
 import {
+  readOwnerAppRecord,
+  readResponseError,
+  type OwnerPatchSettlement,
+} from '@/components/editor/publish-state';
+import {
   DEFAULT_INSTRUCTION_PROMPT as DEFAULT_PROMPT,
   isDefaultInstructionPrompt,
 } from '@/lib/prompt-defaults';
@@ -301,6 +306,7 @@ export default function InstructionDoc({
   spotlightAttachmentRef,
   spotlightAgentRef,
   spotlightApplyPromptRef,
+  onOwnerPatchSettled,
 }: {
   appId?: string;
   readOnly?: boolean;
@@ -310,6 +316,7 @@ export default function InstructionDoc({
   spotlightAttachmentRef?: RefObject<HTMLButtonElement | null>;
   spotlightAgentRef?: RefObject<HTMLButtonElement | null>;
   spotlightApplyPromptRef?: RefObject<HTMLButtonElement | null>;
+  onOwnerPatchSettled?: (result: OwnerPatchSettlement) => void;
 }) {
   const params = useParams<{ appId: string }>();
   const appId = appIdProp || params?.appId || '';
@@ -326,6 +333,12 @@ export default function InstructionDoc({
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [promptDropActive, setPromptDropActive] = useState(false);
   const promptDropZoneRef = useRef<HTMLDivElement | null>(null);
+  const onOwnerPatchSettledRef = useRef(onOwnerPatchSettled);
+  const draftSaveRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    onOwnerPatchSettledRef.current = onOwnerPatchSettled;
+  }, [onOwnerPatchSettled]);
 
   const insertIntoPrompt = useCallback(
     (insertion: string) => {
@@ -573,14 +586,41 @@ export default function InstructionDoc({
     if (readOnly) return;
     if (!hydrated || !appId) return;
 
+    const requestId = ++draftSaveRequestIdRef.current;
+    const savedPrompt = value;
     const timer = window.setTimeout(() => {
-      void fetch(`/api/apps/${appId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt: value,
-        }),
-      });
+      void (async () => {
+        try {
+          const res = await fetch(`/api/apps/${appId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemPrompt: savedPrompt,
+            }),
+          });
+          const body: unknown = await res.json().catch(() => null);
+          if (requestId !== draftSaveRequestIdRef.current) return;
+          const ownerApp = readOwnerAppRecord(body);
+          if (!res.ok || !ownerApp) {
+            onOwnerPatchSettledRef.current?.({
+              ok: false,
+              error: readResponseError(body, 'Failed to update app settings'),
+            });
+            return;
+          }
+          onOwnerPatchSettledRef.current?.({
+            ok: true,
+            latestVersionId: ownerApp.latestVersionId,
+            publishedVersionId: ownerApp.publishedVersionId,
+          });
+        } catch {
+          if (requestId !== draftSaveRequestIdRef.current) return;
+          onOwnerPatchSettledRef.current?.({
+            ok: false,
+            error: 'Failed to update app settings',
+          });
+        }
+      })();
     }, 600);
 
     return () => window.clearTimeout(timer);

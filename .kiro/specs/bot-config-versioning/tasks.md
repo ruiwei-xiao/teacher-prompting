@@ -126,7 +126,7 @@
   - _Depends: 2.1_
   - _Boundary: App PATCH_
 
-- [ ] 3.5 Show Publish or Republish from the editor
+- [x] 3.5 Show Publish or Republish from the editor
   - A bot that has never been published keeps the existing Publish action and does not show Republish
   - When the latest edit version differs from the published version, the editor shows the English notice "You have unpublished changes." and an action labeled Republish
   - When those versions match, the editor shows a Published status and does not show Publish or Republish
@@ -176,3 +176,4 @@
 - Public chat resolves the published snapshot on every request. An empty pointer calls `ensurePublishedVersion`. A dangling pointer returns `Published configuration is unavailable.` Editor tests pin only when the session row does not exist yet.
 - The owner activity transcript shows `Bot version from {createdAt}` using the version's created time. A null `configVersionId` omits the label. A missing version row shows `Bot version unavailable`. Downloads do not include the version.
 - `latestVersionId` is the unsealed edit version, or `publishedVersionId` when every edit version is sealed. Owner GET and PATCH omit both API keys.
+- Editor publish chrome is derived from version ids: no published id means `Publish`, differing ids mean `You have unpublished changes.` and `Republish`, and matching ids mean `Published` with no action.

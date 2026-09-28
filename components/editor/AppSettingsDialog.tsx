@@ -8,6 +8,11 @@ import {
   toModelSelection,
 } from "@/lib/app-store/model-selection";
 import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
+import {
+  readOwnerAppRecord,
+  readResponseError,
+  type OwnerAppView,
+} from "@/components/editor/publish-state";
 export default function AppSettingsDialog({
   appId,
   open,
@@ -17,7 +22,7 @@ export default function AppSettingsDialog({
   appId: string;
   open: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (app: OwnerAppView) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,17 +86,22 @@ export default function AppSettingsDialog({
         }),
       });
 
-      const body = await res.json();
+      const body: unknown = await res.json().catch(() => null);
+      const savedApp = readOwnerAppRecord(body);
 
-      if (!res.ok) {
-        throw new Error(body?.error || "Failed to save settings");
+      if (!res.ok || !savedApp) {
+        throw new Error(readResponseError(body, "Failed to save settings"));
       }
 
       setApiKey("");
       setSuccess("Settings updated.");
-      onSaved?.();
-    } catch (e: any) {
-      setError(e?.message || "Failed to save settings");
+      onSaved?.(savedApp);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to save settings";
+      setError(message);
     } finally {
       setSaving(false);
     }

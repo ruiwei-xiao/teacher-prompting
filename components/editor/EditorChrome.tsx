@@ -12,6 +12,9 @@ export default function EditorChrome({
   shareBusy,
   shareDisabled,
   onPublish,
+  publishActionLabel,
+  publishNotice,
+  publishStatusLabel,
   publishBusy,
   publishButtonRef,
   onReplayEditorGuide,
@@ -25,8 +28,15 @@ export default function EditorChrome({
   shareBusy?: boolean;
   shareDisabled?: boolean;
   onPublish?: () => void;
+  /** Visible action. Omit the control when this is null. */
+  publishActionLabel?: "Publish" | "Republish" | null;
+  publishNotice?: string | null;
+  publishStatusLabel?: string | null;
   publishBusy?: boolean;
-  /** Optional ref on the Publish control (e.g. onboarding spotlight). */
+  /**
+   * Optional ref on the Publish or Republish control (e.g. onboarding spotlight).
+   * Absent when no action button is rendered.
+   */
   publishButtonRef?: Ref<HTMLButtonElement | null>;
   onReplayEditorGuide?: () => void;
   children: React.ReactNode;
@@ -78,7 +88,12 @@ export default function EditorChrome({
                 Activity
               </Link>
             ) : null}
-            {onPublish && (
+            {publishStatusLabel ? (
+              <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                {publishStatusLabel}
+              </span>
+            ) : null}
+            {onPublish && publishActionLabel ? (
               <button
                 ref={publishButtonRef}
                 className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
@@ -86,9 +101,9 @@ export default function EditorChrome({
                 disabled={publishBusy}
                 type="button"
               >
-                {publishBusy ? "Publishing..." : "Publish"}
+                {publishBusy ? "Publishing..." : publishActionLabel}
               </button>
-            )}
+            ) : null}
             {onShare && (
               <button
                 className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -103,6 +118,14 @@ export default function EditorChrome({
           </div>
         </div>
       </header>
+      {publishNotice ? (
+        <p
+          role="status"
+          className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+        >
+          {publishNotice}
+        </p>
+      ) : null}
 
       {/* Full-bleed content that fills the rest of the viewport */}
       <main className="page-pad min-h-0 flex-1 overflow-hidden">
