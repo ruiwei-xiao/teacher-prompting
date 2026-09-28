@@ -84,7 +84,7 @@
 ## 3. Integration: revert, chat, and the editor
 
 - [ ] 3. Integration: revert, chat, and the editor
-- [ ] 3.1 (P) Revert by appending a draft
+- [x] 3.1 (P) Revert by appending a draft
   - Reverting an edit version that is not the current draft appends a new edit version with that snapshot, even inside the 15-minute window, and leaves every older version in place
   - The app row then matches that new draft
   - Revert does not change the published pointer or the published API key
@@ -172,3 +172,4 @@
 - `pinSessionSnapshot` returns a sealed version's own id. It inserts a sealed `session` copy only for an unsealed draft, and that draft stays editable.
 - `configVersionId` is written only when a session row is inserted. Later turns do not replace it or fill a null. The client recording body cannot set it.
 - History route self-checks stub `@/auth` with `node:module` `registerHooks` so the route handlers run under `npx tsx`.
+- `APP_REVERT_FAULT=1` fails the next revert after the version write and must leave both JSON files unchanged. Revert always appends, including inside the 15-minute window.

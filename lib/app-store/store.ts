@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { sql, type VercelPoolClient } from "@vercel/postgres";
 import { snapshotFromApp } from "../app-config-versions/rules";
-import type { ConfigVersionRecord } from "../app-config-versions/types";
+import type { ConfigSnapshot, ConfigVersionRecord } from "../app-config-versions/types";
 import {
   AppConfig,
   ProjectShareVisibility,
@@ -1028,6 +1028,82 @@ export async function persistPublishedPointers(
     };
   });
   await writeAppsToFile(nextApps);
+}
+
+async function writeRevertedDraft(
+  query: SqlQuery,
+  appId: string,
+  snapshot: ConfigSnapshot,
+  now: string
+): Promise<void> {
+  if (!isSupportedProvider(snapshot.provider)) {
+    throw new Error(`App ${appId} could not be snapshotted`);
+  }
+  const builderState = snapshot.builderState ? JSON.stringify(snapshot.builderState) : null;
+  const result = await query`
+    UPDATE apps
+    SET
+      name = ${snapshot.name},
+      provider = ${snapshot.provider},
+      model = ${snapshot.model},
+      variability = ${snapshot.variability},
+      system_prompt = ${snapshot.systemPrompt},
+      builder_state = ${builderState},
+      assisted_authoring_mode = ${snapshot.assistedAuthoringMode},
+      updated_at = ${now}
+    WHERE id = ${appId}
+  `;
+  if (result.rowCount === 0) {
+    throw new Error(`App ${appId} was not found`);
+  }
+}
+
+function applyRevertedSnapshot(
+  app: AppConfig,
+  snapshot: ConfigSnapshot,
+  now: string
+): AppConfig {
+  if (!isSupportedProvider(snapshot.provider)) {
+    throw new Error(`App ${app.id} could not be snapshotted`);
+  }
+  return {
+    ...app,
+    name: snapshot.name,
+    provider: snapshot.provider,
+    model: snapshot.model,
+    variability: snapshot.variability === null ? undefined : snapshot.variability,
+    systemPrompt: snapshot.systemPrompt,
+    assistedAuthoringMode: snapshot.assistedAuthoringMode,
+    builderState: snapshot.builderState ? { ...snapshot.builderState } : undefined,
+    apiKey: app.apiKey,
+    publishedVersionId: app.publishedVersionId,
+    publishedApiKey: app.publishedApiKey,
+    updatedAt: now,
+  };
+}
+
+/** Writes the reverted snapshot onto the app row without touching publication fields. */
+export async function persistRevertedDraft(
+  appId: string,
+  snapshot: ConfigSnapshot,
+  now: string,
+  query?: SqlQuery
+): Promise<void> {
+  if (query) {
+    await writeRevertedDraft(query, appId, snapshot, now);
+    return;
+  }
+  if (shouldUsePostgres()) {
+    throw new Error(`App ${appId} revert must run inside a transaction`);
+  }
+  const apps = await readAppsFromFile();
+  const index = apps.findIndex((app) => app.id === appId);
+  const current = index >= 0 ? apps[index] : undefined;
+  if (!current) {
+    throw new Error(`App ${appId} was not found`);
+  }
+  apps[index] = applyRevertedSnapshot(current, snapshot, now);
+  await writeAppsToFile(apps);
 }
 
 /** Reads the file store without starting version backfill, so backfill can load apps. */

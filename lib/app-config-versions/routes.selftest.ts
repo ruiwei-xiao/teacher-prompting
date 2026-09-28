@@ -1,5 +1,5 @@
 /**
- * Self-test: owner version history list and detail routes (Task 2.4).
+ * Self-test: owner version history list, detail, and revert routes.
  * Run: npx tsx lib/app-config-versions/routes.selftest.ts
  */
 import fs from "fs";
@@ -8,7 +8,8 @@ import path from "path";
 import { registerHooks } from "node:module";
 import { pathToFileURL } from "node:url";
 import type { AppConfig, PromptBuilderState } from "../app-store/types";
-import type { ConfigVersionRecord } from "./types";
+import { snapshotFromApp } from "./rules";
+import type { ConfigSnapshot, ConfigVersionRecord } from "./types";
 
 type RouteSession = { user?: { id?: string } } | null;
 
@@ -268,6 +269,486 @@ function publicVersion(version: StoredVersion) {
     assistedAuthoringMode: version.assistedAuthoringMode,
     builderState: version.builderState,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseApps(raw: string): AppConfig[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error("apps.json was not a list");
+  }
+  return parsed as AppConfig[];
+}
+
+function parseVersions(raw: string): StoredVersion[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("app-config-versions.json was not an object");
+  }
+  const versions = (parsed as { versions?: unknown }).versions;
+  if (!Array.isArray(versions)) {
+    throw new Error("app-config-versions.json has no version list");
+  }
+  return versions as StoredVersion[];
+}
+
+function snapshotOf(version: StoredVersion): ConfigSnapshot {
+  return {
+    name: version.name,
+    provider: version.provider,
+    model: version.model,
+    variability: version.variability,
+    systemPrompt: version.systemPrompt,
+    assistedAuthoringMode: version.assistedAuthoringMode,
+    builderState: version.builderState,
+  };
+}
+
+async function runRevertRouteChecks(): Promise<void> {
+  const revertRoute = await import(
+    "../../app/api/apps/[appId]/config-versions/[versionId]/revert/route.ts"
+  );
+  const listRoute = await import("../../app/api/apps/[appId]/config-versions/route.ts");
+
+  async function postRevert(appId: string, versionId: string): Promise<JsonResponse> {
+    return readJson(
+      await revertRoute.POST(
+        new Request(
+          `http://localhost/api/apps/${appId}/config-versions/${versionId}/revert`,
+          { method: "POST" }
+        ),
+        { params: Promise.resolve({ appId, versionId }) }
+      )
+    );
+  }
+
+  const recentDraftUpdatedAt = new Date(Date.now() - 60_000).toISOString();
+  const tiedBuilder = builderState();
+  const publishedBuilder = builderState({ learningObjective: "Subtract fractions" });
+  const early = versionRecord({
+    id: "edit-zzz",
+    appId: "bot-1",
+    name: "Early tutor",
+    systemPrompt: "Early prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:00:00.000Z",
+    sealedAt: "2026-01-02T00:00:00.000Z",
+  });
+  const source = versionRecord({
+    id: "edit-c",
+    appId: "bot-1",
+    name: "Tie tutor",
+    systemPrompt: "Tie prompt",
+    variability: null,
+    assistedAuthoringMode: true,
+    builderState: tiedBuilder,
+    createdAt: "2026-02-01T00:00:00.000Z",
+    updatedAt: "2026-02-20T00:00:00.000Z",
+    sealedAt: "2026-02-20T00:00:00.000Z",
+  });
+  const published = versionRecord({
+    id: "edit-z",
+    appId: "bot-1",
+    name: "Published tutor",
+    provider: "google",
+    systemPrompt: "Published prompt",
+    variability: 0.2,
+    assistedAuthoringMode: false,
+    builderState: publishedBuilder,
+    createdAt: "2026-02-01T00:00:00.000Z",
+    updatedAt: "2026-04-01T00:00:00.000Z",
+    sealedAt: "2026-04-01T00:00:00.000Z",
+  });
+  const draft = versionRecord({
+    id: "edit-draft",
+    appId: "bot-1",
+    name: "Draft tutor",
+    provider: "google",
+    model: "gpt-4.1-mini",
+    systemPrompt: "Draft prompt",
+    variability: 0.4,
+    assistedAuthoringMode: false,
+    builderState: publishedBuilder,
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: recentDraftUpdatedAt,
+    sealedAt: null,
+  });
+  const sessionCopy = versionRecord({
+    id: "session-copy",
+    appId: "bot-1",
+    kind: "session",
+    name: "Session copy",
+    systemPrompt: SESSION_PROMPT,
+    createdAt: "2026-02-15T00:00:00.000Z",
+    updatedAt: "2026-05-01T00:00:00.000Z",
+    sealedAt: "2026-02-15T00:00:00.000Z",
+  });
+  const otherEdit = versionRecord({
+    id: "other-edit",
+    appId: "bot-other",
+    name: "Other tutor",
+    systemPrompt: OTHER_APP_PROMPT,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+    sealedAt: null,
+  });
+  const bot = stubApp({
+    id: "bot-1",
+    ownerId: "owner-a",
+    name: "Live tutor",
+    provider: "google",
+    model: "gpt-4.1-mini",
+    apiKey: APP_API_KEY,
+    publishedApiKey: PUBLISHED_API_KEY,
+    variability: 0.4,
+    systemPrompt: APP_ROW_PROMPT,
+    builderState: publishedBuilder,
+    assistedAuthoringMode: false,
+    description: "Keep this description",
+    publishedAt: "2026-04-01T00:00:00.000Z",
+    publishedVersionId: "edit-z",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: recentDraftUpdatedAt,
+  });
+  const otherBot = stubApp({
+    id: "bot-other",
+    ownerId: "owner-b",
+    name: "Other live tutor",
+    apiKey: "OTHER_APP_API_KEY",
+    systemPrompt: OTHER_APP_PROMPT,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+  });
+  const history = [early, source, published, draft, sessionCopy, otherEdit];
+  const sessionsBody = JSON.stringify({
+    sessions: [{ id: "sentinel-session-must-remain" }],
+  });
+  const knownIds = new Set(history.map((version) => version.id));
+
+  await withTempStore([bot, otherBot], history, sessionsBody, async (files) => {
+    const beforeApps = await fsPromises.readFile(files.apps, "utf-8");
+    const beforeVersions = await fsPromises.readFile(files.versions, "utf-8");
+    const beforeSessions = await fsPromises.readFile(files.sessions, "utf-8");
+
+    async function assertStoreUntouched(message: string): Promise<void> {
+      assertEqual(
+        await fsPromises.readFile(files.apps, "utf-8"),
+        beforeApps,
+        `${message} leaves the app row unchanged`
+      );
+      assertEqual(
+        await fsPromises.readFile(files.versions, "utf-8"),
+        beforeVersions,
+        `${message} leaves version history unchanged`
+      );
+      assertEqual(
+        await fsPromises.readFile(files.sessions, "utf-8"),
+        beforeSessions,
+        `${message} leaves chat sessions unchanged`
+      );
+    }
+
+    setSession(null);
+    const signedOut = await postRevert("bot-1", "edit-c");
+    assertEqual(signedOut.status, 401, "missing session revert status");
+    assertEqual(signedOut.body, { error: "Unauthorized" }, "missing session revert body");
+    assertNoSnapshotBody(signedOut.text, "missing session revert");
+
+    setSession({ user: {} });
+    const nameless = await postRevert("bot-1", "edit-c");
+    assertEqual(nameless.status, 401, "session without user id revert status");
+    assertEqual(
+      nameless.body,
+      { error: "Unauthorized" },
+      "session without user id revert body"
+    );
+
+    setSession({ user: { id: "" } });
+    const blank = await postRevert("bot-1", "edit-c");
+    assertEqual(blank.status, 401, "blank user id revert status");
+    assertEqual(blank.body, { error: "Unauthorized" }, "blank user id revert body");
+
+    setSession({ user: { id: "owner-b" } });
+    const stranger = await postRevert("bot-1", "edit-c");
+    assertEqual(stranger.status, 404, "non-owner revert status");
+    assertEqual(stranger.body, { error: "App not found" }, "non-owner revert body");
+    assertNoSnapshotBody(stranger.text, "non-owner revert");
+
+    const strangerDraft = await postRevert("bot-1", "edit-draft");
+    assertEqual(strangerDraft.status, 404, "non-owner draft revert status");
+    assertEqual(
+      strangerDraft.body,
+      { error: "App not found" },
+      "non-owner draft revert does not reveal the draft"
+    );
+
+    setSession({ user: { id: "owner-a" } });
+    const missingApp = await postRevert("missing-bot", "edit-c");
+    assertEqual(missingApp.status, 404, "missing app revert status");
+    assertEqual(missingApp.body, { error: "App not found" }, "missing app revert body");
+    assertNoSnapshotBody(missingApp.text, "missing app revert");
+
+    const currentDraft = await postRevert("bot-1", "edit-draft");
+    assertEqual(currentDraft.status, 400, "current draft revert status");
+    assertEqual(
+      currentDraft.body,
+      { error: "The current draft cannot be reverted." },
+      "current draft revert body"
+    );
+    assertNoSnapshotBody(currentDraft.text, "current draft revert");
+
+    const sessionRevert = await postRevert("bot-1", "session-copy");
+    assertEqual(sessionRevert.status, 404, "session copy revert status");
+    assertEqual(
+      sessionRevert.body,
+      { error: "Version not found" },
+      "session copy revert body"
+    );
+    assertNoSnapshotBody(sessionRevert.text, "session copy revert");
+
+    const missingVersion = await postRevert("bot-1", "no-such-version");
+    assertEqual(missingVersion.status, 404, "missing version revert status");
+    assertEqual(
+      missingVersion.body,
+      { error: "Version not found" },
+      "missing version revert body"
+    );
+    assertNoSnapshotBody(missingVersion.text, "missing version revert");
+
+    const foreignVersion = await postRevert("bot-1", "other-edit");
+    assertEqual(foreignVersion.status, 404, "another app version revert status");
+    assertEqual(
+      foreignVersion.body,
+      { error: "Version not found" },
+      "another app version revert body"
+    );
+    assertNoSnapshotBody(foreignVersion.text, "another app version revert");
+    await assertStoreUntouched("a rejected revert");
+
+    const reverted = await postRevert("bot-1", "edit-c");
+    assertEqual(reverted.status, 200, "revert status");
+    assert(isRecord(reverted.body), "revert success body is an object");
+    if (!isRecord(reverted.body) || !isRecord(reverted.body.version) || !isRecord(reverted.body.draft)) {
+      assert(false, "revert success body has version and draft");
+      return;
+    }
+    const versionId = reverted.body.version.id;
+    const createdAt = reverted.body.version.createdAt;
+    assert(typeof versionId === "string" && versionId.length > 0, "new version id is a string");
+    assert(typeof createdAt === "string", "new version createdAt is a string");
+    if (typeof versionId !== "string" || typeof createdAt !== "string") return;
+    assert(!knownIds.has(versionId), "revert allocates a new version id");
+    assert(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(versionId),
+      "new version id is a uuid"
+    );
+    const elapsed = Date.parse(createdAt) - Date.parse(recentDraftUpdatedAt);
+    assert(
+      elapsed > 0 && elapsed <= 15 * 60 * 1000,
+      "revert appends inside the 15-minute draft window"
+    );
+    assert(
+      Math.abs(Date.parse(createdAt) - Date.now()) < 2 * 60 * 1000,
+      "new version timestamps use the revert time"
+    );
+
+    const expectedSnapshot = snapshotOf(source);
+    const expectedVersion = {
+      ...publicVersion(source),
+      id: versionId,
+      createdAt,
+      updatedAt: createdAt,
+      sealedAt: null,
+    };
+    assertEqual(reverted.body.version, expectedVersion, "revert returns the appended edit version");
+    assertEqual(reverted.body.draft, expectedSnapshot, "revert returns the snapshot now on the app");
+    assert(!reverted.text.includes(APP_API_KEY), "revert response omits the app api key");
+    assert(
+      !reverted.text.includes(PUBLISHED_API_KEY),
+      "revert response omits the published api key"
+    );
+    assert(!reverted.text.includes(VERSION_API_KEY), "revert response omits version api keys");
+    assert(
+      !reverted.text.includes(VERSION_PUBLISHED_API_KEY),
+      "revert response omits version published api keys"
+    );
+    assert(!reverted.text.includes("apiKey"), "revert response omits api key field names");
+    assert(!reverted.text.includes(APP_ROW_PROMPT), "revert response omits the previous app prompt");
+    assert(!reverted.text.includes("Draft prompt"), "revert response omits the previous draft prompt");
+    assert(!reverted.text.includes(SESSION_PROMPT), "revert response omits the session copy");
+    assert(!reverted.text.includes(OTHER_APP_PROMPT), "revert response omits another app");
+
+    const storedVersions = parseVersions(await fsPromises.readFile(files.versions, "utf-8"));
+    assertEqual(storedVersions.length, history.length + 1, "revert appends one version");
+    for (const original of history) {
+      const stored = storedVersions.find((version) => version.id === original.id);
+      assert(stored !== undefined, `older version ${original.id} stays in history`);
+      if (!stored) continue;
+      if (original.id === "edit-draft") {
+        assertEqual(
+          { ...stored, sealedAt: null },
+          { ...original, sealedAt: null },
+          "sealing the previous draft does not rewrite its snapshot"
+        );
+        assertEqual(stored.sealedAt, createdAt, "the previous draft is sealed at the revert time");
+        assertEqual(
+          stored.updatedAt,
+          recentDraftUpdatedAt,
+          "sealing does not move the previous draft updatedAt"
+        );
+      } else {
+        assertEqual(stored, original, `older version ${original.id} is unchanged`);
+      }
+    }
+    const created = storedVersions.find((version) => version.id === versionId);
+    assert(created !== undefined, "the appended version is stored");
+    if (created) {
+      assertEqual(created, expectedVersion, "the stored version matches the response");
+      assert(
+        !Object.prototype.hasOwnProperty.call(created, "apiKey"),
+        "the stored revert has no api key"
+      );
+      assert(
+        !Object.prototype.hasOwnProperty.call(created, "publishedApiKey"),
+        "the stored revert has no published api key"
+      );
+    }
+    const openEdits = storedVersions.filter(
+      (version) => version.appId === "bot-1" && version.kind === "edit" && version.sealedAt === null
+    );
+    assertEqual(
+      openEdits.map((version) => version.id),
+      [versionId],
+      "only the appended edit version stays unsealed"
+    );
+
+    const storedApps = parseApps(await fsPromises.readFile(files.apps, "utf-8"));
+    const storedBot = storedApps.find((app) => app.id === "bot-1");
+    const storedOther = storedApps.find((app) => app.id === "bot-other");
+    assert(storedBot !== undefined, "the reverted app row remains");
+    if (storedBot) {
+      assertEqual(
+        snapshotFromApp(storedBot),
+        expectedSnapshot,
+        "the app row matches the appended draft"
+      );
+      assertEqual(storedBot.updatedAt, createdAt, "the app row updatedAt matches the new draft");
+      assertEqual(storedBot.apiKey, APP_API_KEY, "revert leaves the draft api key");
+      assertEqual(
+        storedBot.publishedApiKey,
+        PUBLISHED_API_KEY,
+        "revert leaves the published api key"
+      );
+      assertEqual(storedBot.publishedVersionId, "edit-z", "revert leaves the published pointer");
+      assertEqual(storedBot.publishedAt, bot.publishedAt, "revert leaves publishedAt");
+      assertEqual(storedBot.ownerId, bot.ownerId, "revert leaves the owner");
+      assertEqual(storedBot.description, bot.description, "revert leaves non-snapshot fields");
+      assertEqual(storedBot.createdAt, bot.createdAt, "revert leaves the app createdAt");
+    }
+    assertEqual(storedOther, otherBot, "revert leaves another owner's app unchanged");
+    assertEqual(
+      await fsPromises.readFile(files.sessions, "utf-8"),
+      beforeSessions,
+      "revert does not change chat sessions"
+    );
+
+    setSession({ user: { id: "owner-a" } });
+    const listed = await listRoute.GET(
+      new Request("http://localhost/api/apps/bot-1/config-versions"),
+      { params: Promise.resolve({ appId: "bot-1" }) }
+    );
+    const listedBody = await readJson(listed);
+    assertEqual(listedBody.status, 200, "history after revert status");
+    assert(isRecord(listedBody.body) && Array.isArray(listedBody.body.versions), "history list");
+    if (isRecord(listedBody.body) && Array.isArray(listedBody.body.versions)) {
+      const summaries = listedBody.body.versions;
+      const appended = summaries.find(
+        (item) => isRecord(item) && item.id === versionId
+      );
+      const previousDraft = summaries.find(
+        (item) => isRecord(item) && item.id === "edit-draft"
+      );
+      const publishedSummary = summaries.find(
+        (item) => isRecord(item) && item.id === "edit-z"
+      );
+      assert(isRecord(appended) && appended.isDraft === true, "the appended version is the draft");
+      assert(
+        isRecord(appended) && appended.isPublished === false,
+        "the appended version is not published"
+      );
+      assert(
+        isRecord(previousDraft) && previousDraft.isDraft === false,
+        "the previous draft is no longer the draft"
+      );
+      assert(
+        isRecord(publishedSummary) && publishedSummary.isPublished === true,
+        "the published pointer still marks the original published version"
+      );
+      assert(
+        !summaries.some((item) => isRecord(item) && item.id === "session-copy"),
+        "history after revert still omits the session copy"
+      );
+    }
+
+    const afterSuccessApps = await fsPromises.readFile(files.apps, "utf-8");
+    const afterSuccessVersions = await fsPromises.readFile(files.versions, "utf-8");
+    const secondDraft = await postRevert("bot-1", versionId);
+    assertEqual(secondDraft.status, 400, "reverting the new draft status");
+    assertEqual(
+      secondDraft.body,
+      { error: "The current draft cannot be reverted." },
+      "reverting the new draft body"
+    );
+    assertNoSnapshotBody(secondDraft.text, "reverting the new draft");
+    assertEqual(
+      await fsPromises.readFile(files.apps, "utf-8"),
+      afterSuccessApps,
+      "rejecting the new draft leaves the app row"
+    );
+    assertEqual(
+      await fsPromises.readFile(files.versions, "utf-8"),
+      afterSuccessVersions,
+      "rejecting the new draft leaves history"
+    );
+  });
+
+  await withTempStore([bot, otherBot], history, sessionsBody, async (files) => {
+    const beforeApps = await fsPromises.readFile(files.apps, "utf-8");
+    const beforeVersions = await fsPromises.readFile(files.versions, "utf-8");
+    const beforeSessions = await fsPromises.readFile(files.sessions, "utf-8");
+    setSession({ user: { id: "owner-a" } });
+    process.env.APP_REVERT_FAULT = "1";
+    try {
+      const failed = await postRevert("bot-1", "edit-c");
+      assertEqual(failed.status, 500, "failed revert status");
+      assertEqual(
+        failed.body,
+        { error: "Failed to revert this version." },
+        "failed revert body"
+      );
+      assertNoSnapshotBody(failed.text, "failed revert");
+      assertEqual(
+        await fsPromises.readFile(files.apps, "utf-8"),
+        beforeApps,
+        "a failed revert restores the app row and published pointer"
+      );
+      assertEqual(
+        await fsPromises.readFile(files.versions, "utf-8"),
+        beforeVersions,
+        "a failed revert restores version history"
+      );
+      assertEqual(
+        await fsPromises.readFile(files.sessions, "utf-8"),
+        beforeSessions,
+        "a failed revert leaves chat sessions unchanged"
+      );
+    } finally {
+      delete process.env.APP_REVERT_FAULT;
+    }
+  });
 }
 
 async function main(): Promise<void> {
@@ -726,6 +1207,7 @@ async function main(): Promise<void> {
         );
       }
     );
+    await runRevertRouteChecks();
   } finally {
     await fsPromises.rm(AUTH_MOCK_PATH, { force: true });
   }

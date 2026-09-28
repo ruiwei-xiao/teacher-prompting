@@ -4,13 +4,15 @@ import path from "path";
 import { sql, type VercelPoolClient } from "@vercel/postgres";
 import {
   persistPublishedPointers,
+  persistRevertedDraft,
   readAppsForVersionBackfill,
 } from "../app-store/store";
 import type { AppConfig, PromptBuilderState, SupportedProvider } from "../app-store/types";
 import { decideVersionWrite, snapshotFromApp } from "./rules";
-import type { ConfigVersionKind, ConfigVersionRecord } from "./types";
+import type { ConfigSnapshot, ConfigVersionKind, ConfigVersionRecord } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
+const APPS_FILE = path.join(DATA_DIR, "apps.json");
 const VERSIONS_FILE = path.join(DATA_DIR, "app-config-versions.json");
 
 type SqlQuery = VercelPoolClient["sql"];
@@ -84,6 +86,13 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
     () => undefined
   );
   return run;
+}
+
+/** Test-only. Set APP_REVERT_FAULT=1 to fail the next revert after the version write. */
+function takeRevertFault(): boolean {
+  if (process.env.APP_REVERT_FAULT !== "1") return false;
+  delete process.env.APP_REVERT_FAULT;
+  return true;
 }
 
 function logStoreFailure(appIds: readonly string[]): void {
@@ -385,6 +394,77 @@ function planPublish(
     versionId: latest.id,
     noop: false,
     versions: versions.map((version) => (version.id === sealed.id ? sealed : version)),
+  };
+}
+
+type RevertResult =
+  | { ok: true; created: ConfigVersionRecord; draft: ConfigSnapshot }
+  | { ok: false; code: "not-found" | "is-draft" };
+
+type RevertPlan =
+  | { ok: false; code: "not-found" | "is-draft" }
+  | {
+      ok: true;
+      created: ConfigVersionRecord;
+      draft: ConfigSnapshot;
+      versions: ConfigVersionRecord[];
+    };
+
+function draftSnapshot(version: ConfigVersionRecord): ConfigSnapshot {
+  return {
+    name: version.name,
+    provider: version.provider,
+    model: version.model,
+    variability: version.variability,
+    systemPrompt: version.systemPrompt,
+    assistedAuthoringMode: version.assistedAuthoringMode,
+    builderState: version.builderState ? { ...version.builderState } : null,
+  };
+}
+
+function appendedEdit(source: ConfigVersionRecord, now: string): ConfigVersionRecord {
+  return {
+    id: randomUUID(),
+    appId: source.appId,
+    kind: "edit",
+    createdAt: now,
+    updatedAt: now,
+    sealedAt: null,
+    name: source.name,
+    provider: source.provider,
+    model: source.model,
+    variability: source.variability,
+    systemPrompt: source.systemPrompt,
+    assistedAuthoringMode: source.assistedAuthoringMode,
+    builderState: source.builderState ? { ...source.builderState } : null,
+  };
+}
+
+function planRevert(
+  versions: readonly ConfigVersionRecord[],
+  input: { app: AppConfig; sourceVersionId: string; now: string }
+): RevertPlan {
+  const source = versions.find(
+    (version) => version.appId === input.app.id && version.id === input.sourceVersionId
+  );
+  if (!source || source.kind !== "edit") {
+    return { ok: false, code: "not-found" };
+  }
+  if (source.sealedAt === null) {
+    return { ok: false, code: "is-draft" };
+  }
+  const created = appendedEdit(source, input.now);
+  // Revert always appends, including inside the 15-minute draft window.
+  const sealed = versions.map((version) =>
+    version.appId === input.app.id && version.kind === "edit" && version.sealedAt === null
+      ? { ...version, sealedAt: input.now }
+      : version
+  );
+  return {
+    ok: true,
+    created,
+    draft: draftSnapshot(created),
+    versions: [...sealed, created],
   };
 }
 
@@ -975,6 +1055,87 @@ export async function pinSessionSnapshot(input: {
       return withPostgresTransaction([input.appId], (query) => pinSessionPostgres(query, input));
     }
     return pinSessionJson(input);
+  });
+}
+
+async function readOptionalText(file: string): Promise<string | null> {
+  try {
+    return await fs.readFile(file, "utf-8");
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+}
+
+async function restoreText(file: string, previous: string | null): Promise<void> {
+  if (previous === null) {
+    await fs.rm(file, { force: true });
+    return;
+  }
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, previous, "utf-8");
+}
+
+function revertResult(plan: Extract<RevertPlan, { ok: true }>): RevertResult {
+  return { ok: true, created: plan.created, draft: plan.draft };
+}
+
+async function revertPostgres(
+  query: SqlQuery,
+  input: { app: AppConfig; sourceVersionId: string; now: string }
+): Promise<RevertResult> {
+  await ensureVersionSchema(query);
+  const versions = await listVersionRows(query, input.app.id);
+  const plan = planRevert(versions, input);
+  if (!plan.ok) return plan;
+  await sealUnsealedEdits(query, input.app.id, input.now);
+  await insertVersion(query, plan.created);
+  if (takeRevertFault()) {
+    throw new Error("Failed to revert this version.");
+  }
+  await persistRevertedDraft(input.app.id, plan.draft, input.now, query);
+  return revertResult(plan);
+}
+
+async function revertJson(input: {
+  app: AppConfig;
+  sourceVersionId: string;
+  now: string;
+}): Promise<RevertResult> {
+  const versions = await readVersionsFile();
+  const plan = planRevert(versions, input);
+  if (!plan.ok) return plan;
+  const previousVersions = await readOptionalText(VERSIONS_FILE);
+  const previousApps = await readOptionalText(APPS_FILE);
+  try {
+    await writeVersionsFile(plan.versions);
+    if (takeRevertFault()) {
+      throw new Error("Failed to revert this version.");
+    }
+    await persistRevertedDraft(input.app.id, plan.draft, input.now);
+    return revertResult(plan);
+  } catch (error) {
+    try {
+      await restoreText(VERSIONS_FILE, previousVersions);
+      await restoreText(APPS_FILE, previousApps);
+    } catch {
+      // Surface the original failure.
+    }
+    logStoreFailure([input.app.id]);
+    throw error;
+  }
+}
+
+export async function revertToConfigVersion(input: {
+  app: AppConfig;
+  sourceVersionId: string;
+  now: string;
+}): Promise<RevertResult> {
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      return withPostgresTransaction([input.app.id], (query) => revertPostgres(query, input));
+    }
+    return revertJson(input);
   });
 }
 
