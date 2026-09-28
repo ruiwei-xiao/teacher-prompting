@@ -108,7 +108,7 @@
   - _Depends: 2.1, 2.2, 2.3_
   - _Boundary: Chat resolution_
 
-- [ ] 3.3 (P) Show the starting version on an existing session
+- [x] 3.3 (P) Show the starting version on an existing session
   - When the owner opens a recorded session that has a starting version, the existing session view shows that it is the version recorded at the start, using the version's created time
   - A session with no starting version shows no version label
   - A starting version id that no longer resolves shows that the bot version is unavailable, without inventing a time
@@ -174,3 +174,4 @@
 - History route self-checks stub `@/auth` with `node:module` `registerHooks` so the route handlers run under `npx tsx`.
 - `APP_REVERT_FAULT=1` fails the next revert after the version write and must leave both JSON files unchanged. Revert always appends, including inside the 15-minute window.
 - Public chat resolves the published snapshot on every request. An empty pointer calls `ensurePublishedVersion`. A dangling pointer returns `Published configuration is unavailable.` Editor tests pin only when the session row does not exist yet.
+- The owner activity transcript shows `Bot version from {createdAt}` using the version's created time. A null `configVersionId` omits the label. A missing version row shows `Bot version unavailable`. Downloads do not include the version.

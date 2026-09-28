@@ -87,9 +87,9 @@ function MySessionsViewInner() {
     setTranscript(null);
 
     void fetchTranscript(selectedId)
-      .then((session) => {
+      .then((payload) => {
         if (cancelled) return;
-        setTranscript(session);
+        setTranscript(payload.session);
       })
       .catch((error: unknown) => {
         if (cancelled) return;

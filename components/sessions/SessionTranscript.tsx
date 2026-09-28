@@ -5,6 +5,7 @@ import {
   sessionBadgeClassName,
   sessionDisplayName,
   sessionSurfaceBadge,
+  startingVersionLabel,
   transcriptParticipantLabel,
   type SessionNameMode,
 } from "./session-display";
@@ -12,13 +13,23 @@ import {
 export default function SessionTranscript({
   session,
   nameMode,
+  configVersionCreatedAt,
 }: {
   session: ChatSessionRecord;
   nameMode: SessionNameMode;
+  /** Owner activity passes the looked-up version time. Other surfaces omit it. */
+  configVersionCreatedAt?: string | null;
 }) {
   const speakerForUser = transcriptParticipantLabel(session.participantName);
   const heading = sessionDisplayName(session, nameMode);
   const surfaceBadge = sessionSurfaceBadge(session.surface);
+  const versionLabel =
+    configVersionCreatedAt === undefined
+      ? null
+      : startingVersionLabel({
+          configVersionId: session.configVersionId,
+          configVersionCreatedAt,
+        });
 
   return (
     <div>
@@ -27,7 +38,8 @@ export default function SessionTranscript({
           {heading}
         </p>
         <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-          {formatSessionStartTime(session.createdAt)}
+          <span>{formatSessionStartTime(session.createdAt)}</span>
+          {versionLabel ? <span>{versionLabel}</span> : null}
           <span className={sessionBadgeClassName(surfaceBadge)}>
             {surfaceBadge}
           </span>

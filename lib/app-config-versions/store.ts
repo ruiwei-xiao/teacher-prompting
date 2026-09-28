@@ -1150,3 +1150,31 @@ export async function listConfigVersions(appId: string): Promise<ConfigVersionRe
     return [...versions].sort(compareVersions);
   });
 }
+
+/** Created time for a version that belongs to this app. Missing rows return null. */
+export async function findConfigVersionCreatedAt(
+  appId: string,
+  versionId: string
+): Promise<string | null> {
+  const ownerAppId = appId.trim();
+  const id = versionId.trim();
+  if (!ownerAppId || !id) return null;
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      await ensureVersionSchema();
+      const result = await sql<{ created_at: string | Date }>`
+        SELECT created_at
+        FROM app_config_versions
+        WHERE id = ${id} AND app_id = ${ownerAppId}
+        LIMIT 1
+      `;
+      const createdAt = result.rows[0]?.created_at;
+      return createdAt ? isoTimestamp(createdAt) : null;
+    }
+    const found = (await readVersionsFile()).find(
+      (version) => version.id === id && version.appId === ownerAppId
+    );
+    if (!found?.createdAt?.trim()) return null;
+    return found.createdAt;
+  });
+}

@@ -123,3 +123,24 @@ export function formatSessionStartTime(iso: string): string {
     timeStyle: "short",
   }).format(date);
 }
+
+export const BOT_VERSION_UNAVAILABLE_LABEL = "Bot version unavailable";
+
+/**
+ * Owner transcript label for the configuration recorded at session start.
+ * A missing id omits the label. A set id with no created time is unavailable.
+ */
+export function startingVersionLabel(input: {
+  configVersionId?: string | null;
+  configVersionCreatedAt?: string | null;
+}): string | null {
+  const versionId =
+    typeof input.configVersionId === "string" ? input.configVersionId.trim() : "";
+  if (!versionId) return null;
+  const createdAt =
+    typeof input.configVersionCreatedAt === "string"
+      ? input.configVersionCreatedAt.trim()
+      : "";
+  if (!createdAt) return BOT_VERSION_UNAVAILABLE_LABEL;
+  return `Bot version from ${formatSessionStartTime(createdAt)}`;
+}

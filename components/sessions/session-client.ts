@@ -129,17 +129,28 @@ export async function fetchMySessions(
   };
 }
 
+export type TranscriptPayload = {
+  session: ChatSessionRecord;
+  configVersionCreatedAt: string | null;
+};
+
 export async function fetchTranscript(
   sessionId: string,
   fetchImpl: SessionFetch = fetch
-): Promise<ChatSessionRecord> {
+): Promise<TranscriptPayload> {
   const body = (await getJson(transcriptUrl(sessionId), fetchImpl)) as {
     session?: ChatSessionRecord;
+    configVersionCreatedAt?: unknown;
   };
   if (!body.session) {
     throw new Error("Session not found");
   }
-  return body.session;
+  const createdAt = body.configVersionCreatedAt;
+  return {
+    session: body.session,
+    configVersionCreatedAt:
+      typeof createdAt === "string" && createdAt.trim() ? createdAt.trim() : null,
+  };
 }
 
 export async function fetchWorkspaceSessions(
