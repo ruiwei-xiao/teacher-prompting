@@ -2,7 +2,7 @@
 
 ## 1. Foundation: version decisions and storage
 
-- [ ] 1. Foundation: version decisions and storage
+- [x] 1. Foundation: version decisions and storage
 - [x] 1.1 Decide when a draft version is updated or replaced
   - A configuration snapshot includes the bot name, final system prompt with attached reference text, provider, model, variability, assisted-authoring mode, and stored pedagogical builder inputs
   - A snapshot excludes API keys, public links, publication state, sharing, community listing, fork credit, stars, and editor-only test progress
@@ -38,7 +38,7 @@
 
 ## 2. Core: publish, session pins, and history access
 
-- [ ] 2. Core: publish, session pins, and history access
+- [x] 2. Core: publish, session pins, and history access
 - [x] 2.1 Publish the latest draft and keep a separate published API key
   - When one save both changes snapshotted settings and publishes, the draft version is synced first and that latest edit version is then sealed and published
   - First publish makes the latest edit version the published version, seals that version, copies the draft API key into the published API key, and does not change the snapshot
@@ -83,7 +83,7 @@
 
 ## 3. Integration: revert, chat, and the editor
 
-- [ ] 3. Integration: revert, chat, and the editor
+- [x] 3. Integration: revert, chat, and the editor
 - [x] 3.1 (P) Revert by appending a draft
   - Reverting an edit version that is not the current draft appends a new edit version with that snapshot, even inside the 15-minute window, and leaves every older version in place
   - The app row then matches that new draft
@@ -150,8 +150,8 @@
 
 ## 4. Validation
 
-- [ ] 4. Validation
-- [ ] 4.1 Verify stored version behavior
+- [x] 4. Validation
+- [x] 4.1 Verify stored version behavior
   - A self-check creates a bot with one version and an empty pointer
   - An in-window save updates that version and keeps its created time; a later pin of that draft leaves it unsealed
   - Publish then edit leaves the published snapshot unchanged
