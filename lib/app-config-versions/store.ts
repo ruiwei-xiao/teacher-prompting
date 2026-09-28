@@ -326,6 +326,44 @@ function planDraftSync(
   return { latest: created, versions: [...sealed, created] };
 }
 
+type SessionPinPlan =
+  | { action: "reuse"; configVersionId: string }
+  | { action: "insert"; version: ConfigVersionRecord };
+
+function sessionCopy(source: ConfigVersionRecord, now: string): ConfigVersionRecord {
+  return {
+    name: source.name,
+    provider: source.provider,
+    model: source.model,
+    variability: source.variability,
+    systemPrompt: source.systemPrompt,
+    assistedAuthoringMode: source.assistedAuthoringMode,
+    builderState: source.builderState ? { ...source.builderState } : null,
+    id: randomUUID(),
+    appId: source.appId,
+    kind: "session",
+    createdAt: now,
+    updatedAt: now,
+    sealedAt: now,
+  };
+}
+
+function planSessionPin(
+  versions: readonly ConfigVersionRecord[],
+  appId: string,
+  versionId: string,
+  now: string
+): SessionPinPlan {
+  const found = versions.find((version) => version.appId === appId && version.id === versionId);
+  if (!found) {
+    throw new Error(`Configuration version ${versionId} was not found for app ${appId}`);
+  }
+  if (found.sealedAt !== null) {
+    return { action: "reuse", configVersionId: found.id };
+  }
+  return { action: "insert", version: sessionCopy(found, now) };
+}
+
 function planPublish(
   versions: readonly ConfigVersionRecord[],
   appId: string,
@@ -886,6 +924,58 @@ export async function ensurePublishedVersion(
       ? ensurePublishedVersionPostgres(app, now)
       : ensurePublishedVersionJson(app, now)
   );
+}
+
+async function pinSessionPostgres(
+  query: SqlQuery,
+  input: { appId: string; versionId: string; now: string }
+): Promise<{ configVersionId: string }> {
+  await ensureVersionSchema(query);
+  const versions = await listVersionRows(query, input.appId);
+  const plan = planSessionPin(versions, input.appId, input.versionId, input.now);
+  if (plan.action === "reuse") {
+    return { configVersionId: plan.configVersionId };
+  }
+  await insertVersion(query, plan.version);
+  return { configVersionId: plan.version.id };
+}
+
+async function pinSessionJson(input: {
+  appId: string;
+  versionId: string;
+  now: string;
+}): Promise<{ configVersionId: string }> {
+  const versions = await readVersionsFile();
+  let plan: SessionPinPlan;
+  try {
+    plan = planSessionPin(versions, input.appId, input.versionId, input.now);
+  } catch (error) {
+    logStoreFailure([input.appId]);
+    throw error;
+  }
+  if (plan.action === "reuse") {
+    return { configVersionId: plan.configVersionId };
+  }
+  try {
+    await writeVersionsFile([...versions, plan.version]);
+  } catch (error) {
+    logStoreFailure([input.appId]);
+    throw error;
+  }
+  return { configVersionId: plan.version.id };
+}
+
+export async function pinSessionSnapshot(input: {
+  appId: string;
+  versionId: string;
+  now: string;
+}): Promise<{ configVersionId: string }> {
+  return enqueue(async () => {
+    if (shouldUsePostgres()) {
+      return withPostgresTransaction([input.appId], (query) => pinSessionPostgres(query, input));
+    }
+    return pinSessionJson(input);
+  });
 }
 
 export async function listConfigVersions(appId: string): Promise<ConfigVersionRecord[]> {

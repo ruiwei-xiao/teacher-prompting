@@ -1,6 +1,7 @@
 /**
  * Self-test: configuration version JSON store, backfill, published repair,
- * draft sync on create/update/fork, and publish pointer sync (Tasks 1.2, 1.3, and 2.1).
+ * draft sync on create/update/fork, publish pointer sync, and editor-test
+ * session pins (Tasks 1.2, 1.3, 2.1, and 2.2).
  * Run: npx tsx lib/app-config-versions/store.selftest.ts
  */
 import fs from "fs/promises";
@@ -153,6 +154,7 @@ async function main(): Promise<void> {
   const {
     ensurePublishedVersion,
     listConfigVersions,
+    pinSessionSnapshot,
     prepareConfigVersionStore,
     syncDraftVersion,
   } = await import("./store");
@@ -1559,6 +1561,358 @@ async function main(): Promise<void> {
       );
     }
   });
+
+  const draftUpdatedAt = "2026-09-01T00:00:00.000Z";
+  const pinNow = "2026-09-01T00:05:00.000Z";
+  const editNow = "2026-09-01T00:10:00.000Z";
+  const pinApp = stubApp({
+    id: "pin-bot",
+    name: "Draft title",
+    provider: "openai",
+    model: "gpt-4.1",
+    apiKey: "pin-draft-key-secret",
+    variability: 0.2,
+    systemPrompt: "SECRET DRAFT PROMPT",
+    builderState: builderState(),
+    assistedAuthoringMode: false,
+    publishedAt: "2026-08-01T00:00:00.000Z",
+    publishedVersionId: "pin-published",
+    publishedApiKey: "pin-published-key-secret",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: draftUpdatedAt,
+  });
+  const foreignApp = stubApp({
+    id: "foreign-pin-bot",
+    name: "Foreign bot",
+    apiKey: "foreign-key-secret",
+    systemPrompt: "FOREIGN SECRET PROMPT",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  });
+  const publishedVersion = versionRecord({
+    id: "pin-published",
+    appId: pinApp.id,
+    name: "Published title",
+    systemPrompt: "Published prompt",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    sealedAt: "2026-08-01T00:00:00.000Z",
+  });
+  const draftVersion = versionRecord({
+    id: "pin-draft",
+    appId: pinApp.id,
+    ...snapshotFromApp(pinApp),
+    createdAt: "2026-08-15T00:00:00.000Z",
+    updatedAt: draftUpdatedAt,
+    sealedAt: null,
+  });
+  const foreignVersion = versionRecord({
+    id: "foreign-version",
+    appId: foreignApp.id,
+    name: "Foreign title",
+    systemPrompt: "FOREIGN SECRET PROMPT",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+    sealedAt: "2026-07-01T00:00:00.000Z",
+  });
+
+  await withTempStore(
+    [pinApp, foreignApp],
+    [publishedVersion, draftVersion, foreignVersion],
+    async () => {
+      const dir = path.join(process.cwd(), ".data");
+      const appsFile = path.join(dir, "apps.json");
+      const versionsFile = path.join(dir, "app-config-versions.json");
+      const sessionsFile = path.join(dir, "chat-sessions.json");
+      const appsBefore = await fs.readFile(appsFile, "utf-8");
+      const versionsBefore = await fs.readFile(versionsFile, "utf-8");
+      const sessionsBefore = await readOptional(sessionsFile);
+
+      async function capturePinError(versionId: string): Promise<{
+        threw: boolean;
+        message: string;
+        log: string;
+      }> {
+        const logged: string[] = [];
+        const originalError = console.error;
+        console.error = (...args: unknown[]) => {
+          logged.push(args.map((arg) => String(arg)).join(" "));
+        };
+        let threw = false;
+        let message = "";
+        try {
+          await pinSessionSnapshot({ appId: pinApp.id, versionId, now: pinNow });
+        } catch (error) {
+          threw = true;
+          message = error instanceof Error ? error.message : String(error);
+        } finally {
+          console.error = originalError;
+        }
+        return { threw, message, log: logged.join("\n") };
+      }
+
+      const missing = await capturePinError("missing-pin-version");
+      assert(missing.threw, "a missing version throws");
+      assert(
+        missing.message.includes(pinApp.id),
+        "missing version error names the app"
+      );
+      assert(
+        missing.message.includes("missing-pin-version"),
+        "missing version error names the version"
+      );
+      assert(
+        !missing.message.includes("SECRET DRAFT PROMPT"),
+        "missing version error omits prompt text"
+      );
+      assert(
+        !missing.message.includes("FOREIGN SECRET PROMPT"),
+        "missing version error omits the other prompt"
+      );
+      assert(
+        !missing.message.includes("pin-draft-key-secret"),
+        "missing version error omits the draft API key"
+      );
+      assert(
+        !missing.message.includes("pin-published-key-secret"),
+        "missing version error omits the published API key"
+      );
+      assert(
+        !missing.message.includes("foreign-key-secret"),
+        "missing version error omits the other API key"
+      );
+      assert(
+        missing.log.includes(pinApp.id),
+        "missing version log includes the app id"
+      );
+      assert(
+        !missing.log.includes("SECRET DRAFT PROMPT"),
+        "missing version log omits prompt text"
+      );
+      assert(
+        !missing.log.includes("pin-draft-key-secret"),
+        "missing version log omits API keys"
+      );
+      assertEqual(
+        await fs.readFile(versionsFile, "utf-8"),
+        versionsBefore,
+        "a missing version does not insert a row"
+      );
+      assertEqual(
+        await fs.readFile(appsFile, "utf-8"),
+        appsBefore,
+        "a missing version does not change published pointers"
+      );
+
+      const foreign = await capturePinError(foreignVersion.id);
+      assert(foreign.threw, "a version from another app throws");
+      assert(
+        foreign.message.includes(pinApp.id),
+        "foreign version error names the requested app"
+      );
+      assert(
+        foreign.message.includes(foreignVersion.id),
+        "foreign version error names the version"
+      );
+      assert(
+        !foreign.message.includes("FOREIGN SECRET PROMPT"),
+        "foreign version error omits prompt text"
+      );
+      assert(
+        !foreign.message.includes("foreign-key-secret"),
+        "foreign version error omits API keys"
+      );
+      assert(
+        !foreign.log.includes("FOREIGN SECRET PROMPT"),
+        "foreign version log omits prompt text"
+      );
+      assertEqual(
+        (await listConfigVersions(foreignApp.id)).length,
+        1,
+        "a foreign version id does not insert a row on the other app"
+      );
+      assertEqual(
+        await fs.readFile(versionsFile, "utf-8"),
+        versionsBefore,
+        "a foreign version id does not insert a row"
+      );
+
+      const sealedPin = await pinSessionSnapshot({
+        appId: pinApp.id,
+        versionId: publishedVersion.id,
+        now: pinNow,
+      });
+      assertEqual(
+        sealedPin.configVersionId,
+        publishedVersion.id,
+        "pinning an already sealed version returns that version id"
+      );
+      assertEqual(
+        await fs.readFile(versionsFile, "utf-8"),
+        versionsBefore,
+        "pinning an already sealed version does not insert a copy"
+      );
+      assertEqual(
+        await fs.readFile(appsFile, "utf-8"),
+        appsBefore,
+        "pinning a sealed version does not change published pointers"
+      );
+
+      const pinned = await pinSessionSnapshot({
+        appId: pinApp.id,
+        versionId: draftVersion.id,
+        now: pinNow,
+      });
+      assert(
+        pinned.configVersionId !== draftVersion.id,
+        "pinning an unsealed draft returns a new session id"
+      );
+      const afterPin = await listConfigVersions(pinApp.id);
+      assertEqual(
+        afterPin.length,
+        3,
+        "pinning an unsealed draft inserts one sealed session copy"
+      );
+      const draftAfterPin = afterPin.find((version) => version.id === draftVersion.id);
+      const sessionCopy = afterPin.find((version) => version.id === pinned.configVersionId);
+      assertEqual(draftAfterPin?.kind, "edit", "the draft stays an edit version");
+      assertEqual(draftAfterPin?.sealedAt, null, "pin leaves the draft unsealed");
+      assertEqual(
+        draftAfterPin?.createdAt,
+        draftVersion.createdAt,
+        "pin leaves the draft createdAt unchanged"
+      );
+      assertEqual(
+        draftAfterPin?.updatedAt,
+        draftVersion.updatedAt,
+        "pin leaves the draft updatedAt unchanged"
+      );
+      assertEqual(
+        draftAfterPin ? snapshotOf(draftAfterPin) : null,
+        snapshotOf(draftVersion),
+        "pin leaves the draft snapshot unchanged"
+      );
+      assertEqual(
+        afterPin.find((version) => version.id === publishedVersion.id),
+        publishedVersion,
+        "pin leaves the sealed edit unchanged"
+      );
+      assert(
+        Boolean(sessionCopy) && sessionCopy?.id !== draftVersion.id,
+        "the session copy is a new row"
+      );
+      assertEqual(sessionCopy?.kind, "session", "the inserted row is a session copy");
+      assertEqual(sessionCopy?.sealedAt, pinNow, "the session copy is sealed at pin time");
+      assertEqual(sessionCopy?.createdAt, pinNow, "the session copy createdAt is pin time");
+      assertEqual(sessionCopy?.updatedAt, pinNow, "the session copy updatedAt is pin time");
+      assertEqual(
+        sessionCopy ? snapshotOf(sessionCopy) : null,
+        snapshotOf(draftVersion),
+        "the session copy stores the draft snapshot"
+      );
+      assertEqual(
+        afterPin.filter((version) => version.kind === "session").map((version) => version.id),
+        sessionCopy ? [sessionCopy.id] : [],
+        "pinning an unsealed draft inserts one session copy"
+      );
+      assertEqual(
+        afterPin.filter((version) => version.sealedAt === null).map((version) => version.id),
+        [draftVersion.id],
+        "the session copy is not the current draft"
+      );
+      assertEqual(
+        await fs.readFile(appsFile, "utf-8"),
+        appsBefore,
+        "pinning a draft does not change publishedVersionId or publishedApiKey"
+      );
+      assertEqual(
+        await readOptional(sessionsFile),
+        sessionsBefore,
+        "pinning a draft does not record the id on chat sessions"
+      );
+      const versionsRaw = await fs.readFile(versionsFile, "utf-8");
+      assert(!versionsRaw.includes("pin-draft-key-secret"), "session copy omits the draft API key");
+      assert(
+        !versionsRaw.includes("pin-published-key-secret"),
+        "session copy omits the published API key"
+      );
+
+      if (sessionCopy && sessionCopy.id !== draftVersion.id && sessionCopy.sealedAt !== null) {
+        const beforeSecondPin = await fs.readFile(versionsFile, "utf-8");
+        const secondPin = await pinSessionSnapshot({
+          appId: pinApp.id,
+          versionId: sessionCopy.id,
+          now: editNow,
+        });
+        assertEqual(
+          secondPin.configVersionId,
+          sessionCopy.id,
+          "pinning an already sealed session copy returns that version id"
+        );
+        assertEqual(
+          await fs.readFile(versionsFile, "utf-8"),
+          beforeSecondPin,
+          "pinning an already sealed session copy does not insert a copy"
+        );
+      }
+
+      const edited = await syncDraftVersion({
+        app: { ...pinApp, systemPrompt: "Prompt after pin", updatedAt: editNow },
+        now: editNow,
+      });
+      assertEqual(
+        edited.latest.id,
+        draftVersion.id,
+        "an in-window edit after the pin updates the same unsealed draft"
+      );
+      assertEqual(edited.latest.kind, "edit", "the current draft stays an edit version");
+      assertEqual(edited.latest.sealedAt, null, "the draft stays unsealed after the later edit");
+      assertEqual(
+        edited.latest.createdAt,
+        draftVersion.createdAt,
+        "the later edit keeps the draft createdAt"
+      );
+      assertEqual(edited.latest.updatedAt, editNow, "the later edit moves the draft updatedAt");
+      assertEqual(
+        edited.latest.systemPrompt,
+        "Prompt after pin",
+        "the later edit stores the new prompt on the draft"
+      );
+      const afterEdit = await listConfigVersions(pinApp.id);
+      assertEqual(afterEdit.length, 3, "the later edit does not append another version");
+      const sessionAfterEdit = afterEdit.find((version) => version.id === pinned.configVersionId);
+      assertEqual(sessionAfterEdit?.kind, "session", "the session copy remains a session row");
+      assert(
+        sessionAfterEdit !== undefined && sessionAfterEdit.id !== edited.latest.id,
+        "the session copy is not the current draft after the edit"
+      );
+      assertEqual(
+        sessionAfterEdit ? snapshotOf(sessionAfterEdit) : null,
+        snapshotOf(draftVersion),
+        "the later edit leaves the session copy unchanged"
+      );
+      assertEqual(
+        sessionAfterEdit?.sealedAt,
+        pinNow,
+        "the later edit leaves the session copy sealed"
+      );
+      assertEqual(
+        sessionAfterEdit?.createdAt,
+        pinNow,
+        "the later edit leaves the session copy createdAt"
+      );
+      assertEqual(
+        sessionAfterEdit?.updatedAt,
+        pinNow,
+        "the later edit leaves the session copy updatedAt"
+      );
+      assertEqual(
+        await fs.readFile(appsFile, "utf-8"),
+        appsBefore,
+        "the later edit through the version store does not change published pointers"
+      );
+    }
+  );
 
   if (failures > 0) {
     console.error(`\nstore.selftest: ${failures} failure(s)`);

@@ -51,7 +51,7 @@
   - _Depends: 1.3_
   - _Boundary: App store sync_
 
-- [ ] 2.2 Pin a sealed copy for an editor test of an open draft
+- [x] 2.2 Pin a sealed copy for an editor test of an open draft
   - Pinning an unsealed draft inserts one sealed session copy and leaves the draft unsealed and editable
   - Pinning an already sealed version returns that same version id and does not insert a copy
   - The session copy is not the current draft
@@ -169,3 +169,4 @@
 - Builder-leaf diff fields are `builderState.<leaf>`. Null variability displays as `unset`. `npx tsx` self-checks need to run outside the sandbox (`EPERM` on the tsx IPC pipe).
 - JSON backfill must not call `listApps` or `getAppById` while `prepareConfigVersionStore` is still pending, or the JSON load deadlocks. `listConfigVersions` returns full records and is not the history summary API.
 - JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files. `APP_PUBLISH_FAULT=1` is the same kind of switch for a failed publish after the seal. A republish whose pointer already matches does not copy a new API key.
+- `pinSessionSnapshot` returns a sealed version's own id. It inserts a sealed `session` copy only for an unsealed draft, and that draft stays editable.
