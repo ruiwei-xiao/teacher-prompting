@@ -117,7 +117,7 @@
   - _Depends: 2.3_
   - _Boundary: Transcript label_
 
-- [ ] 3.4 (P) Return version ids from the app settings endpoint
+- [x] 3.4 (P) Return version ids from the app settings endpoint
   - Reading and saving a bot returns the latest edit version id and the published version id
   - Neither API key is included in the response
   - Someone other than the owner who publishes or republishes receives the same not-found response as a missing bot, and the published pointer stays unchanged
@@ -175,3 +175,4 @@
 - `APP_REVERT_FAULT=1` fails the next revert after the version write and must leave both JSON files unchanged. Revert always appends, including inside the 15-minute window.
 - Public chat resolves the published snapshot on every request. An empty pointer calls `ensurePublishedVersion`. A dangling pointer returns `Published configuration is unavailable.` Editor tests pin only when the session row does not exist yet.
 - The owner activity transcript shows `Bot version from {createdAt}` using the version's created time. A null `configVersionId` omits the label. A missing version row shows `Bot version unavailable`. Downloads do not include the version.
+- `latestVersionId` is the unsealed edit version, or `publishedVersionId` when every edit version is sealed. Owner GET and PATCH omit both API keys.

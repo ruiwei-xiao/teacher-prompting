@@ -12,6 +12,7 @@ import {
   placeAppIntoWorkspaceAfterCreate,
 } from "@/lib/workspace-api/apps-gates";
 import { createDefaultBotFields } from "@/lib/app-store/patch-validation";
+import { withoutAppSecrets } from "@/lib/app-store/owner-app-response";
 
 function slugify(s: string) {
   return (
@@ -32,22 +33,24 @@ export async function GET() {
 
   const apps = await listApps(userId);
   return NextResponse.json({
-    apps: apps.map((app) => ({
-      id: app.id,
-      name: app.name,
-      description: app.description,
-      updatedAt: app.updatedAt,
-      publishedAt: app.publishedAt || null,
-      publicSlug: app.publicSlug || null,
-      projectShareSlug: app.projectShareSlug || null,
-      projectSharedAt: app.projectSharedAt || null,
-      projectShareVisibility: app.projectShareVisibility || "private",
-      shareAuthorName: app.shareAuthorName ?? false,
-      communitySubject: app.communitySubject || null,
-      communityTags: app.communityTags || [],
-      forkedFromProjectName: app.forkedFromProjectName || null,
-      forkedFromAuthorName: app.forkedFromAuthorName || null,
-    })),
+    apps: apps.map((app) =>
+      withoutAppSecrets({
+        id: app.id,
+        name: app.name,
+        description: app.description,
+        updatedAt: app.updatedAt,
+        publishedAt: app.publishedAt || null,
+        publicSlug: app.publicSlug || null,
+        projectShareSlug: app.projectShareSlug || null,
+        projectSharedAt: app.projectSharedAt || null,
+        projectShareVisibility: app.projectShareVisibility || "private",
+        shareAuthorName: app.shareAuthorName ?? false,
+        communitySubject: app.communitySubject || null,
+        communityTags: app.communityTags || [],
+        forkedFromProjectName: app.forkedFromProjectName || null,
+        forkedFromAuthorName: app.forkedFromAuthorName || null,
+      })
+    ),
   });
 }
 
@@ -133,11 +136,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ app: created });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Failed to create app" },
-      { status: 500 }
-    );
+    return NextResponse.json({ app: withoutAppSecrets(created) });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Failed to create app";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
