@@ -69,7 +69,7 @@
   - _Depends: 2.2_
   - _Boundary: Session stamp_
 
-- [ ] 2.4 (P) Let the owner read version history
+- [x] 2.4 (P) Let the owner read version history
   - The owner can list edit versions newest-updated first, with last-updated time, whether each is the current draft, and whether it is published
   - The list does not include prompt text, pedagogical builder inputs, or session copies
   - Opening an edit version shows its created time, last-updated time, and snapshotted settings without making it the draft
@@ -171,3 +171,4 @@
 - JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files. `APP_PUBLISH_FAULT=1` is the same kind of switch for a failed publish after the seal. A republish whose pointer already matches does not copy a new API key.
 - `pinSessionSnapshot` returns a sealed version's own id. It inserts a sealed `session` copy only for an unsealed draft, and that draft stays editable.
 - `configVersionId` is written only when a session row is inserted. Later turns do not replace it or fill a null. The client recording body cannot set it.
+- History route self-checks stub `@/auth` with `node:module` `registerHooks` so the route handlers run under `npx tsx`.
