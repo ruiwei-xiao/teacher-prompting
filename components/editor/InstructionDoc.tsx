@@ -29,9 +29,20 @@ import {
   type OwnerPatchSettlement,
 } from '@/components/editor/publish-state';
 import {
+  applyExternalPromptBeforeSave,
+  autosaveIsCurrent,
+  createAutosaveGate,
+  isAbortError,
+  openAutosave,
+} from '@/components/editor/version-history';
+import {
   DEFAULT_INSTRUCTION_PROMPT as DEFAULT_PROMPT,
   isDefaultInstructionPrompt,
 } from '@/lib/prompt-defaults';
+
+export type InstructionDocPromptController = {
+  applyServerPrompt: (text: string) => void;
+};
 
 type PromptFeedbackChangedBlock = {
   heading: string;
@@ -307,6 +318,9 @@ export default function InstructionDoc({
   spotlightAgentRef,
   spotlightApplyPromptRef,
   onOwnerPatchSettled,
+  promptControllerRef,
+  externalPromptRevision = null,
+  externalPrompt = null,
 }: {
   appId?: string;
   readOnly?: boolean;
@@ -317,6 +331,9 @@ export default function InstructionDoc({
   spotlightAgentRef?: RefObject<HTMLButtonElement | null>;
   spotlightApplyPromptRef?: RefObject<HTMLButtonElement | null>;
   onOwnerPatchSettled?: (result: OwnerPatchSettlement) => void;
+  promptControllerRef?: RefObject<InstructionDocPromptController | null>;
+  externalPromptRevision?: number | null;
+  externalPrompt?: string | null;
 }) {
   const params = useParams<{ appId: string }>();
   const appId = appIdProp || params?.appId || '';
@@ -334,11 +351,40 @@ export default function InstructionDoc({
   const [promptDropActive, setPromptDropActive] = useState(false);
   const promptDropZoneRef = useRef<HTMLDivElement | null>(null);
   const onOwnerPatchSettledRef = useRef(onOwnerPatchSettled);
-  const draftSaveRequestIdRef = useRef(0);
+  const autosaveAbortRef = useRef<AbortController | null>(null);
+  const autosaveGateRef = useRef(createAutosaveGate());
+  const promptEpochRef = useRef(0);
+  const appliedExternalRevisionRef = useRef<number | null>(null);
 
   useEffect(() => {
     onOwnerPatchSettledRef.current = onOwnerPatchSettled;
   }, [onOwnerPatchSettled]);
+
+  const applyServerPrompt = useCallback(
+    (text: string) => {
+      const normalized = normalizeText(text);
+      autosaveAbortRef.current?.abort();
+      autosaveAbortRef.current = null;
+      autosaveGateRef.current = applyExternalPromptBeforeSave(
+        autosaveGateRef.current,
+        normalized
+      );
+      promptEpochRef.current += 1;
+      valueRef.current = normalized;
+      setValue(normalized);
+      setHydrated(true);
+      savePromptText(normalized, appId);
+    },
+    [appId]
+  );
+
+  useEffect(() => {
+    if (!promptControllerRef) return;
+    promptControllerRef.current = { applyServerPrompt };
+    return () => {
+      promptControllerRef.current = null;
+    };
+  }, [applyServerPrompt, promptControllerRef]);
 
   const insertIntoPrompt = useCallback(
     (insertion: string) => {
@@ -396,6 +442,9 @@ export default function InstructionDoc({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let cancelled = false;
+    const epoch = promptEpochRef.current;
+
+    const stillCurrent = () => !cancelled && promptEpochRef.current === epoch;
 
     async function hydratePrompt() {
       if (readOnly) {
@@ -405,7 +454,7 @@ export default function InstructionDoc({
           DEFAULT_PROMPT;
         const nextPrompt =
           stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-        if (!cancelled) {
+        if (stillCurrent()) {
           setValue(normalizeText(nextPrompt));
           setHydrated(true);
         }
@@ -421,7 +470,7 @@ export default function InstructionDoc({
           isDefaultInstructionPrompt(storedStripped));
       if (storedStripped && !storedIsOnlyDefaultTemplate) {
         const nextPrompt = storedStripped || DEFAULT_PROMPT;
-        if (!cancelled) {
+        if (stillCurrent()) {
           applyPrompt(nextPrompt);
           setHydrated(true);
         }
@@ -432,7 +481,7 @@ export default function InstructionDoc({
         try {
           const res = await fetch(`/api/apps/${appId}`);
           const body = await res.json();
-          if (!cancelled && res.ok && body?.app) {
+          if (stillCurrent() && res.ok && body?.app) {
             const fromServer =
               (typeof body.app.systemPrompt === 'string'
                 ? body.app.systemPrompt.trim()
@@ -456,14 +505,14 @@ export default function InstructionDoc({
       if (legacyBuilder) {
         const raw = buildPlainPromptFromBuilder(legacyBuilder) || DEFAULT_PROMPT;
         const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-        if (!cancelled) {
+        if (stillCurrent()) {
           applyPrompt(nextPrompt);
           setHydrated(true);
         }
         return;
       }
 
-      if (!cancelled) {
+      if (stillCurrent()) {
         applyPrompt(DEFAULT_PROMPT);
         setHydrated(true);
       }
@@ -584,11 +633,25 @@ export default function InstructionDoc({
 
   useEffect(() => {
     if (readOnly) return;
+    if (externalPromptRevision == null || externalPrompt == null) return;
+    if (appliedExternalRevisionRef.current === externalPromptRevision) return;
+    appliedExternalRevisionRef.current = externalPromptRevision;
+    applyServerPrompt(externalPrompt);
+  }, [applyServerPrompt, externalPrompt, externalPromptRevision, readOnly]);
+
+  useEffect(() => {
+    if (readOnly) return;
     if (!hydrated || !appId) return;
 
-    const requestId = ++draftSaveRequestIdRef.current;
+    const opened = openAutosave(autosaveGateRef.current, value);
+    autosaveGateRef.current = opened.gate;
+    const requestId = opened.requestId;
+    const controller = new AbortController();
+    autosaveAbortRef.current = controller;
     const savedPrompt = value;
     const timer = window.setTimeout(() => {
+      if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
+      if (controller.signal.aborted) return;
       void (async () => {
         try {
           const res = await fetch(`/api/apps/${appId}`, {
@@ -597,9 +660,10 @@ export default function InstructionDoc({
             body: JSON.stringify({
               systemPrompt: savedPrompt,
             }),
+            signal: controller.signal,
           });
           const body: unknown = await res.json().catch(() => null);
-          if (requestId !== draftSaveRequestIdRef.current) return;
+          if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
           const ownerApp = readOwnerAppRecord(body);
           if (!res.ok || !ownerApp) {
             onOwnerPatchSettledRef.current?.({
@@ -613,8 +677,9 @@ export default function InstructionDoc({
             latestVersionId: ownerApp.latestVersionId,
             publishedVersionId: ownerApp.publishedVersionId,
           });
-        } catch {
-          if (requestId !== draftSaveRequestIdRef.current) return;
+        } catch (error: unknown) {
+          if (isAbortError(error) || controller.signal.aborted) return;
+          if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
           onOwnerPatchSettledRef.current?.({
             ok: false,
             error: 'Failed to update app settings',
@@ -623,7 +688,10 @@ export default function InstructionDoc({
       })();
     }, 600);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [appId, hydrated, readOnly, value]);
 
   return (

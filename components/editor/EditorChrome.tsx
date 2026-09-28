@@ -18,6 +18,7 @@ export default function EditorChrome({
   publishBusy,
   publishButtonRef,
   onReplayEditorGuide,
+  onOpenHistory,
   children,
 }: {
   appName: React.ReactNode;
@@ -39,6 +40,7 @@ export default function EditorChrome({
    */
   publishButtonRef?: Ref<HTMLButtonElement | null>;
   onReplayEditorGuide?: () => void;
+  onOpenHistory?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -80,6 +82,15 @@ export default function EditorChrome({
               </span>
             </div>
             <ThemeToggle />
+            {onOpenHistory ? (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                History
+              </button>
+            ) : null}
             {activityHref ? (
               <Link
                 href={activityHref}

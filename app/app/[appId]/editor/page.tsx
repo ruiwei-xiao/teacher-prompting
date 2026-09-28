@@ -16,6 +16,8 @@ import InstructionDoc from "@/components/editor/InstructionDoc";
 import RightRail from "@/components/editor/RightRail";
 import AssistantPanel from "@/components/editor/AssistantPanel";
 import AppSettingsDialog from "@/components/editor/AppSettingsDialog";
+import VersionHistoryDialog from "@/components/editor/VersionHistoryDialog";
+import type { InstructionDocPromptController } from "@/components/editor/InstructionDoc";
 import PublishDialog from "@/components/editor/PublishDialog";
 import ShareDialog from "@/components/dashboard/ShareDialog";
 import {
@@ -40,6 +42,14 @@ import {
   settleOwnerPatch,
   type EditorDraftSnapshot,
 } from "@/components/editor/publish-state";
+import {
+  mergeSuccessfulRevert,
+  settleFailedRevert,
+  supportedProvider,
+  visibleEditorFields,
+  type RevertSuccess,
+  type VisibleEditorFields,
+} from "@/components/editor/version-history";
 import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
 import { shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
 import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
@@ -95,6 +105,7 @@ export default function EditorPage({
   const { appId } = use(params);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
   const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true); // Default to ON
@@ -151,6 +162,17 @@ export default function EditorPage({
   const assistantSplitRef = useRef<HTMLDivElement>(null);
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const publishSpotlightRef = useRef<HTMLButtonElement>(null);
+  const instructionPromptRef = useRef<InstructionDocPromptController | null>(null);
+  const promptRevisionRef = useRef(0);
+  const appLoadRef = useRef(0);
+  const [externalPrompt, setExternalPrompt] = useState<{
+    revision: number;
+    text: string;
+  } | null>(null);
+  const [settingsApply, setSettingsApply] = useState<{
+    revision: number;
+    settings: VisibleEditorFields;
+  } | null>(null);
   const spotlightPromptRef = useRef<HTMLDivElement>(null);
   const spotlightAttachmentRef = useRef<HTMLButtonElement>(null);
   const spotlightAgentRef = useRef<HTMLButtonElement>(null);
@@ -192,10 +214,12 @@ export default function EditorPage({
       : null;
 
   useEffect(() => {
+    const requestId = ++appLoadRef.current;
     async function loadApp() {
       try {
         const res = await fetch(`/api/apps/${appId}`);
         const body = await res.json();
+        if (requestId !== appLoadRef.current) return;
         if (res.ok && body?.app) {
           setAppName(body.app.name || appId);
           setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
@@ -237,6 +261,8 @@ export default function EditorPage({
           return;
         }
       } catch {}
+
+      if (requestId !== appLoadRef.current) return;
 
       // Fetch failed or returned no app: still hydrate so mode-gated UI
       // (test-case rail, spotlight) is not stuck hidden forever. Unknown mode
@@ -289,6 +315,9 @@ export default function EditorPage({
       error: null,
     });
     setIsPublished(false);
+    setHistoryOpen(false);
+    setExternalPrompt(null);
+    setSettingsApply(null);
   }, [appId]);
 
   async function handlePublish() {
@@ -558,6 +587,51 @@ export default function EditorPage({
     setEditorSpotlightStep(0);
   }, [appId]);
 
+  const handleHistoryReverted = useCallback((result: RevertSuccess) => {
+    appLoadRef.current += 1;
+    const fields = visibleEditorFields(result.draft);
+    instructionPromptRef.current?.applyServerPrompt(fields.prompt);
+    const revision = promptRevisionRef.current + 1;
+    promptRevisionRef.current = revision;
+    setExternalPrompt({ revision, text: fields.prompt });
+    setEditorDraft((current) => {
+      const merged = mergeSuccessfulRevert(
+        {
+          ...current,
+          name: fields.name,
+          provider: fields.provider,
+          model: fields.model,
+          variability: fields.variability,
+          assistedAuthoringMode: fields.assistedAuthoringMode,
+          prompt: fields.prompt,
+        },
+        result
+      );
+      return {
+        latestVersionId: merged.latestVersionId,
+        publishedVersionId: merged.publishedVersionId,
+        storedPrompt: merged.storedPrompt,
+        dirty: merged.dirty,
+        error: current.error,
+      };
+    });
+    setAppName(fields.name);
+    setAssistedAuthoringMode(fields.assistedAuthoringMode);
+    const provider = supportedProvider(fields.provider);
+    if (provider) {
+      setHeaderModelLabel(getModelLabel(provider, fields.model));
+    }
+    setHeaderVariabilityLabel(
+      formatVariabilityLabel(normalizeVariability(fields.variability))
+    );
+    setSettingsApply({ revision, settings: fields });
+    setAppVersion((value) => value + 1);
+  }, []);
+
+  const handleHistoryRevertFailed = useCallback((body: unknown) => {
+    setEditorDraft((current) => settleFailedRevert(current, body).state);
+  }, []);
+
   const publishChrome = deriveEditorPublishChrome(editorDraft);
 
   return (
@@ -584,6 +658,7 @@ export default function EditorPage({
       publishBusy={publishBusy}
       publishButtonRef={publishChrome.actionLabel ? publishSpotlightRef : undefined}
       onReplayEditorGuide={replayEditorGuide}
+      onOpenHistory={() => setHistoryOpen(true)}
     >
       {editorDraft.error ? (
         <div
@@ -688,6 +763,9 @@ export default function EditorPage({
                   spotlightAttachmentRef={spotlightAttachmentRef}
                   spotlightAgentRef={spotlightAgentRef}
                   spotlightApplyPromptRef={spotlightApplyPromptRef}
+                  promptControllerRef={instructionPromptRef}
+                  externalPromptRevision={externalPrompt?.revision ?? null}
+                  externalPrompt={externalPrompt?.text ?? null}
                   onOwnerPatchSettled={(result) => {
                     const storedPrompt =
                       typeof window !== "undefined" ? readStoredPrompt(appId) : "";
@@ -727,10 +805,21 @@ export default function EditorPage({
         </div>
       </div>
 
+      <VersionHistoryDialog
+        appId={appId}
+        open={historyOpen}
+        publishedVersionId={editorDraft.publishedVersionId}
+        onClose={() => setHistoryOpen(false)}
+        onReverted={handleHistoryReverted}
+        onRevertFailed={handleHistoryRevertFailed}
+      />
+
       <AppSettingsDialog
         appId={appId}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        appliedSettings={settingsApply?.settings ?? null}
+        appliedSettingsRevision={settingsApply?.revision ?? null}
         onSaved={(app) => {
           setEditorDraft((current) => applySuccessfulOwnerPatch(current, app));
           setIsPublished(app.publishedAt !== null);

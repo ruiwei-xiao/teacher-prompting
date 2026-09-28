@@ -136,7 +136,7 @@
   - _Depends: 3.4_
   - _Boundary: Editor history_
 
-- [ ] 3.6 Open history, compare versions, and revert from the editor
+- [x] 3.6 Open history, compare versions, and revert from the editor
   - History opens from the bot editor and lists the same edit versions as the owner history endpoint, including draft and published badges
   - Selecting a version shows its settings and the previous-version comparison without replacing the draft
   - The earliest version shows that there is no previous version
@@ -177,3 +177,4 @@
 - The owner activity transcript shows `Bot version from {createdAt}` using the version's created time. A null `configVersionId` omits the label. A missing version row shows `Bot version unavailable`. Downloads do not include the version.
 - `latestVersionId` is the unsealed edit version, or `publishedVersionId` when every edit version is sealed. Owner GET and PATCH omit both API keys.
 - Editor publish chrome is derived from version ids: no published id means `Publish`, differing ids mean `You have unpublished changes.` and `Republish`, and matching ids mean `Published` with no action.
+- Revert applies the server draft through `applyServerPrompt` and bumps the autosave generation before the next prompt save. History badges are `Current draft` and `Published`. The earliest detail says `No previous version.`

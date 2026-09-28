@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DEFAULT_VARIABILITY,
   MODEL_OPTIONS,
@@ -13,16 +13,24 @@ import {
   readResponseError,
   type OwnerAppView,
 } from "@/components/editor/publish-state";
+import {
+  supportedProvider,
+  type VisibleEditorFields,
+} from "@/components/editor/version-history";
 export default function AppSettingsDialog({
   appId,
   open,
   onClose,
   onSaved,
+  appliedSettings = null,
+  appliedSettingsRevision = null,
 }: {
   appId: string;
   open: boolean;
   onClose: () => void;
   onSaved?: (app: OwnerAppView) => void;
+  appliedSettings?: VisibleEditorFields | null;
+  appliedSettingsRevision?: number | null;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -33,9 +41,26 @@ export default function AppSettingsDialog({
   const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const settingsEpochRef = useRef(0);
+
+  useEffect(() => {
+    if (!appliedSettings || appliedSettingsRevision == null) return;
+    if (settingsEpochRef.current === appliedSettingsRevision) return;
+    settingsEpochRef.current = appliedSettingsRevision;
+    setLoading(false);
+    setAppName(appliedSettings.name);
+    const provider = supportedProvider(appliedSettings.provider);
+    if (provider) {
+      setSelectedModel(toModelSelection(provider, appliedSettings.model));
+    }
+    setVariability(normalizeVariability(appliedSettings.variability));
+    setAssistedAuthoringMode(appliedSettings.assistedAuthoringMode);
+    setApiKey("");
+  }, [appliedSettings, appliedSettingsRevision]);
 
   useEffect(() => {
     if (!open) return;
+    const epoch = settingsEpochRef.current;
 
     async function loadApp() {
       setLoading(true);
@@ -50,15 +75,19 @@ export default function AppSettingsDialog({
           throw new Error(body?.error || "Failed to load app settings");
         }
 
+        if (settingsEpochRef.current !== epoch) return;
+
         setAppName(body.app.name || "");
         setSelectedModel(toModelSelection(body.app.provider, body.app.model));
         setVariability(normalizeVariability(body.app.variability));
         setApiKey("");
         setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
-      } catch (e: any) {
-        setError(e?.message || "Failed to load app settings");
+      } catch (e: unknown) {
+        if (settingsEpochRef.current !== epoch) return;
+        const message = e instanceof Error ? e.message : "Failed to load app settings";
+        setError(message || "Failed to load app settings");
       } finally {
-        setLoading(false);
+        if (settingsEpochRef.current === epoch) setLoading(false);
       }
     }
 
