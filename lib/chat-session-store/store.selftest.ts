@@ -1,12 +1,22 @@
 /**
- * Runtime self-test for ChatSessionStore multi-bot shared listing (Task 1.3).
+ * Runtime self-test for ChatSessionStore.
+ * Covers multi-bot shared listing and the starting-version session stamp.
  * Forces JSON file mode (no Postgres) for reliable local runs.
  *
  * Run: npx tsx lib/chat-session-store/store.selftest.ts
  */
 import fs from "fs/promises";
 import path from "path";
-import type { ChatSessionRecord, SessionSummary } from "./types";
+import type {
+  ChatSessionRecord,
+  SessionSummary,
+  StoredChatMessage,
+  UpsertSessionTurnInput,
+} from "./types";
+import type {
+  RecordChatTurnInput,
+  RecordChatTurnResult,
+} from "./record-chat-turn";
 
 let failures = 0;
 
@@ -61,6 +71,233 @@ function idsOf(page: { items: SessionSummary[] }): string[] {
   return page.items.map((item) => item.id);
 }
 
+function stampTurn(id: string, content: string): UpsertSessionTurnInput {
+  const at = "2026-09-28T15:00:00.000Z";
+  const userMessage: StoredChatMessage = {
+    role: "user",
+    content,
+    at,
+  };
+  Object.assign(userMessage, { configVersionId: "message-version" });
+  return {
+    id,
+    appId: "bot-stamp",
+    appName: "Stamp Bot",
+    ownerId: "owner-1",
+    participantId: "user-1",
+    participantName: "Ada",
+    surface: "public",
+    shared: true,
+    messages: [userMessage, { role: "assistant", content: "Reply", at }],
+  };
+}
+
+async function readRawSessions(
+  filePath: string
+): Promise<Array<Record<string, unknown>>> {
+  const parsed = JSON.parse(await fs.readFile(filePath, "utf-8")) as {
+    sessions?: Array<Record<string, unknown>>;
+  };
+  return Array.isArray(parsed.sessions) ? parsed.sessions : [];
+}
+
+function messagesOmitVersion(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  return value.every((message) => {
+    if (!message || typeof message !== "object") {
+      return false;
+    }
+    return !Object.prototype.hasOwnProperty.call(message, "configVersionId");
+  });
+}
+
+async function assertStartingVersionStamp(
+  dataFile: string,
+  getSessionById: (id: string) => Promise<ChatSessionRecord | null>,
+  upsertSessionTurn: (
+    input: UpsertSessionTurnInput,
+    configVersionId?: string | null
+  ) => Promise<void>,
+  recordChatTurn: (
+    input: RecordChatTurnInput
+  ) => Promise<RecordChatTurnResult>
+): Promise<void> {
+  const existing = await readRawSessions(dataFile);
+  const legacy = session({
+    id: "stamp-legacy",
+    appId: "bot-stamp",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  });
+  const seeded: ChatSessionRecord = {
+    ...session({
+      id: "stamp-seeded",
+      appId: "bot-stamp",
+      updatedAt: "2026-09-02T00:00:00.000Z",
+    }),
+    configVersionId: "version-already-stored",
+  };
+  await fs.writeFile(
+    dataFile,
+    JSON.stringify({ sessions: [...existing, legacy, seeded] }, null, 2),
+    "utf-8"
+  );
+
+  await upsertSessionTurn(
+    stampTurn("stamp-new", "Hello"),
+    "version-published-1"
+  );
+  const created = await getSessionById("stamp-new");
+  assertEqual(
+    created?.configVersionId,
+    "version-published-1",
+    "a new session stores the server-supplied starting version id"
+  );
+  let rawSessions = await readRawSessions(dataFile);
+  const createdRaw = rawSessions.find((item) => item.id === "stamp-new");
+  assertEqual(
+    createdRaw?.configVersionId,
+    "version-published-1",
+    "json stores the starting version id on insert"
+  );
+  assert(
+    messagesOmitVersion(createdRaw?.messages),
+    "messages do not store a version id"
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(
+      rawSessions.find((item) => item.id === "stamp-legacy") ?? {},
+      "configVersionId"
+    ),
+    "inserting a stamped session does not backfill older sessions"
+  );
+
+  await upsertSessionTurn(stampTurn("stamp-new", "Next"), "version-other");
+  const later = await getSessionById("stamp-new");
+  assertEqual(
+    later?.configVersionId,
+    "version-published-1",
+    "later turns do not change the starting version id"
+  );
+  rawSessions = await readRawSessions(dataFile);
+  assert(
+    messagesOmitVersion(
+      rawSessions.find((item) => item.id === "stamp-new")?.messages
+    ),
+    "later-turn messages do not store a version id"
+  );
+
+  await upsertSessionTurn(
+    stampTurn("stamp-legacy", "Still here"),
+    "version-should-not-fill"
+  );
+  rawSessions = await readRawSessions(dataFile);
+  const legacyRaw = rawSessions.find((item) => item.id === "stamp-legacy");
+  assert(
+    !Object.prototype.hasOwnProperty.call(legacyRaw ?? {}, "configVersionId"),
+    "sessions that already exist stay without a version id"
+  );
+  const legacyLoaded = await getSessionById("stamp-legacy");
+  assertEqual(
+    legacyLoaded?.configVersionId,
+    null,
+    "a missing version id reads as null and is not filled in"
+  );
+
+  await upsertSessionTurn(
+    stampTurn("stamp-seeded", "Again"),
+    "version-replacement"
+  );
+  const seededLoaded = await getSessionById("stamp-seeded");
+  assertEqual(
+    seededLoaded?.configVersionId,
+    "version-already-stored",
+    "a later turn keeps the stored version id"
+  );
+
+  const stampApp = {
+    id: "bot-stamp",
+    name: "Stamp Bot",
+    ownerId: "owner-1",
+  };
+  const stampedRecording = await recordChatTurn({
+    recording: {
+      sessionId: "stamp-body",
+      surface: "public",
+      configVersionId: "forged-from-body",
+    },
+    isPublishedRequest: true,
+    app: stampApp,
+    messages: [{ role: "user", content: "Question" }],
+    assistantReply: "Answer",
+    now: "2026-09-28T16:00:00.000Z",
+    configVersionId: "server-version-9",
+  });
+  assertEqual(
+    stampedRecording.status,
+    "persisted",
+    "recording persists when the body includes a version id"
+  );
+  const stamped = await getSessionById("stamp-body");
+  assertEqual(
+    stamped?.configVersionId,
+    "server-version-9",
+    "the server-supplied version id is stored and the client body id is ignored"
+  );
+
+  const replay = await recordChatTurn({
+    recording: {
+      sessionId: "stamp-body",
+      surface: "public",
+      configVersionId: "forged-again",
+    },
+    isPublishedRequest: true,
+    app: stampApp,
+    messages: [{ role: "user", content: "Follow up" }],
+    assistantReply: "Still here",
+    now: "2026-09-28T16:05:00.000Z",
+    configVersionId: "server-version-later",
+  });
+  assertEqual(replay.status, "persisted", "later recording turn persists");
+  const replayed = await getSessionById("stamp-body");
+  assertEqual(
+    replayed?.configVersionId,
+    "server-version-9",
+    "a later recording turn does not change the starting version id"
+  );
+
+  const bodyOnly = await recordChatTurn({
+    recording: {
+      sessionId: "stamp-body-only",
+      surface: "public",
+      configVersionId: "forged-from-body",
+    },
+    isPublishedRequest: true,
+    app: stampApp,
+    messages: [{ role: "user", content: "Only the body" }],
+    assistantReply: "Ignored",
+    now: "2026-09-28T16:10:00.000Z",
+  });
+  assertEqual(bodyOnly.status, "persisted", "body-only recording persists");
+  const bodyOnlySession = await getSessionById("stamp-body-only");
+  assertEqual(
+    bodyOnlySession?.configVersionId,
+    null,
+    "a version id on the client recording body is ignored"
+  );
+  rawSessions = await readRawSessions(dataFile);
+  const bodyOnlyRaw = rawSessions.find((item) => item.id === "stamp-body-only");
+  assert(
+    !Object.prototype.hasOwnProperty.call(bodyOnlyRaw ?? {}, "configVersionId"),
+    "a client recording version id is not written onto the session"
+  );
+  assert(
+    messagesOmitVersion(bodyOnlyRaw?.messages),
+    "recorded messages do not store a version id"
+  );
+}
+
 async function main(): Promise<void> {
   delete process.env.POSTGRES_URL;
   delete process.env.POSTGRES_URL_NON_POOLING;
@@ -72,7 +309,9 @@ async function main(): Promise<void> {
   const dataFile = path.join(tempDir, "chat-sessions.json");
   process.env.CHAT_SESSIONS_DATA_FILE = dataFile;
 
-  const { listSharedSessionsForAppIds } = await import("./store");
+  const { getSessionById, listSharedSessionsForAppIds, upsertSessionTurn } =
+    await import("./store");
+  const { recordChatTurn } = await import("./record-chat-turn");
 
   try {
     const botA = "bot-a";
@@ -213,6 +452,13 @@ async function main(): Promise<void> {
     assert(
       !fileRaw.includes("workspaceId"),
       "chat session records are not stamped with workspaceId"
+    );
+
+    await assertStartingVersionStamp(
+      dataFile,
+      getSessionById,
+      upsertSessionTurn,
+      recordChatTurn
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

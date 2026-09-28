@@ -59,7 +59,7 @@
   - _Depends: 1.2_
   - _Boundary: Version store_
 
-- [ ] 2.3 Record the starting version on a new conversation
+- [x] 2.3 Record the starting version on a new conversation
   - A new session stores the server-supplied starting version id once
   - Later turns do not change that id
   - Messages do not store a version id
@@ -170,3 +170,4 @@
 - JSON backfill must not call `listApps` or `getAppById` while `prepareConfigVersionStore` is still pending, or the JSON load deadlocks. `listConfigVersions` returns full records and is not the history summary API.
 - JSON self-checks share `.data/*.json`. Run them sequentially. `APP_DRAFT_SAVE_FAULT=1` is a one-shot test switch that throws after the version write so a failed save can be proven to restore both files. `APP_PUBLISH_FAULT=1` is the same kind of switch for a failed publish after the seal. A republish whose pointer already matches does not copy a new API key.
 - `pinSessionSnapshot` returns a sealed version's own id. It inserts a sealed `session` copy only for an unsealed draft, and that draft stays editable.
+- `configVersionId` is written only when a session row is inserted. Later turns do not replace it or fill a null. The client recording body cannot set it.
