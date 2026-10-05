@@ -34,6 +34,7 @@ import {
   createAutosaveGate,
   isAbortError,
   openAutosave,
+  promptTextMatchesStored,
 } from '@/components/editor/version-history';
 import {
   DEFAULT_INSTRUCTION_PROMPT as DEFAULT_PROMPT,
@@ -353,6 +354,7 @@ export default function InstructionDoc({
   const onOwnerPatchSettledRef = useRef(onOwnerPatchSettled);
   const autosaveAbortRef = useRef<AbortController | null>(null);
   const autosaveGateRef = useRef(createAutosaveGate());
+  const persistedPromptRef = useRef<string | null>(null);
   const promptEpochRef = useRef(0);
   const appliedExternalRevisionRef = useRef<number | null>(null);
 
@@ -369,6 +371,7 @@ export default function InstructionDoc({
         autosaveGateRef.current,
         normalized
       );
+      persistedPromptRef.current = normalized;
       promptEpochRef.current += 1;
       valueRef.current = normalized;
       setValue(normalized);
@@ -468,37 +471,49 @@ export default function InstructionDoc({
         !!storedStripped &&
         (isDefaultInstructionPrompt(storedPrompt) ||
           isDefaultInstructionPrompt(storedStripped));
-      if (storedStripped && !storedIsOnlyDefaultTemplate) {
-        const nextPrompt = storedStripped || DEFAULT_PROMPT;
-        if (stillCurrent()) {
-          applyPrompt(nextPrompt);
-          setHydrated(true);
-        }
-        return;
-      }
+      const useStoredPrompt = Boolean(storedStripped && !storedIsOnlyDefaultTemplate);
 
+      let serverPrompt: string | null = null;
+      let serverFallback = '';
+      let serverBuilder: PromptBuilderState | null = null;
       if (appId) {
         try {
           const res = await fetch(`/api/apps/${appId}`);
           const body = await res.json();
           if (stillCurrent() && res.ok && body?.app) {
-            const fromServer =
-              (typeof body.app.systemPrompt === 'string'
-                ? body.app.systemPrompt.trim()
-                : '') ||
-              (typeof body.app.description === 'string'
-                ? body.app.description.trim()
-                : '');
-            const raw =
-              fromServer ||
-              buildPlainPromptFromBuilder(body.app.builderState || initialBuilderState) ||
-              DEFAULT_PROMPT;
-            const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-            applyPrompt(nextPrompt);
-            setHydrated(true);
-            return;
+            if (typeof body.app.systemPrompt === 'string') {
+              serverPrompt = body.app.systemPrompt;
+            }
+            serverFallback =
+              (typeof body.app.description === 'string' ? body.app.description.trim() : '') ||
+              '';
+            if (body.app.builderState && typeof body.app.builderState === 'object') {
+              serverBuilder = body.app.builderState as PromptBuilderState;
+            }
           }
         } catch {}
+      }
+      if (!stillCurrent()) return;
+      if (serverPrompt !== null) {
+        persistedPromptRef.current = serverPrompt;
+      }
+
+      if (useStoredPrompt) {
+        applyPrompt(storedStripped || DEFAULT_PROMPT);
+        setHydrated(true);
+        return;
+      }
+
+      if (serverPrompt !== null || serverFallback) {
+        const raw =
+          (serverPrompt ?? '').trim() ||
+          serverFallback ||
+          buildPlainPromptFromBuilder(serverBuilder || initialBuilderState) ||
+          DEFAULT_PROMPT;
+        const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
+        applyPrompt(nextPrompt);
+        setHydrated(true);
+        return;
       }
 
       const legacyBuilder = readLegacyBuilderState(appId) as Partial<PromptBuilderState> | null;
@@ -652,6 +667,8 @@ export default function InstructionDoc({
     const timer = window.setTimeout(() => {
       if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
       if (controller.signal.aborted) return;
+      const persisted = persistedPromptRef.current;
+      if (persisted !== null && promptTextMatchesStored(persisted, savedPrompt)) return;
       void (async () => {
         try {
           const res = await fetch(`/api/apps/${appId}`, {
@@ -672,6 +689,7 @@ export default function InstructionDoc({
             });
             return;
           }
+          persistedPromptRef.current = savedPrompt;
           onOwnerPatchSettledRef.current?.({
             ok: true,
             latestVersionId: ownerApp.latestVersionId,

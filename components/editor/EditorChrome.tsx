@@ -44,9 +44,9 @@ export default function EditorChrome({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Sticky header spans full width */}
-      <header className="sticky top-0 z-10 h-16 border-b border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <header className="sticky top-0 z-10 h-16 shrink-0 border-b border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex h-full w-full items-center justify-between page-pad">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <a
@@ -132,15 +132,15 @@ export default function EditorChrome({
       {publishNotice ? (
         <p
           role="status"
-          className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
         >
           {publishNotice}
         </p>
       ) : null}
 
       {/* Full-bleed content that fills the rest of the viewport */}
-      <main className="page-pad min-h-0 flex-1 overflow-hidden">
-        <div className="main-viewport box-border min-h-0 overflow-hidden py-4 md:py-5">
+      <main className="page-pad flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="box-border h-full min-h-0 overflow-hidden py-4 md:py-5">
           {children}
         </div>
       </main>

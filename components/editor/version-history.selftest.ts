@@ -24,6 +24,7 @@ import {
   mergeSuccessfulRevert,
   NO_PREVIOUS_VERSION_MESSAGE,
   openAutosave,
+  promptTextMatchesStored,
   PUBLISHED_BADGE,
   readHistoryDetail,
   readHistoryList,
@@ -106,6 +107,22 @@ function editorState(
 const createdAt = "2026-03-01T15:04:00.000Z";
 const updatedAt = "2026-03-02T18:30:00.000Z";
 const revertedAt = "2026-03-03T12:05:00.000Z";
+
+console.log("Test 0: opening the editor does not count a trimmed prompt as a new edit");
+{
+  assert(
+    promptTextMatchesStored("teach japanese.\nplease teach for those who is A1 level.\n", "teach japanese.\nplease teach for those who is A1 level."),
+    "a trailing newline matches the opened prompt"
+  );
+  assert(
+    promptTextMatchesStored("  teach japanese.  ", "teach japanese."),
+    "surrounding spaces match the opened prompt"
+  );
+  assert(
+    !promptTextMatchesStored("teach japanese.", "teach english."),
+    "a real prompt edit does not match"
+  );
+}
 
 console.log("Test 1: timestamps match the session start format");
 {
@@ -198,17 +215,52 @@ console.log("Test 3: detail is read-only and the earliest version has no previou
   assertEqual(byLabel.get("Assisted mode"), "off", "assisted mode off");
   assertEqual(displayAssistedMode(true), "on", "assisted mode on");
   assertEqual(byLabel.get("Learning objective"), "Add fractions", "builder leaf");
-  assertEqual(fields.length, 17, "settings plus every builder leaf");
+  assertEqual(fields.length, 17, "settings plus every filled builder leaf");
   assert(
     !fields.some((field) => field.label.toLowerCase().includes("api")),
     "detail labels omit API keys"
   );
 
   const emptyBuilder = versionDetailFields(snapshot({ builderState: null }));
+  assertEqual(emptyBuilder.length, 6, "null builder omits builder leaves");
+  assert(
+    !emptyBuilder.some((field) => field.label === "Learning objective"),
+    "null builder hides the learning objective"
+  );
+
+  const partialBuilder = versionDetailFields(
+    snapshot({
+      name: "",
+      builderState: builderState({
+        learningObjective: "  Add fractions  ",
+        learningObjectivePrompt: "",
+        uploadedExerciseName: "   ",
+        gradeLevel: "5",
+      }),
+    })
+  );
   assertEqual(
-    emptyBuilder.find((field) => field.label === "Learning objective")?.value,
+    partialBuilder.find((field) => field.label === "Name")?.value,
     "",
-    "null builder leaves are empty"
+    "an empty core field stays visible"
+  );
+  assertEqual(
+    partialBuilder.find((field) => field.label === "Learning objective")?.value,
+    "Add fractions",
+    "a filled builder leaf is trimmed and shown"
+  );
+  assertEqual(
+    partialBuilder.find((field) => field.label === "Grade level")?.value,
+    "5",
+    "another filled builder leaf stays visible"
+  );
+  assert(
+    !partialBuilder.some((field) => field.label === "Learning objective prompt"),
+    "an empty builder leaf is hidden"
+  );
+  assert(
+    !partialBuilder.some((field) => field.label === "Uploaded exercise name"),
+    "a blank builder leaf is hidden"
   );
 
   const comparison = versionComparison(detail);

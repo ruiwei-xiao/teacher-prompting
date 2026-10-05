@@ -304,6 +304,14 @@ function snapshotChanged(before: AppConfig, after: AppConfig): boolean {
   return JSON.stringify(snapshotFromApp(before)) !== JSON.stringify(snapshotFromApp(after));
 }
 
+/** Opening the editor trims the prompt. That is not an edit. */
+function preserveUnchangedPrompt(current: AppConfig, next: AppConfig): AppConfig {
+  const currentPrompt = (current.systemPrompt ?? "").replace(/\r\n/g, "\n").trim();
+  const nextPrompt = (next.systemPrompt ?? "").replace(/\r\n/g, "\n").trim();
+  if (currentPrompt !== nextPrompt) return next;
+  return { ...next, systemPrompt: current.systemPrompt };
+}
+
 function applyDraftSnapshot(app: AppConfig, latest: ConfigVersionRecord): AppConfig {
   if (!isSupportedProvider(latest.provider)) {
     throw new Error(`App ${app.id} could not be snapshotted`);
@@ -688,11 +696,11 @@ async function updateAppInPostgres(
   if (!existing) return null;
 
   const now = new Date().toISOString();
-  const merged: AppConfig = {
+  const merged: AppConfig = preserveUnchangedPrompt(existing, {
     ...existing,
     ...patch,
     updatedAt: now,
-  };
+  });
 
   const publishing = isNewPublish(existing, patch);
   const keySync =
@@ -878,11 +886,11 @@ async function updateAppInFile(
   const current = apps[idx];
   if (!current) return null;
   const now = new Date().toISOString();
-  let next: AppConfig = {
+  let next: AppConfig = preserveUnchangedPrompt(current, {
     ...current,
     ...patch,
     updatedAt: now,
-  };
+  });
 
   const publishing = isNewPublish(current, patch);
   const keySync =

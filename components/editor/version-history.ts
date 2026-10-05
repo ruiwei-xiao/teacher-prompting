@@ -159,6 +159,11 @@ export function historyListRows(versions: readonly HistoryVersionSummary[]): His
   }));
 }
 
+export function promptTextMatchesStored(stored: string, editor: string): boolean {
+  const normalize = (value: string) => value.replace(/\r\n/g, "\n").trim();
+  return normalize(stored) === normalize(editor);
+}
+
 export function displayVariability(value: number | null): string {
   return value === null ? "unset" : String(value);
 }
@@ -180,9 +185,11 @@ export function versionDetailFields(version: HistoryVersionSnapshot): VersionDet
     },
   ];
   for (const key of BUILDER_FIELDS) {
+    const value = version.builderState?.[key]?.trim() ?? "";
+    if (!value) continue;
     fields.push({
       label: BUILDER_FIELD_LABELS[key],
-      value: version.builderState?.[key] ?? "",
+      value,
     });
   }
   return fields;

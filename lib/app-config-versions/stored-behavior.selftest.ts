@@ -195,6 +195,22 @@ async function main(): Promise<void> {
       "creating a bot leaves the published pointer empty"
     );
 
+    const trimmed = must(
+      await updateApp(bot.id, { systemPrompt: "Opening prompt\n" }),
+      "a trailing newline save returns the app"
+    );
+    const trimmedVersions = await listConfigVersions(bot.id);
+    assertEqual(trimmedVersions.length, 1, "a trailing newline does not add a version");
+    const trimmedVersion = must(trimmedVersions[0], "the original version remains");
+    assertEqual(trimmedVersion.id, createdVersion.id, "a trailing newline keeps the same version");
+    assertEqual(
+      trimmedVersion.updatedAt,
+      createdVersion.updatedAt,
+      "a trailing newline does not touch the version time"
+    );
+    assertEqual(trimmedVersion.systemPrompt, "Opening prompt", "a trailing newline keeps the stored prompt");
+    assertEqual(trimmed.systemPrompt, "Opening prompt", "a trailing newline keeps the app prompt");
+
     const saved = must(
       await updateApp(bot.id, { systemPrompt: "Prompt after first save" }),
       "in-window save returns the app"
