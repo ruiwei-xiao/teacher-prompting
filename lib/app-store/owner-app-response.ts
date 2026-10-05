@@ -67,10 +67,11 @@ export function selectLatestVersionId(
   return null;
 }
 
-export function withoutAppSecrets<T extends { apiKey?: unknown; publishedApiKey?: unknown }>(
+export function withoutAppSecrets<T extends object>(
   app: T
 ): Omit<T, "apiKey" | "publishedApiKey"> {
-  const { apiKey: _draftKey, publishedApiKey: _publishedKey, ...rest } = app;
+  const record = app as T & { apiKey?: unknown; publishedApiKey?: unknown };
+  const { apiKey: _draftKey, publishedApiKey: _publishedKey, ...rest } = record;
   return rest;
 }
 
