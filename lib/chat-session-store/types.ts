@@ -20,6 +20,7 @@ export type ChatSessionRecord = {
   participantId: string | null; // null = anonymous
   participantName: string | null; // snapshot; null = anonymous
   anonymousVisitorId?: string | null; // public-chat visitor; missing/null = absent
+  configVersionId?: string | null; // starting version; absent until a server insert supplies one
   surface: SessionSurface;
   shared: boolean; // default true
   messages: StoredChatMessage[];
@@ -34,7 +35,7 @@ export type SessionSummary = Omit<ChatSessionRecord, "messages"> & {
 
 export type UpsertSessionTurnInput = Omit<
   ChatSessionRecord,
-  "createdAt" | "updatedAt" | "shared"
+  "createdAt" | "updatedAt" | "shared" | "configVersionId"
 > & { shared?: boolean };
 
 export type ListPage<T> = { items: T[]; hasMore: boolean };

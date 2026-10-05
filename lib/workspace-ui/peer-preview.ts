@@ -57,8 +57,9 @@ function isProvider(value: unknown): value is SupportedProvider {
 
 function stripApiKey<T extends Record<string, unknown>>(
   app: T
-): Omit<T, "apiKey"> {
-  const { apiKey: _secret, ...rest } = app as T & { apiKey?: unknown };
+): Omit<T, "apiKey" | "publishedApiKey"> {
+  const { apiKey: _secret, publishedApiKey: _publishedSecret, ...rest } =
+    app as T & { apiKey?: unknown; publishedApiKey?: unknown };
   return rest;
 }
 

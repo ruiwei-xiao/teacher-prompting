@@ -60,6 +60,9 @@ function BotActivityViewInner({
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [transcript, setTranscript] = useState<ChatSessionRecord | null>(null);
+  const [configVersionCreatedAt, setConfigVersionCreatedAt] = useState<
+    string | null
+  >(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState("");
   const [transcriptNonce, setTranscriptNonce] = useState(0);
@@ -107,6 +110,7 @@ function BotActivityViewInner({
   useEffect(() => {
     if (!selectedId) {
       setTranscript(null);
+      setConfigVersionCreatedAt(null);
       setTranscriptError("");
       setTranscriptLoading(false);
       return;
@@ -116,15 +120,17 @@ function BotActivityViewInner({
     setTranscriptLoading(true);
     setTranscriptError("");
     setTranscript(null);
+    setConfigVersionCreatedAt(null);
 
     void fetchTranscript(selectedId)
-      .then((session) => {
+      .then((payload) => {
         if (cancelled) return;
-        if (session.appId !== appId) {
+        if (payload.session.appId !== appId) {
           setTranscriptError("Session not found");
           return;
         }
-        setTranscript(session);
+        setTranscript(payload.session);
+        setConfigVersionCreatedAt(payload.configVersionCreatedAt);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -191,7 +197,13 @@ function BotActivityViewInner({
       </div>
     );
   } else if (transcript) {
-    detail = <SessionTranscript session={transcript} nameMode="participant" />;
+    detail = (
+      <SessionTranscript
+        session={transcript}
+        nameMode="participant"
+        configVersionCreatedAt={configVersionCreatedAt}
+      />
+    );
   }
 
   const isBare =

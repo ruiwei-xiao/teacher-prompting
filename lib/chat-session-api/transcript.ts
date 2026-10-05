@@ -3,7 +3,9 @@
  * Session is resolved by the route wrapper; this accepts userId for testability.
  *
  * GET returns the full ChatSessionRecord when the caller is the participant
- * (always) or the bot owner of a still-shared session. Unauthenticated → 401;
+ * (always) or the bot owner of a still-shared session. The body also includes
+ * configVersionCreatedAt for the starting version when that row still exists.
+ * Unauthenticated → 401;
  * missing session → 404; signed-in but not allowed (including owner of an
  * unshared session) → 403. Owner access re-checks `shared` so an unshared
  * session stays forbidden even with a known ID.
@@ -19,11 +21,40 @@ export type ApiResult<T> =
 
 export type TranscriptBody = {
   session: ChatSessionRecord;
+  configVersionCreatedAt: string | null;
 };
 
 export type GetSessionByIdFn = (
   id: string
 ) => Promise<ChatSessionRecord | null>;
+
+export type GetConfigVersionCreatedAtFn = (
+  appId: string,
+  versionId: string
+) => Promise<string | null>;
+
+function startingVersionId(session: ChatSessionRecord): string | null {
+  const value = session.configVersionId;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function createdAtOrNull(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function loadConfigVersionCreatedAt(
+  appId: string,
+  versionId: string
+): Promise<string | null> {
+  const { findConfigVersionCreatedAt } = await import(
+    "@/lib/app-config-versions/store"
+  );
+  return findConfigVersionCreatedAt(appId, versionId);
+}
 
 function unauthorized(): ApiResult<never> {
   return { ok: false, status: 401, body: { error: "Unauthorized" } };
@@ -50,6 +81,7 @@ export async function getSessionTranscript(
   sessionId: string,
   deps: {
     getSessionById?: GetSessionByIdFn;
+    getConfigVersionCreatedAt?: GetConfigVersionCreatedAtFn;
   } = {}
 ): Promise<ApiResult<TranscriptBody>> {
   if (!userId) return unauthorized();
@@ -60,9 +92,18 @@ export async function getSessionTranscript(
 
   if (!canReadTranscript(userId, session)) return forbidden();
 
+  const versionId = startingVersionId(session);
+  let configVersionCreatedAt: string | null = null;
+  if (versionId) {
+    const lookup = deps.getConfigVersionCreatedAt ?? loadConfigVersionCreatedAt;
+    configVersionCreatedAt = createdAtOrNull(
+      await lookup(session.appId, versionId)
+    );
+  }
+
   return {
     ok: true,
     status: 200,
-    body: { session },
+    body: { session, configVersionCreatedAt },
   };
 }

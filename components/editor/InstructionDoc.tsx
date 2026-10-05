@@ -24,9 +24,26 @@ import {
 } from '@/lib/chat-input/client';
 import { TEACHING_AGENT_TEMPLATES } from '@/lib/prompt-builder/teaching-agent-templates';
 import {
+  readOwnerAppRecord,
+  readResponseError,
+  type OwnerPatchSettlement,
+} from '@/components/editor/publish-state';
+import {
+  applyExternalPromptBeforeSave,
+  autosaveIsCurrent,
+  createAutosaveGate,
+  isAbortError,
+  openAutosave,
+  promptTextMatchesStored,
+} from '@/components/editor/version-history';
+import {
   DEFAULT_INSTRUCTION_PROMPT as DEFAULT_PROMPT,
   isDefaultInstructionPrompt,
 } from '@/lib/prompt-defaults';
+
+export type InstructionDocPromptController = {
+  applyServerPrompt: (text: string) => void;
+};
 
 type PromptFeedbackChangedBlock = {
   heading: string;
@@ -301,6 +318,10 @@ export default function InstructionDoc({
   spotlightAttachmentRef,
   spotlightAgentRef,
   spotlightApplyPromptRef,
+  onOwnerPatchSettled,
+  promptControllerRef,
+  externalPromptRevision = null,
+  externalPrompt = null,
 }: {
   appId?: string;
   readOnly?: boolean;
@@ -310,6 +331,10 @@ export default function InstructionDoc({
   spotlightAttachmentRef?: RefObject<HTMLButtonElement | null>;
   spotlightAgentRef?: RefObject<HTMLButtonElement | null>;
   spotlightApplyPromptRef?: RefObject<HTMLButtonElement | null>;
+  onOwnerPatchSettled?: (result: OwnerPatchSettlement) => void;
+  promptControllerRef?: RefObject<InstructionDocPromptController | null>;
+  externalPromptRevision?: number | null;
+  externalPrompt?: string | null;
 }) {
   const params = useParams<{ appId: string }>();
   const appId = appIdProp || params?.appId || '';
@@ -326,6 +351,43 @@ export default function InstructionDoc({
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [promptDropActive, setPromptDropActive] = useState(false);
   const promptDropZoneRef = useRef<HTMLDivElement | null>(null);
+  const onOwnerPatchSettledRef = useRef(onOwnerPatchSettled);
+  const autosaveAbortRef = useRef<AbortController | null>(null);
+  const autosaveGateRef = useRef(createAutosaveGate());
+  const persistedPromptRef = useRef<string | null>(null);
+  const promptEpochRef = useRef(0);
+  const appliedExternalRevisionRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onOwnerPatchSettledRef.current = onOwnerPatchSettled;
+  }, [onOwnerPatchSettled]);
+
+  const applyServerPrompt = useCallback(
+    (text: string) => {
+      const normalized = normalizeText(text);
+      autosaveAbortRef.current?.abort();
+      autosaveAbortRef.current = null;
+      autosaveGateRef.current = applyExternalPromptBeforeSave(
+        autosaveGateRef.current,
+        normalized
+      );
+      persistedPromptRef.current = normalized;
+      promptEpochRef.current += 1;
+      valueRef.current = normalized;
+      setValue(normalized);
+      setHydrated(true);
+      savePromptText(normalized, appId);
+    },
+    [appId]
+  );
+
+  useEffect(() => {
+    if (!promptControllerRef) return;
+    promptControllerRef.current = { applyServerPrompt };
+    return () => {
+      promptControllerRef.current = null;
+    };
+  }, [applyServerPrompt, promptControllerRef]);
 
   const insertIntoPrompt = useCallback(
     (insertion: string) => {
@@ -383,6 +445,9 @@ export default function InstructionDoc({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let cancelled = false;
+    const epoch = promptEpochRef.current;
+
+    const stillCurrent = () => !cancelled && promptEpochRef.current === epoch;
 
     async function hydratePrompt() {
       if (readOnly) {
@@ -392,7 +457,7 @@ export default function InstructionDoc({
           DEFAULT_PROMPT;
         const nextPrompt =
           stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-        if (!cancelled) {
+        if (stillCurrent()) {
           setValue(normalizeText(nextPrompt));
           setHydrated(true);
         }
@@ -406,51 +471,63 @@ export default function InstructionDoc({
         !!storedStripped &&
         (isDefaultInstructionPrompt(storedPrompt) ||
           isDefaultInstructionPrompt(storedStripped));
-      if (storedStripped && !storedIsOnlyDefaultTemplate) {
-        const nextPrompt = storedStripped || DEFAULT_PROMPT;
-        if (!cancelled) {
-          applyPrompt(nextPrompt);
-          setHydrated(true);
-        }
-        return;
-      }
+      const useStoredPrompt = Boolean(storedStripped && !storedIsOnlyDefaultTemplate);
 
+      let serverPrompt: string | null = null;
+      let serverFallback = '';
+      let serverBuilder: PromptBuilderState | null = null;
       if (appId) {
         try {
           const res = await fetch(`/api/apps/${appId}`);
           const body = await res.json();
-          if (!cancelled && res.ok && body?.app) {
-            const fromServer =
-              (typeof body.app.systemPrompt === 'string'
-                ? body.app.systemPrompt.trim()
-                : '') ||
-              (typeof body.app.description === 'string'
-                ? body.app.description.trim()
-                : '');
-            const raw =
-              fromServer ||
-              buildPlainPromptFromBuilder(body.app.builderState || initialBuilderState) ||
-              DEFAULT_PROMPT;
-            const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-            applyPrompt(nextPrompt);
-            setHydrated(true);
-            return;
+          if (stillCurrent() && res.ok && body?.app) {
+            if (typeof body.app.systemPrompt === 'string') {
+              serverPrompt = body.app.systemPrompt;
+            }
+            serverFallback =
+              (typeof body.app.description === 'string' ? body.app.description.trim() : '') ||
+              '';
+            if (body.app.builderState && typeof body.app.builderState === 'object') {
+              serverBuilder = body.app.builderState as PromptBuilderState;
+            }
           }
         } catch {}
+      }
+      if (!stillCurrent()) return;
+      if (serverPrompt !== null) {
+        persistedPromptRef.current = serverPrompt;
+      }
+
+      if (useStoredPrompt) {
+        applyPrompt(storedStripped || DEFAULT_PROMPT);
+        setHydrated(true);
+        return;
+      }
+
+      if (serverPrompt !== null || serverFallback) {
+        const raw =
+          (serverPrompt ?? '').trim() ||
+          serverFallback ||
+          buildPlainPromptFromBuilder(serverBuilder || initialBuilderState) ||
+          DEFAULT_PROMPT;
+        const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
+        applyPrompt(nextPrompt);
+        setHydrated(true);
+        return;
       }
 
       const legacyBuilder = readLegacyBuilderState(appId) as Partial<PromptBuilderState> | null;
       if (legacyBuilder) {
         const raw = buildPlainPromptFromBuilder(legacyBuilder) || DEFAULT_PROMPT;
         const nextPrompt = stripTestCaseStudentsFromPrompt(raw).trim() || DEFAULT_PROMPT;
-        if (!cancelled) {
+        if (stillCurrent()) {
           applyPrompt(nextPrompt);
           setHydrated(true);
         }
         return;
       }
 
-      if (!cancelled) {
+      if (stillCurrent()) {
         applyPrompt(DEFAULT_PROMPT);
         setHydrated(true);
       }
@@ -571,19 +648,68 @@ export default function InstructionDoc({
 
   useEffect(() => {
     if (readOnly) return;
+    if (externalPromptRevision == null || externalPrompt == null) return;
+    if (appliedExternalRevisionRef.current === externalPromptRevision) return;
+    appliedExternalRevisionRef.current = externalPromptRevision;
+    applyServerPrompt(externalPrompt);
+  }, [applyServerPrompt, externalPrompt, externalPromptRevision, readOnly]);
+
+  useEffect(() => {
+    if (readOnly) return;
     if (!hydrated || !appId) return;
 
+    const opened = openAutosave(autosaveGateRef.current, value);
+    autosaveGateRef.current = opened.gate;
+    const requestId = opened.requestId;
+    const controller = new AbortController();
+    autosaveAbortRef.current = controller;
+    const savedPrompt = value;
     const timer = window.setTimeout(() => {
-      void fetch(`/api/apps/${appId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt: value,
-        }),
-      });
+      if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
+      if (controller.signal.aborted) return;
+      const persisted = persistedPromptRef.current;
+      if (persisted !== null && promptTextMatchesStored(persisted, savedPrompt)) return;
+      void (async () => {
+        try {
+          const res = await fetch(`/api/apps/${appId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemPrompt: savedPrompt,
+            }),
+            signal: controller.signal,
+          });
+          const body: unknown = await res.json().catch(() => null);
+          if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
+          const ownerApp = readOwnerAppRecord(body);
+          if (!res.ok || !ownerApp) {
+            onOwnerPatchSettledRef.current?.({
+              ok: false,
+              error: readResponseError(body, 'Failed to update app settings'),
+            });
+            return;
+          }
+          persistedPromptRef.current = savedPrompt;
+          onOwnerPatchSettledRef.current?.({
+            ok: true,
+            latestVersionId: ownerApp.latestVersionId,
+            publishedVersionId: ownerApp.publishedVersionId,
+          });
+        } catch (error: unknown) {
+          if (isAbortError(error) || controller.signal.aborted) return;
+          if (!autosaveIsCurrent(autosaveGateRef.current, requestId)) return;
+          onOwnerPatchSettledRef.current?.({
+            ok: false,
+            error: 'Failed to update app settings',
+          });
+        }
+      })();
     }, 600);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [appId, hydrated, readOnly, value]);
 
   return (

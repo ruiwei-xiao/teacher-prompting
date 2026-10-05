@@ -1,30 +1,42 @@
 import { auth } from "@/auth";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getAppById, getAppByPublicSlug } from "@/lib/app-store/store";
+import { loadPublicChatPage } from "@/lib/chat/resolve-chat-config";
 import PublishedChatbot from "@/components/public/PublishedChatbot";
 import { publicChatCallbackPath } from "@/components/public/public-chat-gate";
+
+type PublicChatPageProps = {
+  params: Promise<{ appId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export async function generateMetadata({ params }: PublicChatPageProps): Promise<Metadata> {
+  const { appId } = await params;
+  const loaded = await loadPublicChatPage(appId);
+  if (loaded.status !== "ok") {
+    return {};
+  }
+  return { title: loaded.title };
+}
 
 export default async function PublicChatbotPage({
   params,
   searchParams,
-}: {
-  params: Promise<{ appId: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+}: PublicChatPageProps) {
   const { appId } = await params;
   const query = await searchParams;
   const session = await auth();
-  const app = (await getAppById(appId)) || (await getAppByPublicSlug(appId));
+  const loaded = await loadPublicChatPage(appId);
 
-  if (!app || !app.publishedAt) {
+  if (loaded.status !== "ok") {
     notFound();
   }
 
   return (
     <PublishedChatbot
-      appId={app.id}
-      appName={app.name || app.id}
-      systemPrompt={app.systemPrompt || ""}
+      appId={loaded.appId}
+      appName={loaded.title}
+      systemPrompt={loaded.systemPrompt}
       isSignedIn={Boolean(session?.user)}
       signedInUser={
         session?.user

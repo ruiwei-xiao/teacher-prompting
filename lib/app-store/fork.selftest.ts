@@ -46,27 +46,41 @@ function stubApp(overrides: Partial<AppConfig> & Pick<AppConfig, "id">): AppConf
   };
 }
 
+async function readOptional(file: string): Promise<string | null> {
+  try {
+    return await fs.readFile(file, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function restore(file: string, previous: string | null): Promise<void> {
+  if (previous === null) {
+    await fs.rm(file, { force: true });
+  } else {
+    await fs.writeFile(file, previous, "utf-8");
+  }
+}
+
 async function withTempApps(
   apps: AppConfig[],
   fn: () => Promise<void>
 ): Promise<void> {
-  const appsFile = path.join(process.cwd(), ".data", "apps.json");
-  await fs.mkdir(path.dirname(appsFile), { recursive: true });
-  let previous: string | null = null;
-  try {
-    previous = await fs.readFile(appsFile, "utf-8");
-  } catch {
-    previous = null;
-  }
+  const dir = path.join(process.cwd(), ".data");
+  const appsFile = path.join(dir, "apps.json");
+  const versionsFile = path.join(dir, "app-config-versions.json");
+  const sessionsFile = path.join(dir, "chat-sessions.json");
+  await fs.mkdir(dir, { recursive: true });
+  const previousApps = await readOptional(appsFile);
+  const previousVersions = await readOptional(versionsFile);
+  const previousSessions = await readOptional(sessionsFile);
   await fs.writeFile(appsFile, JSON.stringify(apps, null, 2), "utf-8");
   try {
     await fn();
   } finally {
-    if (previous === null) {
-      await fs.rm(appsFile, { force: true });
-    } else {
-      await fs.writeFile(appsFile, previous, "utf-8");
-    }
+    await restore(appsFile, previousApps);
+    await restore(versionsFile, previousVersions);
+    await restore(sessionsFile, previousSessions);
   }
 }
 

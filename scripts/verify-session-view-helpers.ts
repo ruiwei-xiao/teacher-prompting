@@ -370,13 +370,38 @@ async function main() {
           "sess-1",
           async (input) => {
             assertEqual(String(input), "/api/sessions/sess-1", "url");
-            return new Response(JSON.stringify({ session }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                session,
+                configVersionCreatedAt: "2026-08-20T15:30:00.000Z",
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }
+            );
           }
         );
-        assertEqual(result, session, "session");
+        assertEqual(result.session, session, "session");
+        assertEqual(
+          result.configVersionCreatedAt,
+          "2026-08-20T15:30:00.000Z",
+          "version created time"
+        );
+      },
+    },
+    {
+      name: "fetchTranscript omits a missing version time",
+      run: async () => {
+        const session = sampleRecord();
+        const result = await client.fetchTranscript("sess-1", async () => {
+          return new Response(JSON.stringify({ session }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        });
+        assertEqual(result.session, session, "session");
+        assertEqual(result.configVersionCreatedAt, null, "missing version time");
       },
     },
     {

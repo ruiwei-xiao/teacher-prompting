@@ -11,6 +11,7 @@ import {
   assertEducatorOutwardShareGate,
 } from "@/lib/workspace-api/apps-gates";
 import { validateAssistedAuthoringMode } from "@/lib/app-store/patch-validation";
+import { toOwnerAppSettings } from "@/lib/app-store/owner-app-response";
 
 function slugify(value: string) {
   return (
@@ -71,32 +72,7 @@ export async function GET(
     return NextResponse.json({ error: "App not found" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    app: {
-      id: app.id,
-      name: app.name,
-      description: app.description,
-      provider: app.provider,
-      model: app.model,
-      variability: normalizeVariability(app.variability),
-      systemPrompt: app.systemPrompt || "",
-      builderState: app.builderState || null,
-      communitySubject: app.communitySubject || null,
-      communityTags: app.communityTags || [],
-      publishedAt: app.publishedAt || null,
-      publicSlug: app.publicSlug || null,
-      projectShareSlug: app.projectShareSlug || null,
-      projectSharedAt: app.projectSharedAt || null,
-      projectShareVisibility: app.projectShareVisibility || "private",
-      shareAuthorName: app.shareAuthorName ?? false,
-      assistedAuthoringMode: app.assistedAuthoringMode,
-      forkedFromProjectName: app.forkedFromProjectName || null,
-      forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
-      forkedFromAuthorName: app.forkedFromAuthorName || null,
-      createdAt: app.createdAt,
-      updatedAt: app.updatedAt,
-    },
-  });
+  return NextResponse.json({ app: await toOwnerAppSettings(app) });
 }
 
 export async function PATCH(
@@ -284,37 +260,13 @@ export async function PATCH(
       return NextResponse.json({ error: "App not found" }, { status: 404 });
     }
 
-    return NextResponse.json({
-      app: {
-        id: app.id,
-        name: app.name,
-        description: app.description,
-        provider: app.provider,
-        model: app.model,
-        variability: normalizeVariability(app.variability),
-        systemPrompt: app.systemPrompt || "",
-        builderState: app.builderState || null,
-        communitySubject: app.communitySubject || null,
-        communityTags: app.communityTags || [],
-        publishedAt: app.publishedAt || null,
-        publicSlug: app.publicSlug || null,
-        projectShareSlug: app.projectShareSlug || null,
-        projectSharedAt: app.projectSharedAt || null,
-        projectShareVisibility: app.projectShareVisibility || "private",
-        shareAuthorName: app.shareAuthorName ?? false,
-        assistedAuthoringMode: app.assistedAuthoringMode,
-        forkedFromProjectName: app.forkedFromProjectName || null,
-        forkedFromProjectShareSlug: app.forkedFromProjectShareSlug || null,
-        forkedFromAuthorName: app.forkedFromAuthorName || null,
-        createdAt: app.createdAt,
-        updatedAt: app.updatedAt,
-      },
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Failed to update app settings" },
-      { status: 500 }
-    );
+    return NextResponse.json({ app: await toOwnerAppSettings(app) });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Failed to update app settings";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -369,10 +321,11 @@ export async function DELETE(
     }
 
     return NextResponse.json({ ok: true, app: { id: removed.id, name: removed.name } });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Failed to delete app" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Failed to delete app";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

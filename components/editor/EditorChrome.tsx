@@ -12,9 +12,13 @@ export default function EditorChrome({
   shareBusy,
   shareDisabled,
   onPublish,
+  publishActionLabel,
+  publishNotice,
+  publishStatusLabel,
   publishBusy,
   publishButtonRef,
   onReplayEditorGuide,
+  onOpenHistory,
   children,
 }: {
   appName: React.ReactNode;
@@ -25,16 +29,24 @@ export default function EditorChrome({
   shareBusy?: boolean;
   shareDisabled?: boolean;
   onPublish?: () => void;
+  /** Visible action. Omit the control when this is null. */
+  publishActionLabel?: "Publish" | "Republish" | null;
+  publishNotice?: string | null;
+  publishStatusLabel?: string | null;
   publishBusy?: boolean;
-  /** Optional ref on the Publish control (e.g. onboarding spotlight). */
+  /**
+   * Optional ref on the Publish or Republish control (e.g. onboarding spotlight).
+   * Absent when no action button is rendered.
+   */
   publishButtonRef?: Ref<HTMLButtonElement | null>;
   onReplayEditorGuide?: () => void;
+  onOpenHistory?: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Sticky header spans full width */}
-      <header className="sticky top-0 z-10 h-16 border-b border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <header className="sticky top-0 z-10 h-16 shrink-0 border-b border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex h-full w-full items-center justify-between page-pad">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <a
@@ -70,6 +82,15 @@ export default function EditorChrome({
               </span>
             </div>
             <ThemeToggle />
+            {onOpenHistory ? (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                History
+              </button>
+            ) : null}
             {activityHref ? (
               <Link
                 href={activityHref}
@@ -78,7 +99,12 @@ export default function EditorChrome({
                 Activity
               </Link>
             ) : null}
-            {onPublish && (
+            {publishStatusLabel ? (
+              <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                {publishStatusLabel}
+              </span>
+            ) : null}
+            {onPublish && publishActionLabel ? (
               <button
                 ref={publishButtonRef}
                 className="rounded-lg bg-sky-600 text-white px-3 h-9 disabled:opacity-50"
@@ -86,9 +112,9 @@ export default function EditorChrome({
                 disabled={publishBusy}
                 type="button"
               >
-                {publishBusy ? "Publishing..." : "Publish"}
+                {publishBusy ? "Publishing..." : publishActionLabel}
               </button>
-            )}
+            ) : null}
             {onShare && (
               <button
                 className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -103,10 +129,18 @@ export default function EditorChrome({
           </div>
         </div>
       </header>
+      {publishNotice ? (
+        <p
+          role="status"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+        >
+          {publishNotice}
+        </p>
+      ) : null}
 
       {/* Full-bleed content that fills the rest of the viewport */}
-      <main className="page-pad min-h-0 flex-1 overflow-hidden">
-        <div className="main-viewport box-border min-h-0 overflow-hidden py-4 md:py-5">
+      <main className="page-pad flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="box-border h-full min-h-0 overflow-hidden py-4 md:py-5">
           {children}
         </div>
       </main>

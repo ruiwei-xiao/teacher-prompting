@@ -32,6 +32,8 @@ export type AppConfig = {
   communitySubject?: string;
   communityTags?: string[];
   publishedAt?: string;
+  publishedVersionId?: string | null;
+  publishedApiKey?: string | null;
   projectSharedAt?: string;
   projectShareVisibility?: ProjectShareVisibility;
   shareAuthorName?: boolean;

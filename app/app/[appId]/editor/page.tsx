@@ -16,6 +16,8 @@ import InstructionDoc from "@/components/editor/InstructionDoc";
 import RightRail from "@/components/editor/RightRail";
 import AssistantPanel from "@/components/editor/AssistantPanel";
 import AppSettingsDialog from "@/components/editor/AppSettingsDialog";
+import VersionHistoryDialog from "@/components/editor/VersionHistoryDialog";
+import type { InstructionDocPromptController } from "@/components/editor/InstructionDoc";
 import PublishDialog from "@/components/editor/PublishDialog";
 import ShareDialog from "@/components/dashboard/ShareDialog";
 import {
@@ -30,7 +32,24 @@ import {
   educatorSharePatchErrorMessage,
 } from "@/lib/workspace-api/share-patch-body";
 import { resolveAssistedAuthoringMode } from "@/lib/assisted-authoring/resolve";
-import { shouldBlockPublishForTestCases } from "@/lib/assisted-authoring/publish-gate";
+import {
+  adoptOwnerVersionPointers,
+  applySuccessfulOwnerPatch,
+  deriveEditorPublishChrome,
+  planEditorPublishAttempt,
+  readOwnerAppRecord,
+  readResponseError,
+  settleOwnerPatch,
+  type EditorDraftSnapshot,
+} from "@/components/editor/publish-state";
+import {
+  mergeSuccessfulRevert,
+  settleFailedRevert,
+  supportedProvider,
+  visibleEditorFields,
+  type RevertSuccess,
+  type VisibleEditorFields,
+} from "@/components/editor/version-history";
 import { shouldShowTestCaseRail } from "@/lib/assisted-authoring/test-case-rail";
 import { shouldPersistOnToOffTransition } from "@/lib/assisted-authoring/on-to-off-transition";
 import { shouldPersistOffToOnTransition } from "@/lib/assisted-authoring/off-to-on-transition";
@@ -86,6 +105,7 @@ export default function EditorPage({
   const { appId } = use(params);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(0);
   const [appName, setAppName] = useState(appId);
   const [assistedAuthoringMode, setAssistedAuthoringMode] = useState(true); // Default to ON
@@ -99,6 +119,13 @@ export default function EditorPage({
   const [publishUrl, setPublishUrl] = useState("");
   const [publishError, setPublishError] = useState("");
   const [isPublished, setIsPublished] = useState(false);
+  const [editorDraft, setEditorDraft] = useState<EditorDraftSnapshot>({
+    latestVersionId: null,
+    publishedVersionId: null,
+    storedPrompt: "",
+    dirty: false,
+    error: null,
+  });
   const [testCaseStatus, setTestCaseStatus] = useState({
     totalCount: 0,
     passedCount: 0,
@@ -135,6 +162,17 @@ export default function EditorPage({
   const assistantSplitRef = useRef<HTMLDivElement>(null);
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const publishSpotlightRef = useRef<HTMLButtonElement>(null);
+  const instructionPromptRef = useRef<InstructionDocPromptController | null>(null);
+  const promptRevisionRef = useRef(0);
+  const appLoadRef = useRef(0);
+  const [externalPrompt, setExternalPrompt] = useState<{
+    revision: number;
+    text: string;
+  } | null>(null);
+  const [settingsApply, setSettingsApply] = useState<{
+    revision: number;
+    settings: VisibleEditorFields;
+  } | null>(null);
   const spotlightPromptRef = useRef<HTMLDivElement>(null);
   const spotlightAttachmentRef = useRef<HTMLButtonElement>(null);
   const spotlightAgentRef = useRef<HTMLButtonElement>(null);
@@ -176,10 +214,12 @@ export default function EditorPage({
       : null;
 
   useEffect(() => {
+    const requestId = ++appLoadRef.current;
     async function loadApp() {
       try {
         const res = await fetch(`/api/apps/${appId}`);
         const body = await res.json();
+        if (requestId !== appLoadRef.current) return;
         if (res.ok && body?.app) {
           setAppName(body.app.name || appId);
           setAssistedAuthoringMode(resolveAssistedAuthoringMode(body.app));
@@ -190,7 +230,13 @@ export default function EditorPage({
           setHeaderVariabilityLabel(
             formatVariabilityLabel(normalizeVariability(body.app.variability))
           );
-          setIsPublished(Boolean(body.app.publishedAt));
+          const ownerApp = readOwnerAppRecord(body);
+          if (ownerApp) {
+            setEditorDraft((current) => adoptOwnerVersionPointers(current, ownerApp));
+            setIsPublished(ownerApp.publishedAt !== null);
+          } else {
+            setIsPublished(Boolean(body.app.publishedAt));
+          }
           setProjectShareVisibility(body.app.projectShareVisibility || "private");
           setShareAuthorName(body.app.shareAuthorName ?? false);
           setCommunitySubject(body.app.communitySubject || "General");
@@ -215,6 +261,8 @@ export default function EditorPage({
           return;
         }
       } catch {}
+
+      if (requestId !== appLoadRef.current) return;
 
       // Fetch failed or returned no app: still hydrate so mode-gated UI
       // (test-case rail, spotlight) is not stuck hidden forever. Unknown mode
@@ -259,14 +307,31 @@ export default function EditorPage({
     previousAssistedAuthoringModeRef.current = null;
     setModePanelBootstrapAction(null);
     setOffToOnError("");
+    setEditorDraft({
+      latestVersionId: null,
+      publishedVersionId: null,
+      storedPrompt: "",
+      dirty: false,
+      error: null,
+    });
+    setIsPublished(false);
+    setHistoryOpen(false);
+    setExternalPrompt(null);
+    setSettingsApply(null);
   }, [appId]);
 
   async function handlePublish() {
-    const gateResult = shouldBlockPublishForTestCases(assistedAuthoringMode, testCaseStatus);
-    
-    if (gateResult.shouldBlock) {
+    const systemPrompt =
+      typeof window !== "undefined" ? readStoredPrompt(appId) : "";
+    const plan = planEditorPublishAttempt({
+      assistedAuthoringMode,
+      testCaseStatus,
+      systemPrompt,
+    });
+
+    if (plan.blocked) {
       setPublishUrl("");
-      setPublishError(gateResult.reason || "Cannot publish at this time.");
+      setPublishError(plan.error);
       setPublishOpen(true);
       return;
     }
@@ -275,34 +340,50 @@ export default function EditorPage({
     setPublishError("");
 
     try {
-      const systemPrompt =
-        typeof window !== "undefined"
-          ? readStoredPrompt(appId)
-          : "";
-
       const res = await fetch(`/api/apps/${appId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemPrompt,
-          publish: true,
-        }),
+        body: JSON.stringify(plan.body),
       });
 
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(body?.error || "Failed to publish app");
+      const body: unknown = await res.json().catch(() => null);
+      const ownerApp = readOwnerAppRecord(body);
+      if (!res.ok || !ownerApp) {
+        const message = readResponseError(body, "Failed to publish app");
+        setEditorDraft((current) =>
+          settleOwnerPatch(
+            { ...current, storedPrompt: systemPrompt, dirty: true },
+            { ok: false, error: message }
+          )
+        );
+        setPublishError(message);
+        setPublishOpen(true);
+        return;
       }
 
-      const baseUrl =
-        typeof window !== "undefined" ? window.location.origin : "";
-      const publicIdentifier = body?.app?.publicSlug || appId;
-      setPublishUrl(`${baseUrl}/chat/${publicIdentifier}`);
-      setIsPublished(true);
+      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+      setEditorDraft((current) =>
+        applySuccessfulOwnerPatch(
+          { ...current, storedPrompt: systemPrompt, dirty: current.dirty },
+          ownerApp
+        )
+      );
+      setIsPublished(ownerApp.publishedAt !== null);
+      setPublishUrl(`${baseUrl}/chat/${ownerApp.publicSlug || appId}`);
       setPublishOpen(true);
       setAppVersion((value) => value + 1);
-    } catch (e: any) {
-      setPublishError(e?.message || "Failed to publish app");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to publish app";
+      setEditorDraft((current) =>
+        settleOwnerPatch(
+          { ...current, storedPrompt: systemPrompt, dirty: true },
+          { ok: false, error: message }
+        )
+      );
+      setPublishError(message);
       setPublishOpen(true);
     } finally {
       setPublishBusy(false);
@@ -506,6 +587,53 @@ export default function EditorPage({
     setEditorSpotlightStep(0);
   }, [appId]);
 
+  const handleHistoryReverted = useCallback((result: RevertSuccess) => {
+    appLoadRef.current += 1;
+    const fields = visibleEditorFields(result.draft);
+    instructionPromptRef.current?.applyServerPrompt(fields.prompt);
+    const revision = promptRevisionRef.current + 1;
+    promptRevisionRef.current = revision;
+    setExternalPrompt({ revision, text: fields.prompt });
+    setEditorDraft((current) => {
+      const merged = mergeSuccessfulRevert(
+        {
+          ...current,
+          name: fields.name,
+          provider: fields.provider,
+          model: fields.model,
+          variability: fields.variability,
+          assistedAuthoringMode: fields.assistedAuthoringMode,
+          prompt: fields.prompt,
+        },
+        result
+      );
+      return {
+        latestVersionId: merged.latestVersionId,
+        publishedVersionId: merged.publishedVersionId,
+        storedPrompt: merged.storedPrompt,
+        dirty: merged.dirty,
+        error: current.error,
+      };
+    });
+    setAppName(fields.name);
+    setAssistedAuthoringMode(fields.assistedAuthoringMode);
+    const provider = supportedProvider(fields.provider);
+    if (provider) {
+      setHeaderModelLabel(getModelLabel(provider, fields.model));
+    }
+    setHeaderVariabilityLabel(
+      formatVariabilityLabel(normalizeVariability(fields.variability))
+    );
+    setSettingsApply({ revision, settings: fields });
+    setAppVersion((value) => value + 1);
+  }, []);
+
+  const handleHistoryRevertFailed = useCallback((body: unknown) => {
+    setEditorDraft((current) => settleFailedRevert(current, body).state);
+  }, []);
+
+  const publishChrome = deriveEditorPublishChrome(editorDraft);
+
   return (
     <EditorChrome
       appName={appName}
@@ -515,15 +643,40 @@ export default function EditorPage({
       onShare={handleShare}
       shareBusy={shareBusy}
       shareDisabled={!isPublished}
-      onPublish={() => {
-        setPublishUrl("");
-        setPublishError("");
-        void handlePublish();
-      }}
+      publishNotice={publishChrome.notice}
+      publishStatusLabel={publishChrome.statusLabel}
+      publishActionLabel={publishChrome.actionLabel}
+      onPublish={
+        publishChrome.actionLabel
+          ? () => {
+              setPublishUrl("");
+              setPublishError("");
+              void handlePublish();
+            }
+          : undefined
+      }
       publishBusy={publishBusy}
-      publishButtonRef={publishSpotlightRef}
+      publishButtonRef={publishChrome.actionLabel ? publishSpotlightRef : undefined}
       onReplayEditorGuide={replayEditorGuide}
+      onOpenHistory={() => setHistoryOpen(true)}
     >
+      {editorDraft.error ? (
+        <div
+          role="alert"
+          className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+        >
+          <p>{editorDraft.error}</p>
+          <button
+            type="button"
+            onClick={() =>
+              setEditorDraft((current) => ({ ...current, error: null }))
+            }
+            className="shrink-0 rounded-md px-2 py-1 font-medium hover:bg-red-100/80 dark:hover:bg-red-900/40"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       {forkedFromProjectName && (
         <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-100">
           Forked from{" "}
@@ -610,6 +763,19 @@ export default function EditorPage({
                   spotlightAttachmentRef={spotlightAttachmentRef}
                   spotlightAgentRef={spotlightAgentRef}
                   spotlightApplyPromptRef={spotlightApplyPromptRef}
+                  promptControllerRef={instructionPromptRef}
+                  externalPromptRevision={externalPrompt?.revision ?? null}
+                  externalPrompt={externalPrompt?.text ?? null}
+                  onOwnerPatchSettled={(result) => {
+                    const storedPrompt =
+                      typeof window !== "undefined" ? readStoredPrompt(appId) : "";
+                    setEditorDraft((current) =>
+                      settleOwnerPatch(
+                        { ...current, storedPrompt, dirty: true },
+                        result
+                      )
+                    );
+                  }}
                 />
               </div>
               {showTestCaseRail && (
@@ -639,11 +805,24 @@ export default function EditorPage({
         </div>
       </div>
 
+      <VersionHistoryDialog
+        appId={appId}
+        open={historyOpen}
+        publishedVersionId={editorDraft.publishedVersionId}
+        onClose={() => setHistoryOpen(false)}
+        onReverted={handleHistoryReverted}
+        onRevertFailed={handleHistoryRevertFailed}
+      />
+
       <AppSettingsDialog
         appId={appId}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onSaved={() => {
+        appliedSettings={settingsApply?.settings ?? null}
+        appliedSettingsRevision={settingsApply?.revision ?? null}
+        onSaved={(app) => {
+          setEditorDraft((current) => applySuccessfulOwnerPatch(current, app));
+          setIsPublished(app.publishedAt !== null);
           setAppVersion((value) => value + 1);
           setSettingsOpen(false);
         }}

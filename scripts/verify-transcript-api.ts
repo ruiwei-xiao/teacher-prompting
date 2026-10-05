@@ -245,6 +245,69 @@ async function main() {
       },
     },
     {
+      name: "session without a starting version omits the version time",
+      run: async () => {
+        let lookedUp = false;
+        const result = await getSessionTranscript(ownerId, sessionId, {
+          getSessionById: async () => sharedSession,
+          getConfigVersionCreatedAt: async () => {
+            lookedUp = true;
+            return "2026-08-20T15:30:00.000Z";
+          },
+        });
+        assert(result.ok, "ok");
+        if (result.ok) {
+          assertEqual(result.body.configVersionCreatedAt, null, "createdAt");
+        }
+        assertEqual(lookedUp, false, "lookup skipped when id is absent");
+      },
+    },
+    {
+      name: "resolved starting version returns that version created time",
+      run: async () => {
+        const stamped = sampleSession({ configVersionId: "ver-1" });
+        let seenAppId = "";
+        let seenVersionId = "";
+        const result = await getSessionTranscript(ownerId, sessionId, {
+          getSessionById: async () => stamped,
+          getConfigVersionCreatedAt: async (appId, versionId) => {
+            seenAppId = appId;
+            seenVersionId = versionId;
+            return "2026-08-20T15:30:00.000Z";
+          },
+        });
+        assert(result.ok, "ok");
+        if (result.ok) {
+          assertEqual(result.body.session, stamped, "session");
+          assertEqual(
+            result.body.configVersionCreatedAt,
+            "2026-08-20T15:30:00.000Z",
+            "createdAt"
+          );
+        }
+        assertEqual(seenAppId, stamped.appId, "lookup app");
+        assertEqual(seenVersionId, "ver-1", "lookup version");
+      },
+    },
+    {
+      name: "missing version row returns null without a time",
+      run: async () => {
+        const stamped = sampleSession({ configVersionId: "ver-gone" });
+        const result = await getSessionTranscript(ownerId, sessionId, {
+          getSessionById: async () => stamped,
+          getConfigVersionCreatedAt: async () => null,
+        });
+        assert(result.ok, "ok");
+        if (result.ok) {
+          assertEqual(result.body.configVersionCreatedAt, null, "createdAt");
+          assert(
+            !JSON.stringify(result.body).includes("Bot version from"),
+            "response does not invent a version time"
+          );
+        }
+      },
+    },
+    {
       name: "route is a thin auth wrapper around getSessionTranscript",
       run: async () => {
         const routePath = path.join(

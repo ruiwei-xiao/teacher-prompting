@@ -32,6 +32,8 @@ export type RecordChatTurnInput = {
   userName?: string | null;
   // Server-supplied from the visitor cookie. Never taken from the recording body.
   anonymousVisitorId?: string | null;
+  // Server-supplied starting version. Never taken from the recording body.
+  configVersionId?: string | null;
   app: RecordChatTurnApp;
   messages: ChatTurnMessage[];
   assistantReply: string;
@@ -50,7 +52,10 @@ export type RecordChatTurnResult =
   | { status: "failed"; error: unknown };
 
 export type RecordChatTurnDeps = {
-  upsert?: (input: UpsertSessionTurnInput) => Promise<void>;
+  upsert?: (
+    input: UpsertSessionTurnInput,
+    configVersionId?: string | null
+  ) => Promise<void>;
   resolveDisplayName?: (userId: string) => Promise<string | null>;
 };
 
@@ -111,23 +116,26 @@ async function recordChatTurnUnchecked(
     : null;
   const upsert = deps.upsert ?? upsertSessionTurn;
 
-  await upsert({
-    id: payload.sessionId,
-    appId: input.app.id,
-    appName: input.app.name,
-    ownerId: input.app.ownerId ?? "",
-    participantId,
-    participantName,
-    anonymousVisitorId: normalizeOptionalId(input.anonymousVisitorId),
-    surface: payload.surface,
-    shared: payload.ownerSharing !== false,
-    messages: buildStoredMessages(
-      input.messages,
-      input.assistantReply,
-      payload.messageTimes,
-      now
-    ),
-  });
+  await upsert(
+    {
+      id: payload.sessionId,
+      appId: input.app.id,
+      appName: input.app.name,
+      ownerId: input.app.ownerId ?? "",
+      participantId,
+      participantName,
+      anonymousVisitorId: normalizeOptionalId(input.anonymousVisitorId),
+      surface: payload.surface,
+      shared: payload.ownerSharing !== false,
+      messages: buildStoredMessages(
+        input.messages,
+        input.assistantReply,
+        payload.messageTimes,
+        now
+      ),
+    },
+    normalizeOptionalId(input.configVersionId)
+  );
 
   return { status: "persisted", sessionId: payload.sessionId };
 }
@@ -150,7 +158,7 @@ function parseRecordingPayload(value: unknown): ParsedRecording {
     return { status: "invalid" };
   }
 
-  // Whitelist only recording fields. Visitor ids on the body are ignored.
+  // Whitelist only recording fields. Visitor ids and config version ids on the body are ignored.
   const payload: ChatRecordingPayload = {
     sessionId,
     surface: record.surface,
