@@ -468,8 +468,12 @@ function planRevert(
   };
 }
 
+function builderStateSql(state: PromptBuilderState | null): string {
+  // A null parameter cast to jsonb has no type and Postgres rejects the statement.
+  return JSON.stringify(state);
+}
+
 async function updateVersionSnapshot(query: SqlQuery, version: ConfigVersionRecord): Promise<void> {
-  const builderState = version.builderState ? JSON.stringify(version.builderState) : null;
   const result = await query`
     UPDATE app_config_versions
     SET
@@ -478,7 +482,7 @@ async function updateVersionSnapshot(query: SqlQuery, version: ConfigVersionReco
       model = ${version.model},
       variability = ${version.variability},
       system_prompt = ${version.systemPrompt},
-      builder_state = ${builderState}::jsonb,
+      builder_state = ${builderStateSql(version.builderState)}::jsonb,
       assisted_authoring_mode = ${version.assistedAuthoringMode},
       updated_at = ${version.updatedAt}
     WHERE id = ${version.id} AND app_id = ${version.appId}
@@ -602,7 +606,6 @@ function rowToVersion(row: VersionRow): ConfigVersionRecord {
 }
 
 async function insertVersion(query: SqlQuery, version: ConfigVersionRecord): Promise<void> {
-  const builderState = version.builderState ? JSON.stringify(version.builderState) : null;
   await query`
     INSERT INTO app_config_versions (
       id,
@@ -626,7 +629,7 @@ async function insertVersion(query: SqlQuery, version: ConfigVersionRecord): Pro
       ${version.model},
       ${version.variability},
       ${version.systemPrompt},
-      ${builderState}::jsonb,
+      ${builderStateSql(version.builderState)}::jsonb,
       ${version.assistedAuthoringMode},
       ${version.kind},
       ${version.createdAt},
