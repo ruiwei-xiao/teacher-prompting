@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import { sql, type VercelPoolClient } from "@vercel/postgres";
+import { createClient, sql, type VercelPoolClient } from "@vercel/postgres";
 import {
   persistPublishedPointers,
   persistRevertedDraft,
@@ -678,16 +678,20 @@ async function withPostgresTransaction<T>(
   appIds: readonly string[],
   fn: (query: SqlQuery) => Promise<T>
 ): Promise<T> {
-  const client = await sql.connect();
+  // The pooled sql helper cannot hold a transaction. Use the direct connection,
+  // and keep the query function bound so `this` still points at that client.
+  const client = createClient();
+  await client.connect();
+  const query = client.sql.bind(client) as SqlQuery;
   try {
-    await client.sql`BEGIN`;
+    await query`BEGIN`;
     try {
-      const result = await fn(client.sql);
-      await client.sql`COMMIT`;
+      const result = await fn(query);
+      await query`COMMIT`;
       return result;
     } catch (error) {
       try {
-        await client.sql`ROLLBACK`;
+        await query`ROLLBACK`;
       } catch {
         // Surface the original failure.
       }
@@ -695,7 +699,7 @@ async function withPostgresTransaction<T>(
       throw error;
     }
   } finally {
-    client.release();
+    await client.end();
   }
 }
 
